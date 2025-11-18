@@ -1,0 +1,43 @@
+# ---- General ----
+*.log
+*.tmp
+*.swp
+*.DS_Store
+.env
+.env.*
+
+# ---- Golang ----
+api/bin/
+api/server
+api/*.exe
+api/*.out
+api/*.test
+api/coverage/
+api/.idea/
+api/.vscode/
+api/go.sum 
+
+# ---- Node/Vue ----
+web/node_modules/
+web/dist/
+web/.vite/
+web/.cache/
+web/.idea/
+web/.vscode/
+web/package-lock.json 
+
+# ---- Docker ----
+docker-compose.override.yml
+.docker/
+*.pid
+
+# ---- Database ----
+db_data/
+*.sql~
+*.dump
+*.bak
+
+# ---- OS / Editor ----
+Thumbs.db
+ehthumbs.db
+Desktop.ini
