@@ -15,7 +15,6 @@ api/*.test
 api/coverage/
 api/.idea/
 api/.vscode/
-api/go.sum 
 
 # ---- Node/Vue ----
 web/node_modules/
@@ -24,7 +23,6 @@ web/.vite/
 web/.cache/
 web/.idea/
 web/.vscode/
-web/package-lock.json 
 
 # ---- Docker ----
 docker-compose.override.yml
