@@ -1,5 +1,8 @@
 <template>
   <div>
+    <!-- YouGlish Widget Container -->
+    <div id="youglish-widget" style="display: none;"></div>
+    
     <!-- Header Section -->
     <div class="text-center mb-5">
       <h1 class="display-5 fw-bold text-primary mb-3">
@@ -28,14 +31,35 @@
               <h3 class="card-title text-primary fw-bold mb-0">
                 {{ v.Word }}
               </h3>
-              <button
-                @click="select(v.ID)"
-                class="btn btn-outline-success btn-sm"
-                :disabled="selectedWords.includes(v.ID)"
-              >
-                <i class="bi" :class="selectedWords.includes(v.ID) ? 'bi-check-circle-fill' : 'bi-plus-circle'"></i>
-                {{ selectedWords.includes(v.ID) ? 'Selected' : 'Select' }}
-              </button>
+              <div class="d-flex gap-2">
+                <!-- YouGlish Video Button -->
+                <button
+                  @click="loadYouglishWidget(v.Word)"
+                  class="btn btn-outline-info btn-sm"
+                  :class="{ 'active': currentWord === v.Word }"
+                  title="Load YouGlish video"
+                >
+                  <i class="bi bi-play-circle"></i>
+                </button>
+                <button
+                  @click="select(v.ID)"
+                  class="btn btn-outline-success btn-sm"
+                  :disabled="selectedWords.includes(v.ID)"
+                >
+                  <i class="bi" :class="selectedWords.includes(v.ID) ? 'bi-check-circle-fill' : 'bi-plus-circle'"></i>
+                  {{ selectedWords.includes(v.ID) ? 'Selected' : 'Select' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- YouGlish Video Info -->
+            <div v-if="activeVideoId === v.ID" class="mb-3">
+              <div class="alert alert-info alert-sm">
+                <small>
+                  <i class="bi bi-info-circle me-1"></i>
+                  Click the play button to open YouGlish video for "{{ v.Word }}" in a new tab
+                </small>
+              </div>
             </div>
 
             <!-- Meanings -->
@@ -96,9 +120,14 @@ const router = useRouter()
 const topic = ref('Environment')
 const vocabs = ref<Vocab[]>([])
 const selectedWords = ref<number[]>([])
+const activeVideoId = ref<number | null>(null)
+const currentWord = ref<string>('')
 const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5173'
 
 onMounted(async () => {
+  // Load YouGlish script
+  loadYouglishScript()
+  
   try {
     const { data } = await axios.get(`${API}/api/vocabs?topic=${encodeURIComponent(topic.value)}`)
     vocabs.value = data
@@ -107,6 +136,25 @@ onMounted(async () => {
     vocabs.value = []
   }
 })
+
+function loadYouglishScript(): void {
+  // Check if YouGlish script is already loaded
+  if (document.getElementById('youglish-script')) {
+    return
+  }
+  
+  const script = document.createElement('script')
+  script.id = 'youglish-script'
+  script.src = 'https://youglish.com/widget.js'
+  script.async = true
+  script.onload = () => {
+    console.log('YouGlish script loaded successfully')
+  }
+  script.onerror = () => {
+    console.error('Failed to load YouGlish script')
+  }
+  document.head.appendChild(script)
+}
 
 async function select(id: number) {
   try {
@@ -140,6 +188,63 @@ async function select(id: number) {
   }
 }
 
+function loadYouglishWidget(word: string): void {
+  // Show the widget container
+  const widgetContainer = document.getElementById('youglish-widget')
+  if (widgetContainer) {
+    widgetContainer.style.display = 'block'
+    
+    // Initialize YouGlish Widget
+    // Based on YouGlish API documentation
+    const options = {
+      query: word,
+      lang: 'english',
+      accent: 'us',
+      limit: 5,
+      width: 640,
+      height: 390,
+      autoStart: true,
+      onLoad: function() {
+        console.log('YouGlish widget loaded for word:', word)
+      },
+      onError: function(error: any) {
+        console.error('YouGlish widget error:', error)
+        // Fallback to opening in new tab if widget fails
+        window.open(`https://youglish.com/search/${word}/us`, '_blank', 'noopener,noreferrer')
+      }
+    }
+    
+    // Try to load YouGlish widget
+    try {
+      if (window.YG && window.YG.Widget) {
+        // Clear previous widget if exists
+        widgetContainer.innerHTML = ''
+        
+        // Create new widget instance
+        const widget = new window.YG.Widget(widgetContainer, options)
+        widget.load()
+        currentWord.value = word
+      } else {
+        // Fallback if YouGlish library not loaded
+        window.open(`https://youglish.com/search/${word}/us`, '_blank', 'noopener,noreferrer')
+      }
+    } catch (error) {
+      console.error('Failed to load YouGlish widget:', error)
+      // Fallback to opening in new tab
+      window.open(`https://youglish.com/search/${word}/us`, '_blank', 'noopener,noreferrer')
+    }
+  }
+}
+
+
+function toggleYouglishVideo(vocabId: number) {
+  if (activeVideoId.value === vocabId) {
+    activeVideoId.value = null
+  } else {
+    activeVideoId.value = vocabId
+  }
+}
+
 function goQuiz() {
   router.push('/quiz')
 }
@@ -166,5 +271,28 @@ function goQuiz() {
 .btn-lg:hover {
   transform: translateY(-2px);
   box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
+}
+/* YouGlish video button styling */
+.btn-outline-info {
+  transition: all 0.3s ease;
+}
+
+.btn-outline-info:hover {
+  background-color: #17a2b8;
+  border-color: #17a2b8;
+  transform: scale(1.05);
+}
+
+.btn-outline-info.active {
+  background-color: #17a2b8;
+  border-color: #17a2b8;
+  color: white;
+}
+
+/* Video embed styling */
+.ratio {
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 </style>
