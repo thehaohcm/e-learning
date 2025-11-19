@@ -27,6 +27,7 @@ func NewRouter(db *gorm.DB) *gin.Engine {
 	api := r.Group("/api")
 	{
 		api.GET("/vocabs", handlers.ListVocabs(db))
+		api.GET("/topics", handlers.GetTopics(db))
 		api.POST("/vocabs/select", handlers.SelectVocab(db))
 		api.GET("/quiz", handlers.GetQuizForUser(db))
 		api.POST("/quiz/attempt", handlers.SubmitQuizAttempt(db))

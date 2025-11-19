@@ -1,15 +1,45 @@
 <template>
   <div>
-    <!-- YouGlish Widget Container -->
-    <div id="youglish-widget" class="youglish-embed" v-show="showYouglishWidget"></div>
+    <!-- YouGlish Widget Container - Positioned in top right corner -->
+    <div
+      v-if="showYouglishWidget"
+      class="position-fixed top-0 end-0 m-3"
+      style="z-index: 1050; max-width: 680px; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
+    >
+      <div class="d-flex justify-content-between align-items-center p-3 pb-0">
+        <h6 class="mb-0 text-primary fw-bold">
+          <i class="bi bi-play-circle me-1"></i>
+          Pronunciation: {{ currentWord }}
+        </h6>
+        <button @click="closeYouglishWidget" class="btn btn-sm btn-outline-secondary">
+          <i class="bi bi-x"></i>
+        </button>
+      </div>
+      <div id="youglish-widget" class="youglish-embed p-3 pt-2"></div>
+    </div>
     
     <!-- Header Section -->
     <div class="text-center mb-5">
       <h1 class="display-5 fw-bold text-primary mb-3">
         <i class="bi bi-book"></i> Learn Vocabulary
       </h1>
-      <div class="badge bg-secondary fs-6 px-3 py-2">
-        <i class="bi bi-tag me-1"></i> Topic: {{ topic }}
+      <div class="d-flex justify-content-center align-items-center gap-3 mb-3">
+        <label for="topicSelect" class="form-label mb-0 fw-semibold">Select Topic:</label>
+        <select
+          id="topicSelect"
+          class="form-select form-select-sm"
+          style="width: auto; min-width: 150px;"
+          v-model="selectedTopic"
+          @change="loadVocabsByTopic"
+        >
+          <option value="" disabled>Select a topic</option>
+          <option v-for="topic in availableTopics" :key="topic" :value="topic">
+            {{ topic }}
+          </option>
+        </select>
+      </div>
+      <div v-if="selectedTopic" class="badge bg-secondary fs-6 px-3 py-2">
+        <i class="bi bi-tag me-1"></i> Topic: {{ selectedTopic }}
       </div>
     </div>
 
@@ -53,17 +83,13 @@
             </div>
 
             <!-- YouGlish Embedded Widget -->
-            <div v-if="currentWord === v.Word && showYouglishWidget" class="mb-3 youglish-widget-container">
-              <div class="d-flex justify-content-between align-items-center mb-2">
-                <small class="text-muted">
-                  <i class="bi bi-play-circle me-1"></i>
-                  Pronunciation videos for "{{ v.Word }}"
-                </small>
-                <button @click="closeYouglishWidget" class="btn btn-sm btn-outline-secondary">
-                  <i class="bi bi-x"></i>
-                </button>
+            <div v-if="currentWord === v.Word" class="mb-3 youglish-widget-container">
+              <div class="ratio ratio-16x9">
+                <div class="youglish-placeholder text-center py-5 text-muted">
+                  <i class="bi bi-play-circle display-4 mb-3 d-block"></i>
+                  <p>Click the play button above to load pronunciation videos</p>
+                </div>
               </div>
-              <div id="youglish-widget"></div>
             </div>
 
             <!-- Meanings -->
@@ -122,6 +148,8 @@ interface Vocab {
 
 const router = useRouter()
 const topic = ref('Environment')
+const selectedTopic = ref('')
+const availableTopics = ref<string[]>([])
 const vocabs = ref<Vocab[]>([])
 const selectedWords = ref<number[]>([])
 const activeVideoId = ref<number | null>(null)
@@ -133,14 +161,37 @@ onMounted(async () => {
   // Load YouGlish script
   loadYouglishScript()
   
+  // Load available topics
+  await loadTopics()
+  
+  // Set default topic if available
+  if (availableTopics.value.length > 0) {
+    selectedTopic.value = availableTopics.value[0]
+    await loadVocabsByTopic()
+  }
+})
+
+async function loadTopics() {
   try {
-    const { data } = await axios.get(`${API}/api/vocabs?topic=${encodeURIComponent(topic.value)}`)
+    const { data } = await axios.get(`${API}/api/topics`)
+    availableTopics.value = data
+  } catch (error) {
+    console.error('Error loading topics:', error)
+    availableTopics.value = []
+  }
+}
+
+async function loadVocabsByTopic() {
+  if (!selectedTopic.value) return
+  
+  try {
+    const { data } = await axios.get(`${API}/api/vocabs?topic=${encodeURIComponent(selectedTopic.value)}`)
     vocabs.value = data
   } catch (error) {
     console.error('Error loading vocabulary:', error)
     vocabs.value = []
   }
-})
+}
 
 function loadYouglishScript(): void {
   // Check if YouGlish script is already loaded
@@ -305,6 +356,7 @@ function goQuiz() {
 /* YouGlish Widget Styling */
 .youglish-embed {
   margin: 0 auto;
+  min-height: 400px;
 }
 
 .youglish-widget-container {
@@ -312,6 +364,17 @@ function goQuiz() {
   border-radius: 8px;
   padding: 15px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.youglish-placeholder {
+  background: #e9ecef;
+  border-radius: 8px;
+  border: 2px dashed #ced4da;
+}
+
+/* Floating YouGlish container styling */
+.position-fixed .d-flex {
+  border-bottom: 1px solid #dee2e6;
 }
 
 /* Video embed styling */
