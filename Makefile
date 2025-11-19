@@ -1,5 +1,8 @@
 .PHONY: up down logs api web db
 
+build:
+	docker compose build $(service) --no-cache
+
 up:
 	docker compose up --build -d
 

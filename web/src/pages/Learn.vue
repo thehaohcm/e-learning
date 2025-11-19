@@ -1,7 +1,7 @@
 <template>
   <div>
     <!-- YouGlish Widget Container -->
-    <div id="youglish-widget" style="display: none;"></div>
+    <div id="youglish-widget" class="youglish-embed" v-show="showYouglishWidget"></div>
     
     <!-- Header Section -->
     <div class="text-center mb-5">
@@ -52,14 +52,18 @@
               </div>
             </div>
 
-            <!-- YouGlish Video Info -->
-            <div v-if="activeVideoId === v.ID" class="mb-3">
-              <div class="alert alert-info alert-sm">
-                <small>
-                  <i class="bi bi-info-circle me-1"></i>
-                  Click the play button to open YouGlish video for "{{ v.Word }}" in a new tab
+            <!-- YouGlish Embedded Widget -->
+            <div v-if="currentWord === v.Word && showYouglishWidget" class="mb-3 youglish-widget-container">
+              <div class="d-flex justify-content-between align-items-center mb-2">
+                <small class="text-muted">
+                  <i class="bi bi-play-circle me-1"></i>
+                  Pronunciation videos for "{{ v.Word }}"
                 </small>
+                <button @click="closeYouglishWidget" class="btn btn-sm btn-outline-secondary">
+                  <i class="bi bi-x"></i>
+                </button>
               </div>
+              <div id="youglish-widget"></div>
             </div>
 
             <!-- Meanings -->
@@ -122,7 +126,8 @@ const vocabs = ref<Vocab[]>([])
 const selectedWords = ref<number[]>([])
 const activeVideoId = ref<number | null>(null)
 const currentWord = ref<string>('')
-const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5173'
+const showYouglishWidget = ref<boolean>(false)
+const API = (import.meta as any).env.VITE_API_BASE_URL || 'http://localhost:5173'
 
 onMounted(async () => {
   // Load YouGlish script
@@ -145,7 +150,8 @@ function loadYouglishScript(): void {
   
   const script = document.createElement('script')
   script.id = 'youglish-script'
-  script.src = 'https://youglish.com/widget.js'
+  script.src = 'https://youglish.com/public/emb/widget.js'
+  script.charset = 'utf-8'
   script.async = true
   script.onload = () => {
     console.log('YouGlish script loaded successfully')
@@ -189,50 +195,57 @@ async function select(id: number) {
 }
 
 function loadYouglishWidget(word: string): void {
-  // Show the widget container
-  const widgetContainer = document.getElementById('youglish-widget')
-  if (widgetContainer) {
-    widgetContainer.style.display = 'block'
-    
-    // Initialize YouGlish Widget
-    // Based on YouGlish API documentation
-    const options = {
-      query: word,
-      lang: 'english',
-      accent: 'us',
-      limit: 5,
-      width: 640,
-      height: 390,
-      autoStart: true,
-      onLoad: function() {
-        console.log('YouGlish widget loaded for word:', word)
-      },
-      onError: function(error: any) {
-        console.error('YouGlish widget error:', error)
+  // Set current word and show widget
+  currentWord.value = word
+  showYouglishWidget.value = true
+  
+  // Wait for DOM update and YouGlish API to be ready
+  setTimeout(() => {
+    if ((window as any).YG && (window as any).YG.Widget) {
+      try {
+        // Clear previous widget if exists
+        const widgetContainer = document.getElementById('youglish-widget')
+        if (widgetContainer) {
+          widgetContainer.innerHTML = ''
+          
+          // Create new widget instance with configuration
+          const widget = new (window as any).YG.Widget("youglish-widget", {
+            width: 640,
+            components: 9, // search box, caption, control, etc.
+            autoStart: 1,  // auto play video
+            events: {
+              onFetchDone: (e: any) => console.log("YouGlish fetch done", e),
+              onVideoChange: (e: any) => console.log("YouGlish video changed", e),
+            }
+          })
+          
+          // Fetch videos for the word
+          widget.fetch(word, "english")
+          console.log('YouGlish widget loaded for word:', word)
+        }
+      } catch (error) {
+        console.error('Failed to load YouGlish widget:', error)
         // Fallback to opening in new tab if widget fails
         window.open(`https://youglish.com/search/${word}/us`, '_blank', 'noopener,noreferrer')
+        showYouglishWidget.value = false
       }
-    }
-    
-    // Try to load YouGlish widget
-    try {
-      if (window.YG && window.YG.Widget) {
-        // Clear previous widget if exists
-        widgetContainer.innerHTML = ''
-        
-        // Create new widget instance
-        const widget = new window.YG.Widget(widgetContainer, options)
-        widget.load()
-        currentWord.value = word
-      } else {
-        // Fallback if YouGlish library not loaded
-        window.open(`https://youglish.com/search/${word}/us`, '_blank', 'noopener,noreferrer')
-      }
-    } catch (error) {
-      console.error('Failed to load YouGlish widget:', error)
-      // Fallback to opening in new tab
+    } else {
+      console.error('YouGlish API not available')
+      // Fallback if YouGlish library not loaded
       window.open(`https://youglish.com/search/${word}/us`, '_blank', 'noopener,noreferrer')
+      showYouglishWidget.value = false
     }
+  }, 500) // Small delay to ensure DOM is ready
+}
+
+function closeYouglishWidget(): void {
+  showYouglishWidget.value = false
+  currentWord.value = ''
+  
+  // Clear the widget container
+  const widgetContainer = document.getElementById('youglish-widget')
+  if (widgetContainer) {
+    widgetContainer.innerHTML = ''
   }
 }
 
@@ -287,6 +300,18 @@ function goQuiz() {
   background-color: #17a2b8;
   border-color: #17a2b8;
   color: white;
+}
+
+/* YouGlish Widget Styling */
+.youglish-embed {
+  margin: 0 auto;
+}
+
+.youglish-widget-container {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 15px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 /* Video embed styling */
