@@ -1,116 +1,81 @@
 <template>
   <div>
-    <!-- Header Section -->
-    <div class="text-center mb-5">
-      <h1 class="display-5 fw-bold text-primary mb-3">
-        <i class="bi bi-question-circle"></i> Quiz Time!
+    <div class="text-center mb-2">
+      <h1 class="fw-bold text-success mb-2">
+        <i class="bi bi-question-circle"></i> Vocabulary Quiz
       </h1>
-      <p class="lead text-muted">Test your vocabulary knowledge</p>
     </div>
 
-    <!-- Loading State -->
     <div v-if="isLoading" class="text-center py-5">
-      <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Loading...</span>
-      </div>
-      <p class="mt-3 text-muted">Preparing your quiz...</p>
+      <div class="spinner-border text-primary"></div>
+      <p class="mt-3 text-muted">Loading quiz...</p>
     </div>
 
-    <!-- Error State -->
     <div v-else-if="questions.length === 0" class="text-center py-5">
-      <div class="alert alert-warning" role="alert">
-        <i class="bi bi-exclamation-triangle me-2"></i>
-        No quiz questions available. Please try again later.
-      </div>
+      <i class="bi bi-inbox display-1 text-muted"></i>
+      <p class="mt-3">No quiz questions available yet.</p>
+      <router-link to="/learn" class="btn btn-primary">Learn vocabulary first</router-link>
     </div>
 
-    <!-- Quiz Questions -->
     <div v-else>
-      <!-- Progress Bar -->
-      <div class="mb-4">
-        <div class="d-flex justify-content-between align-items-center mb-2">
-          <span class="text-muted">Progress</span>
-          <span class="text-muted">{{ answeredQuestions }}/{{ questions.length }} questions</span>
-        </div>
-        <div class="progress" style="height: 8px;">
-          <div
-            class="progress-bar bg-primary"
-            role="progressbar"
-            :style="{ width: progressPercentage + '%' }"
-            :aria-valuenow="answeredQuestions"
-            aria-valuemin="0"
-            :aria-valuemax="questions.length"
-          ></div>
-        </div>
+      <!-- Progress -->
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <span class="text-muted">Question {{ currentIdx + 1 }} / {{ questions.length }}</span>
+        <span class="text-muted">Score: {{ correctCount }} correct</span>
+      </div>
+      <div class="progress mb-4" style="height: 8px">
+        <div class="progress-bar bg-success" :style="{ width: ((currentIdx) / questions.length * 100) + '%' }"></div>
       </div>
 
-      <!-- Questions List -->
-      <div class="row g-4">
-        <div v-for="q in questions" :key="q.ID" class="col-12">
-          <div class="card border-0 shadow-sm quiz-card">
-            <div class="card-body">
-              <!-- Question Header -->
-              <div class="d-flex justify-content-between align-items-start mb-4">
-                <h5 class="card-title text-dark fw-bold">
-                  <i class="bi bi-question-circle-fill text-primary me-2"></i>
-                  {{ q.Prompt }}
-                </h5>
-                <span
-                  v-if="questionResults[q.ID] !== undefined"
-                  class="badge"
-                  :class="questionResults[q.ID] ? 'bg-success' : 'bg-danger'"
-                >
-                  <i class="bi" :class="questionResults[q.ID] ? 'bi-check-circle' : 'bi-x-circle'"></i>
-                  {{ questionResults[q.ID] ? 'Correct' : 'Incorrect' }}
-                </span>
-              </div>
-
-              <!-- Answer Choices -->
-              <div class="row g-3">
-                <div
-                  v-for="(choice, idx) in JSON.parse(q.Choices)"
-                  :key="idx"
-                  class="col-md-6"
-                >
+      <!-- Current Question -->
+      <div v-if="currentIdx < questions.length" class="row justify-content-center">
+        <div class="col-md-8">
+          <div class="card border-0 shadow-sm">
+            <div class="card-body p-4">
+              <h5 class="fw-bold mb-4">{{ currentQ?.prompt }}</h5>
+              <div class="row g-2">
+                <div v-for="(choice, idx) in currentQ?.choices || []" :key="idx" class="col-12">
                   <button
-                    @click="answer(q.ID, idx)"
-                    class="btn btn-outline-primary w-100 py-3 choice-btn"
-                    :disabled="questionResults[q.ID] !== undefined"
-                    :class="{
-                      'btn-success': questionResults[q.ID] === true && selectedAnswers[q.ID] === idx,
-                      'btn-danger': questionResults[q.ID] === false && selectedAnswers[q.ID] === idx,
-                      'btn-primary': questionResults[q.ID] === true && correctAnswers[q.ID] === idx
-                    }"
+                    @click="answer(idx)"
+                    class="btn w-100 py-3 text-start"
+                    :class="answerClass(idx)"
+                    :disabled="selectedAnswer !== null"
                   >
-                    <span class="fw-semibold">{{ choice }}</span>
+                    <span class="badge bg-light text-dark me-2">{{ ['A', 'B', 'C', 'D'][idx] }}</span>
+                    {{ choice }}
                   </button>
                 </div>
+              </div>
+              <div v-if="selectedAnswer !== null" class="mt-3 text-center">
+                <span v-if="lastAnswer?.correct" class="text-success fw-bold">
+                  <i class="bi bi-check-circle-fill"></i> Correct!
+                </span>
+                <span v-else class="text-danger fw-bold">
+                  <i class="bi bi-x-circle-fill"></i> Incorrect. Correct: {{ ['A', 'B', 'C', 'D'][lastAnswer?.correct_answer_idx ?? 0] }}
+                </span>
+                <br>
+                <button @click="nextQuestion" class="btn btn-primary mt-2">
+                  {{ currentIdx < questions.length - 1 ? 'Next Question' : 'See Results' }}
+                </button>
               </div>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Quiz Results -->
-      <div v-if="answeredQuestions === questions.length" class="text-center mt-5">
+      <!-- Results -->
+      <div v-else class="text-center">
         <div class="card border-0 shadow-lg">
           <div class="card-body py-5">
-            <div class="mb-4">
-              <i
-                class="bi fs-1"
-                :class="scorePercentage >= 80 ? 'bi-trophy-fill text-warning' : scorePercentage >= 60 ? 'bi-award-fill text-info' : 'bi-stars text-secondary'"
-              ></i>
-            </div>
-            <h3 class="fw-bold mb-3">
-              Quiz Complete!
-            </h3>
-            <p class="lead text-muted mb-4">
-              You scored <span class="fw-bold text-primary">{{ correctAnswersCount }}</span> out of
-              <span class="fw-bold">{{ questions.length }}</span> ({{ scorePercentage }}%)
-            </p>
-            <button @click="retakeQuiz" class="btn btn-primary btn-lg px-4">
-              <i class="bi bi-arrow-repeat me-2"></i>Retake Quiz
+            <i class="bi bi-trophy-fill display-1 text-warning"></i>
+            <h3 class="mt-3 fw-bold">Quiz Complete!</h3>
+            <p class="lead">You scored {{ correctCount }} / {{ questions.length }} ({{ Math.round(correctCount / questions.length * 100) }}%)</p>
+            <button @click="retake" class="btn btn-primary btn-lg me-2">
+              <i class="bi bi-arrow-repeat me-2"></i>Retake
             </button>
+            <router-link to="/dashboard" class="btn btn-outline-secondary btn-lg">
+              Back to Dashboard
+            </router-link>
           </div>
         </div>
       </div>
@@ -120,144 +85,69 @@
 
 <script setup lang="ts">
 import axios from 'axios'
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+
+const API = (import.meta as any).env.VITE_API_BASE_URL || 'http://localhost:5173'
+const USER_ID = 1
 
 interface Question {
-  ID: number
-  Prompt: string
-  Choices: string
-  AnswerIdx: number
+  id: number
+  prompt: string
+  choices: string[]
 }
 
 const questions = ref<Question[]>([])
-const questionResults = ref<Record<number, boolean>>({})
-const selectedAnswers = ref<Record<number, number>>({})
-const correctAnswers = ref<Record<number, number>>({})
+const currentIdx = ref(0)
+const selectedAnswer = ref<number | null>(null)
+const correctCount = ref(0)
 const isLoading = ref(true)
-const API = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5173'
+const lastAnswer = ref<any>(null)
 
-onMounted(async () => {
+const currentQ = computed(() => questions.value[currentIdx.value] || null)
+
+function answerClass(idx: number) {
+  if (selectedAnswer.value === null) return 'btn-outline-primary'
+  if (lastAnswer.value?.correct && idx === selectedAnswer.value) return 'btn-success text-white'
+  if (!lastAnswer.value?.correct && idx === selectedAnswer.value) return 'btn-danger text-white'
+  if (idx === lastAnswer.value?.correct_answer_idx) return 'btn-success text-white'
+  return 'btn-outline-secondary'
+}
+
+async function answer(idx: number) {
+  if (selectedAnswer.value !== null || !currentQ.value) return
+  selectedAnswer.value = idx
   try {
-    console.log('Fetching quiz from:', `${API}/api/quiz`)
+    const { data } = await axios.post(`${API}/api/quiz/answer`, {
+      question_id: currentQ.value.id,
+      answer_idx: idx
+    }, { headers: { 'X-User-ID': String(USER_ID) } })
+    lastAnswer.value = data
+    if (data.correct) correctCount.value++
+  } catch (e) { console.error(e) }
+}
+
+function nextQuestion() {
+  selectedAnswer.value = null
+  lastAnswer.value = null
+  currentIdx.value++
+}
+
+function retake() {
+  currentIdx.value = 0
+  selectedAnswer.value = null
+  correctCount.value = 0
+  lastAnswer.value = null
+  loadQuiz()
+}
+
+async function loadQuiz() {
+  isLoading.value = true
+  try {
     const { data } = await axios.get(`${API}/api/quiz`)
-    console.log('Quiz data received:', data)
-    questions.value = data
-    console.log('Questions set to:', questions.value)
-  } catch (error) {
-    console.error('Error loading quiz:', error)
-    questions.value = []
-  } finally {
-    isLoading.value = false
-  }
-})
-
-async function answer(questionId: number, answerIdx: number) {
-  try {
-    selectedAnswers.value[questionId] = answerIdx
-    
-    const { data } = await axios.post(`${API}/api/quiz/attempt`, {
-      user_id: 1,
-      question_id: questionId,
-      answer_idx: answerIdx
-    })
-    
-    questionResults.value[questionId] = data.correct
-    correctAnswers.value[questionId] = data.correct_answer_idx
-    
-    // Show feedback
-    if (data.correct) {
-      showToast('Correct! Well done!', 'success')
-    } else {
-      showToast('Incorrect. Keep trying!', 'danger')
-    }
-  } catch (error) {
-    console.error('Error submitting answer:', error)
-    alert('Failed to submit answer. Please try again.')
-  }
+    questions.value = data || []
+  } catch (e) { console.error(e) }
+  isLoading.value = false
 }
 
-function showToast(message: string, type: string) {
-  const toast = document.createElement('div')
-  toast.className = 'position-fixed top-0 end-0 p-3'
-  toast.style.zIndex = '9999'
-  toast.innerHTML = `
-    <div class="toast show" role="alert">
-      <div class="toast-header bg-${type} text-white">
-        <i class="bi bi-info-circle me-2"></i>
-        <strong class="me-auto">Notification</strong>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
-      </div>
-      <div class="toast-body">
-        ${message}
-      </div>
-    </div>
-  `
-  document.body.appendChild(toast)
-  setTimeout(() => toast.remove(), 3000)
-}
-
-function retakeQuiz() {
-  // Reset all quiz data
-  questionResults.value = {}
-  selectedAnswers.value = {}
-  correctAnswers.value = {}
-}
-
-const answeredQuestions = computed(() => {
-  return Object.keys(questionResults.value).length
-})
-
-const progressPercentage = computed(() => {
-  return questions.value.length > 0
-    ? Math.round((answeredQuestions.value / questions.value.length) * 100)
-    : 0
-})
-
-const correctAnswersCount = computed(() => {
-  return Object.values(questionResults.value).filter(result => result === true).length
-})
-
-const scorePercentage = computed(() => {
-  return questions.value.length > 0
-    ? Math.round((correctAnswersCount.value / questions.value.length) * 100)
-    : 0
-})
+onMounted(loadQuiz)
 </script>
-
-<style scoped>
-.quiz-card {
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-.quiz-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
-}
-
-.choice-btn {
-  transition: all 0.3s ease;
-  font-size: 1rem;
-}
-
-.choice-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: 0 0.25rem 0.5rem rgba(0, 0, 0, 0.1);
-}
-
-.choice-btn:disabled {
-  cursor: not-allowed;
-  opacity: 0.8;
-}
-
-.progress {
-  border-radius: 10px;
-}
-
-.progress-bar {
-  transition: width 0.6s ease;
-}
-
-.display-5 {
-  font-weight: 700;
-}
-</style>

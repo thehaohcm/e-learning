@@ -20,7 +20,7 @@
         <div class="collapse navbar-collapse" id="navbarNav">
           <ul class="navbar-nav ms-auto">
             <li class="nav-item">
-              <router-link class="nav-link" to="/" active-class="active">
+              <router-link class="nav-link" to="/dashboard" active-class="active">
                 <i class="bi bi-speedometer2"></i> Dashboard
               </router-link>
             </li>
@@ -30,8 +30,23 @@
               </router-link>
             </li>
             <li class="nav-item">
+              <router-link class="nav-link" to="/review" active-class="active">
+                <i class="bi bi-arrow-repeat"></i> Review
+              </router-link>
+            </li>
+            <li class="nav-item">
               <router-link class="nav-link" to="/quiz" active-class="active">
                 <i class="bi bi-question-circle"></i> Quiz
+              </router-link>
+            </li>
+            <li class="nav-item">
+              <router-link class="nav-link" to="/writing" active-class="active">
+                <i class="bi bi-pencil"></i> Writing
+              </router-link>
+            </li>
+            <li class="nav-item">
+              <router-link class="nav-link" to="/search" active-class="active">
+                <i class="bi bi-search"></i> Search
               </router-link>
             </li>
           </ul>

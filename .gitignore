@@ -39,3 +39,5 @@ db_data/
 Thumbs.db
 ehthumbs.db
 Desktop.ini
+.aider*
+.exe

@@ -1,120 +1,92 @@
 <template>
   <div>
-    <!-- YouGlish Widget Container - Positioned in top right corner -->
-    <div
-      v-if="showYouglishWidget"
-      class="position-fixed top-0 end-0 m-3"
-      style="z-index: 1050; max-width: 680px; background: white; border-radius: 8px; box-shadow: 0 4px 12px rgba(0,0,0,0.15);"
-    >
-      <div class="d-flex justify-content-between align-items-center p-3 pb-0">
-        <h6 class="mb-0 text-primary fw-bold">
-          <i class="bi bi-play-circle me-1"></i>
-          Pronunciation: {{ currentWord }}
-        </h6>
-        <button @click="closeYouglishWidget" class="btn btn-sm btn-outline-secondary">
-          <i class="bi bi-x"></i>
-        </button>
-      </div>
-      <div id="youglish-widget" class="youglish-embed p-3 pt-2"></div>
-    </div>
-    
-    <!-- Header Section -->
-    <div class="text-center mb-5">
-      <h1 class="display-5 fw-bold text-primary mb-3">
-        <i class="bi bi-book"></i> Learn Vocabulary
+    <div class="text-center mb-4">
+      <h1 class="fw-bold text-primary mb-2">
+        <i class="bi bi-book"></i> Vocabulary Learning
       </h1>
-      <div class="d-flex justify-content-center align-items-center gap-3 mb-3">
-        <label for="topicSelect" class="form-label mb-0 fw-semibold">Select Topic:</label>
-        <select
-          id="topicSelect"
-          class="form-select form-select-sm"
-          style="width: auto; min-width: 150px;"
-          v-model="selectedTopic"
-          @change="loadVocabsByTopic"
-        >
-          <option value="" disabled>Select a topic</option>
-          <option v-for="topic in availableTopics" :key="topic" :value="topic">
-            {{ topic }}
-          </option>
+      <p class="text-muted">AI-generated 3-Level Sentences for each word</p>
+      <button @click="generateRandom" class="btn btn-warning btn-lg mt-2" :disabled="generating">
+        <i :class="generating ? 'bi bi-hourglass-split' : 'bi bi-magic'"></i>
+        {{ generating ? 'Generating...' : '✨ Generate Random by AI' }}
+      </button>
+      <p v-if="generatedCount > 0" class="text-success mt-1">
+        <i class="bi bi-check-circle"></i> Generated {{ generatedCount }} words!
+      </p>
+    </div>
+
+    <!-- Search & Topic Filter -->
+    <div class="row mb-4">
+      <div class="col-md-6">
+        <input v-model="searchQuery" @keyup.enter="loadVocabs" class="form-control" placeholder="Search vocabulary...">
+      </div>
+      <div class="col-md-3">
+        <select v-model="selectedTopic" @change="loadVocabs" class="form-select">
+          <option value="">All Topics</option>
+          <option v-for="t in topics" :key="t.id" :value="t.slug">{{ t.name_en }}</option>
         </select>
       </div>
-      <div v-if="selectedTopic" class="badge bg-secondary fs-6 px-3 py-2">
-        <i class="bi bi-tag me-1"></i> Topic: {{ selectedTopic }}
+      <div class="col-md-3">
+        <button @click="loadVocabs" class="btn btn-primary w-100">
+          <i class="bi bi-search"></i> Search
+        </button>
       </div>
     </div>
 
-    <!-- Loading State -->
-    <div v-if="vocabs.length === 0" class="text-center py-5">
-      <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Loading...</span>
-      </div>
-      <p class="mt-3 text-muted">Loading vocabulary...</p>
-    </div>
-
-    <!-- Vocabulary Cards -->
-    <div v-else class="row g-4">
-      <div v-for="v in vocabs" :key="v.ID" class="col-md-6 col-lg-4">
-        <div class="card border-0 shadow-sm h-100 vocabulary-card">
+    <!-- Vocabulary Cards with 3-Level Toggle -->
+    <div v-if="vocabs.length > 0" class="row g-4">
+      <div v-for="v in vocabs" :key="v.id" class="col-md-6 col-lg-4">
+        <div class="card border-0 shadow-sm flashcard">
           <div class="card-body">
-            <!-- Word Header -->
-            <div class="d-flex justify-content-between align-items-start mb-3">
-              <h3 class="card-title text-primary fw-bold mb-0">
-                {{ v.Word }}
-              </h3>
-              <div class="d-flex gap-2">
-                <!-- YouGlish Video Button -->
-                <button
-                  @click="loadYouglishWidget(v.Word)"
-                  class="btn btn-outline-info btn-sm"
-                  :class="{ 'active': currentWord === v.Word }"
-                  title="Load YouGlish video"
-                >
-                  <i class="bi bi-play-circle"></i>
+            <div class="d-flex justify-content-between align-items-start mb-2">
+              <h4 class="text-primary fw-bold mb-0">{{ v.word }}</h4>
+              <div class="d-flex gap-1">
+                <button @click="speakWord(v)" class="btn btn-outline-secondary btn-sm" title="Listen">
+                  <i :class="speakingWordId === v.id ? 'bi-volume-up-fill' : 'bi-volume-up'"></i>
                 </button>
-                <button
-                  @click="select(v.ID)"
-                  class="btn btn-outline-success btn-sm"
-                  :disabled="selectedWords.includes(v.ID)"
-                >
-                  <i class="bi" :class="selectedWords.includes(v.ID) ? 'bi-check-circle-fill' : 'bi-plus-circle'"></i>
-                  {{ selectedWords.includes(v.ID) ? 'Selected' : 'Select' }}
+                <button @click="startLearning(v.id)" class="btn btn-outline-success btn-sm" title="Start learning">
+                  <i class="bi bi-plus-circle"></i>
                 </button>
               </div>
             </div>
+            <small class="text-muted">{{ v.phonetics }} <span class="badge bg-light text-dark ms-1">{{ v.pos }}</span></small>
 
-            <!-- YouGlish Embedded Widget -->
-            <div v-if="currentWord === v.Word" class="mb-3 youglish-widget-container">
-              <div class="ratio ratio-16x9">
-                <div class="youglish-placeholder text-center py-5 text-muted">
-                  <i class="bi bi-play-circle display-4 mb-3 d-block"></i>
-                  <p>Click the play button above to load pronunciation videos</p>
+            <!-- Level Tabs -->
+            <div class="mt-3">
+              <ul class="nav nav-pills nav-fill mb-2">
+                <li class="nav-item" v-for="lvl in levels" :key="lvl.level">
+                  <button class="nav-link btn-sm"
+                    :class="{ active: activeLevel[v.id] === lvl.level }"
+                    @click="toggleLevel(v.id, lvl.level)"
+                    :style="activeLevel[v.id] === lvl.level ? 'background:' + lvl.color : ''">
+                    {{ lvl.label }}
+                  </button>
+                </li>
+              </ul>
+
+              <!-- Active Level Content -->
+              <div v-for="s in getSentences(v, activeLevel[v.id])" :key="s.level" class="p-2 rounded" style="background: #f8f9fa">
+                <div class="mb-2">
+                  <span class="badge bg-primary me-1">EN</span> {{ s.meaning_en }}
                 </div>
+                <div class="mb-2">
+                  <span class="badge bg-danger me-1">VI</span> {{ s.meaning_vi }}
+                </div>
+                <div class="mb-1 border-start border-3 border-primary ps-2">
+                  <strong>Example:</strong><br>
+                  <em>{{ s.example_en }}</em>
+                </div>
+                <div class="border-start border-3 border-warning ps-2 mb-2">
+                  <em>{{ s.example_vi }}</em>
+                </div>
+                <div class="d-flex gap-1">
+                  <button @click="speakSentence(s.example_en, s.example_vi)" class="btn btn-sm btn-outline-primary">
+                    <i class="bi bi-play-circle"></i> Listen (Anh-Việt)
+                  </button>
+                </div>
+                <small v-if="s.usage_note" class="text-muted d-block mt-1"><i class="bi bi-info-circle"></i> {{ s.usage_note }}</small>
               </div>
-            </div>
-
-            <!-- Meanings -->
-            <div class="mb-3">
-              <div class="mb-2">
-                <span class="badge bg-primary me-2">EN</span>
-                <span class="text-muted">{{ v.MeaningEn }}</span>
-              </div>
-              <div>
-                <span class="badge bg-danger me-2">VI</span>
-                <span class="text-muted">{{ v.MeaningVi }}</span>
-              </div>
-            </div>
-
-            <!-- Examples -->
-            <div class="bg-light p-3 rounded-3">
-              <div class="mb-2">
-                <small class="text-muted">
-                  <i class="bi bi-quote"></i> {{ v.ExampleEn }}
-                </small>
-              </div>
-              <div>
-                <small class="text-muted">
-                  <i class="bi bi-quote"></i> {{ v.ExampleVi }}
-                </small>
+              <div v-if="getSentences(v, activeLevel[v.id]).length === 0" class="text-muted text-center py-2">
+                <small>No sentence available for this level</small>
               </div>
             </div>
           </div>
@@ -122,265 +94,118 @@
       </div>
     </div>
 
-    <!-- Action Button -->
-    <div class="text-center mt-5">
-      <button @click="goQuiz" class="btn btn-primary btn-lg px-5 py-3 shadow-sm">
-        <i class="bi bi-arrow-right-circle me-2"></i>
-        <strong>Go to Quiz</strong>
-      </button>
+    <div v-else class="text-center py-5 text-muted">
+      <i class="bi bi-book display-1"></i>
+      <p class="mt-2">Loading vocabulary...</p>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import axios from 'axios'
-import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted, reactive } from 'vue'
+import { useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 
-interface Vocab {
-  ID: number
-  Word: string
-  MeaningEn: string
-  MeaningVi: string
-  ExampleEn: string
-  ExampleVi: string
+const API = (import.meta as any).env.VITE_API_BASE_URL || 'http://localhost:5173'
+const USER_ID = 1
+const { speakBilingual, speakEnglish, stop, isSpeaking } = useSpeechSynthesis()
+
+interface Sentence {
+  level: number
+  meaning_en: string
+  meaning_vi: string
+  example_en: string
+  example_vi: string
+  usage_note: string
 }
 
-const router = useRouter()
-const topic = ref('Environment')
-const selectedTopic = ref('')
-const availableTopics = ref<string[]>([])
-const vocabs = ref<Vocab[]>([])
-const selectedWords = ref<number[]>([])
-const activeVideoId = ref<number | null>(null)
-const currentWord = ref<string>('')
-const showYouglishWidget = ref<boolean>(false)
-const API = (import.meta as any).env.VITE_API_BASE_URL || 'http://localhost:5173'
+interface Vocab {
+  id: number
+  word: string
+  phonetics: string
+  pos: string
+  sentences: Sentence[]
+}
 
-onMounted(async () => {
-  // Load YouGlish script
-  loadYouglishScript()
-  
-  // Load available topics
-  await loadTopics()
-  
-  // Set default topic if available
-  if (availableTopics.value.length > 0) {
-    selectedTopic.value = availableTopics.value[0]
-    await loadVocabsByTopic()
+const vocabs = ref<Vocab[]>([])
+const topics = ref<any[]>([])
+const searchQuery = ref('')
+const selectedTopic = ref('')
+const activeLevel = reactive<Record<number, number>>({})
+const speakingWordId = ref<number | null>(null)
+const generating = ref(false)
+const generatedCount = ref(0)
+
+const levels = [
+  { level: 1, label: 'Level 1 Simple', color: '#28a745' },
+  { level: 2, label: 'Level 2 Normal', color: '#fd7e14' },
+  { level: 3, label: 'Level 3 Complex', color: '#6f42c1' },
+]
+
+function getSentences(v: Vocab, level: number): Sentence[] {
+  return v.sentences?.filter(s => s.level === level) || []
+}
+
+function toggleLevel(vocabId: number, level: number) {
+  activeLevel[vocabId] = level
+}
+
+async function loadVocabs() {
+  try {
+    const params: any = { limit: 50 }
+    if (selectedTopic.value) params.topic = selectedTopic.value
+    if (searchQuery.value) params.search = searchQuery.value
+    const { data } = await axios.get(`${API}/api/vocabs`, { params })
+    vocabs.value = data.data || data || []
+    vocabs.value.forEach(v => {
+      if (!activeLevel[v.id]) activeLevel[v.id] = 1
+    })
+  } catch (e) {
+    console.error('Load vocabs error:', e)
   }
-})
+}
 
 async function loadTopics() {
   try {
     const { data } = await axios.get(`${API}/api/topics`)
-    availableTopics.value = data
-  } catch (error) {
-    console.error('Error loading topics:', error)
-    availableTopics.value = []
-  }
+    topics.value = data || []
+  } catch (e) { console.error(e) }
 }
 
-async function loadVocabsByTopic() {
-  if (!selectedTopic.value) return
-  
+async function speakWord(v: Vocab) {
+  speakingWordId.value = v.id
+  await speakEnglish(v.word)
+  speakingWordId.value = null
+}
+
+async function speakSentence(en: string, vi: string) {
+  await speakBilingual(en, vi)
+}
+
+async function startLearning(vocabId: number) {
   try {
-    const { data } = await axios.get(`${API}/api/vocabs?topic=${encodeURIComponent(selectedTopic.value)}`)
-    vocabs.value = data
-  } catch (error) {
-    console.error('Error loading vocabulary:', error)
-    vocabs.value = []
+    await axios.post(`${API}/api/srs/start`, { vocab_ids: [vocabId] }, { headers: { 'X-User-ID': String(USER_ID) } })
+    alert('Word added to learning list!')
+  } catch (e) {
+    console.error(e)
   }
 }
 
-function loadYouglishScript(): void {
-  // Check if YouGlish script is already loaded
-  if (document.getElementById('youglish-script')) {
-    return
-  }
-  
-  const script = document.createElement('script')
-  script.id = 'youglish-script'
-  script.src = 'https://youglish.com/public/emb/widget.js'
-  script.charset = 'utf-8'
-  script.async = true
-  script.onload = () => {
-    console.log('YouGlish script loaded successfully')
-  }
-  script.onerror = () => {
-    console.error('Failed to load YouGlish script')
-  }
-  document.head.appendChild(script)
-}
-
-async function select(id: number) {
+async function generateRandom() {
+  generating.value = true
   try {
-    await axios.post(`${API}/api/vocabs/select`, {
-      user_id: 1,
-      vocab_ids: [id]
-    })
-    selectedWords.value.push(id)
-    
-    // Show success message
-    const toast = document.createElement('div')
-    toast.className = 'position-fixed top-0 end-0 p-3'
-    toast.style.zIndex = '9999'
-    toast.innerHTML = `
-      <div class="toast show" role="alert">
-        <div class="toast-header bg-success text-white">
-          <i class="bi bi-check-circle me-2"></i>
-          <strong class="me-auto">Success!</strong>
-          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="toast"></button>
-        </div>
-        <div class="toast-body">
-          Word selected for study!
-        </div>
-      </div>
-    `
-    document.body.appendChild(toast)
-    setTimeout(() => toast.remove(), 3000)
-  } catch (error) {
-    console.error('Error selecting word:', error)
-    alert('Failed to select word. Please try again.')
+    const { data } = await axios.post(`${API}/api/vocabs/generate-random`, { count: 10 })
+    generatedCount.value = data.generated || 0
+    await loadVocabs()
+  } catch (e) {
+    console.error('Generate random error:', e)
+    alert('Failed to generate vocabulary')
   }
+  generating.value = false
 }
 
-function loadYouglishWidget(word: string): void {
-  // Set current word and show widget
-  currentWord.value = word
-  showYouglishWidget.value = true
-  
-  // Wait for DOM update and YouGlish API to be ready
-  setTimeout(() => {
-    if ((window as any).YG && (window as any).YG.Widget) {
-      try {
-        // Clear previous widget if exists
-        const widgetContainer = document.getElementById('youglish-widget')
-        if (widgetContainer) {
-          widgetContainer.innerHTML = ''
-          
-          // Create new widget instance with configuration
-          const widget = new (window as any).YG.Widget("youglish-widget", {
-            width: 640,
-            components: 9, // search box, caption, control, etc.
-            autoStart: 1,  // auto play video
-            events: {
-              onFetchDone: (e: any) => console.log("YouGlish fetch done", e),
-              onVideoChange: (e: any) => console.log("YouGlish video changed", e),
-            }
-          })
-          
-          // Fetch videos for the word
-          widget.fetch(word, "english")
-          console.log('YouGlish widget loaded for word:', word)
-        }
-      } catch (error) {
-        console.error('Failed to load YouGlish widget:', error)
-        // Fallback to opening in new tab if widget fails
-        window.open(`https://youglish.com/search/${word}/us`, '_blank', 'noopener,noreferrer')
-        showYouglishWidget.value = false
-      }
-    } else {
-      console.error('YouGlish API not available')
-      // Fallback if YouGlish library not loaded
-      window.open(`https://youglish.com/search/${word}/us`, '_blank', 'noopener,noreferrer')
-      showYouglishWidget.value = false
-    }
-  }, 500) // Small delay to ensure DOM is ready
-}
-
-function closeYouglishWidget(): void {
-  showYouglishWidget.value = false
-  currentWord.value = ''
-  
-  // Clear the widget container
-  const widgetContainer = document.getElementById('youglish-widget')
-  if (widgetContainer) {
-    widgetContainer.innerHTML = ''
-  }
-}
-
-
-function toggleYouglishVideo(vocabId: number) {
-  if (activeVideoId.value === vocabId) {
-    activeVideoId.value = null
-  } else {
-    activeVideoId.value = vocabId
-  }
-}
-
-function goQuiz() {
-  router.push('/quiz')
-}
+onMounted(() => {
+  loadTopics()
+  loadVocabs()
+})
 </script>
-
-<style scoped>
-.vocabulary-card {
-  transition: transform 0.3s ease, box-shadow 0.3s ease;
-}
-
-.vocabulary-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
-}
-
-.card-title {
-  font-size: 1.5rem;
-}
-
-.btn-lg {
-  transition: all 0.3s ease;
-}
-
-.btn-lg:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 0.5rem 1rem rgba(0, 0, 0, 0.15) !important;
-}
-/* YouGlish video button styling */
-.btn-outline-info {
-  transition: all 0.3s ease;
-}
-
-.btn-outline-info:hover {
-  background-color: #17a2b8;
-  border-color: #17a2b8;
-  transform: scale(1.05);
-}
-
-.btn-outline-info.active {
-  background-color: #17a2b8;
-  border-color: #17a2b8;
-  color: white;
-}
-
-/* YouGlish Widget Styling */
-.youglish-embed {
-  margin: 0 auto;
-  min-height: 400px;
-}
-
-.youglish-widget-container {
-  background: #f8f9fa;
-  border-radius: 8px;
-  padding: 15px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.youglish-placeholder {
-  background: #e9ecef;
-  border-radius: 8px;
-  border: 2px dashed #ced4da;
-}
-
-/* Floating YouGlish container styling */
-.position-fixed .d-flex {
-  border-bottom: 1px solid #dee2e6;
-}
-
-/* Video embed styling */
-.ratio {
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-</style>
