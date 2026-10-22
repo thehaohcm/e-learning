@@ -81,9 +81,19 @@
 
             <!-- audio + translation controls -->
             <div class="d-flex flex-wrap gap-2 align-items-center my-3">
-              <button class="btn btn-primary btn-sm" @click="playAll(1)"><i class="bi bi-play-fill"></i> Listen</button>
-              <button class="btn btn-outline-primary btn-sm" @click="playAll(0.75)">🐢 Slow</button>
+              <button class="btn btn-primary btn-sm" :disabled="!!practice" @click="playAll(1)"><i class="bi bi-play-fill"></i> Listen</button>
+              <button class="btn btn-outline-primary btn-sm" :disabled="!!practice" @click="playAll(0.75)">🐢 Slow</button>
               <button class="btn btn-outline-secondary btn-sm" :disabled="playing < 0 && playingQ < 0" @click="stopAll"><i class="bi bi-stop-fill"></i> Stop</button>
+              <span class="vr mx-1"></span>
+              <button class="btn btn-outline-danger btn-sm" :disabled="!canSpeak || !!practice"
+                :title="canSpeak ? 'Listen to each sentence and repeat it' : 'Needs Chrome/Edge and HTTPS'" @click="startPractice('shadow')">
+                <i class="bi bi-mic"></i> Shadowing
+              </button>
+              <button v-if="current.kind === 'conversation'" class="btn btn-sm" :class="roleSetup ? 'btn-danger' : 'btn-outline-danger'"
+                :disabled="!canSpeak || !!practice" :title="canSpeak ? 'Play one of the speakers' : 'Needs Chrome/Edge and HTTPS'"
+                @click="roleSetup = !roleSetup">
+                <i class="bi bi-people"></i> Role-play
+              </button>
               <div class="ms-auto d-flex gap-3">
                 <div class="form-check form-switch mb-0 small" title="Listening practice: hide the text until you check your answers">
                   <input id="hideText" v-model="hideText" class="form-check-input" type="checkbox" />
@@ -95,6 +105,26 @@
                 </div>
               </div>
             </div>
+            <!-- role-play setup -->
+            <div v-if="roleSetup && !practice" class="d-flex flex-wrap align-items-center gap-2 p-2 mb-3 rounded bg-light small">
+              <span>I play</span>
+              <select v-model="rpRole" class="form-select form-select-sm w-auto">
+                <option v-for="s in speakerOrder" :key="s" :value="s">{{ s }}</option>
+              </select>
+              <div class="btn-group btn-group-sm">
+                <button class="btn" :class="rpLevel === 'easy' ? 'btn-secondary' : 'btn-outline-secondary'" @click="rpLevel = 'easy'"
+                  title="Your lines are shown: read them aloud">Easy</button>
+                <button class="btn" :class="rpLevel === 'hard' ? 'btn-secondary' : 'btn-outline-secondary'" @click="rpLevel = 'hard'"
+                  title="Only the Vietnamese meaning is shown: say it in English">Hard</button>
+              </div>
+              <button class="btn btn-danger btn-sm" :disabled="!rpRole" @click="startPractice('roleplay')">Start</button>
+              <span class="text-muted">{{ rpLevel === 'easy' ? 'Your lines are shown, read them aloud.' : 'You see only the Vietnamese meaning of your lines.' }}</span>
+            </div>
+
+            <SpeakingPractice v-if="practice" :key="practiceKey" :items="practiceItems" :mode="practice.mode"
+              :role="practice.role" :level="practice.level" :say="sayAs"
+              @highlight="(i: number) => (playing = i)" @close="practice = null" />
+
             <div v-if="textHidden" class="alert alert-info py-2 small">
               <i class="bi bi-headphones"></i> Listening practice: press <b>Listen</b>, then answer the questions.
               The text appears after you check your answers.
@@ -146,7 +176,8 @@
                       <i class="bi bi-volume-up"></i>
                     </button>
                   </div>
-                  <div>
+                  <div v-if="hiddenForRole(line.speaker)" class="text-muted fst-italic">… your line …</div>
+                  <div v-else>
                     <template v-for="(seg, k) in segmentsOf(line.text)" :key="k">
                       <mark v-if="seg.word" :class="seg.word.is_new ? 'new-word' : 'known-word'"
                         @click="selectWord(seg.word)">{{ seg.text }}</mark><template v-else>{{ seg.text }}</template>
@@ -238,6 +269,9 @@ import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
 import { RATE_NORMAL, RATE_REPLAY, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
+import { speechRecognitionSupported } from '../composables/useSpeechRecognition'
+import SpeakingPractice from '../components/reading/SpeakingPractice.vue'
+import type { PracticeItem } from '../components/reading/practice'
 
 interface Word { card_id: number; word: string; meaning_vi: string; meaning_en?: string; is_new: boolean }
 interface Question { question: string; choices: string[]; answer: number }
@@ -479,6 +513,40 @@ async function playQuestions() {
   }
 }
 
+// ---------------------------------------------------------------- speaking practice
+
+const canSpeak = speechRecognitionSupported
+const practice = ref<{ mode: 'shadow' | 'roleplay'; role?: string; level?: 'easy' | 'hard' } | null>(null)
+const practiceKey = ref(0)
+const roleSetup = ref(false)
+const rpRole = ref('')
+const rpLevel = ref<'easy' | 'hard'>('easy')
+watch(speakerOrder, (s) => { if (!s.includes(rpRole.value)) rpRole.value = s[0] ?? '' }, { immediate: true })
+
+/** Sentences of a reading, or lines of a conversation, for the practice panel. */
+const practiceItems = computed<PracticeItem[]>(() =>
+  current.value?.kind === 'conversation'
+    ? (doc.value.lines ?? []).map((l, i) => ({ index: i, text: l.text, vi: l.vi, speaker: l.speaker }))
+    : sentences.value.map((s) => ({ index: s.index, text: s.text })),
+)
+
+function startPractice(mode: 'shadow' | 'roleplay') {
+  stopAll()
+  roleSetup.value = false
+  practice.value = mode === 'shadow' ? { mode } : { mode, role: rpRole.value, level: rpLevel.value }
+  practiceKey.value++
+}
+
+/** Hard role-play: the learner's own lines are hidden in the conversation. */
+function hiddenForRole(speaker: string) {
+  const p = practice.value
+  return !!p && p.mode === 'roleplay' && p.level === 'hard' && p.role === speaker
+}
+
+function sayAs(text: string, speaker: string | undefined, rate: number): Promise<void> {
+  return speaker ? speakAs(text, speakerIndex(speaker), rate) : speakEnglish(text, rate)
+}
+
 function selectWord(w: Word) {
   selected.value = w
   speakEnglish(w.word).catch(() => {})
@@ -495,6 +563,8 @@ async function loadHistory() {
 
 async function open(id: number) {
   stopAll()
+  practice.value = null
+  roleSetup.value = false
   heardQ.clear()
   selected.value = null
   try {

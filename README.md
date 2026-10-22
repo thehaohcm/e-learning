@@ -117,6 +117,14 @@ Câu hỏi về nghĩa của một từ đã học cũng cập nhật lịch ôn
 Server kiểm tra bài AI trả về (đủ câu hỏi, đáp án hợp lệ, ≥70% từ yêu cầu có trong bài) và yêu cầu
 viết lại 1 lần nếu không đạt. Cần cấu hình AI (`DEEPSEEK_*`).
 
+Luyện nói trong Reading (cần Chrome/Edge + HTTPS, không tốn lượt AI):
+- **Shadowing** (bài đọc và hội thoại): app đọc từng câu → tự bật mic để bạn nhại lại → chấm %.
+  Đạt 80% tự sang câu; chưa đạt thì "Listen slowly & try again" hoặc Skip (sau 3 lần vẫn cho qua).
+  Câu dài hơn 20 từ được tách theo dấu phẩy. Cuối bài có tổng kết và "Practise the weak ones again".
+- **Role-play** (chỉ hội thoại): chọn vai, app đọc lời người kia, đến lượt bạn thì bạn nói.
+  *Easy*: câu của bạn hiện chữ (cần 80%). *Hard*: chỉ hiện nghĩa tiếng Việt, câu gốc bị ẩn,
+  bạn tự nói bằng tiếng Anh (cần 60%); "Hear the line" để nghe gợi ý, sau 3 lần thì hiện câu gốc.
+
 ## Luyện nói (speech-to-text)
 
 Nút 🎤 **Read it aloud** cạnh câu ví dụ (Review, phím `R`; Quiz sau khi trả lời): đọc to câu, trình duyệt
