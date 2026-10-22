@@ -1,57 +1,146 @@
 <template>
   <div>
-    <div class="text-center mb-4">
-      <h1 class="fw-bold text-warning mb-2">
-        <i class="bi bi-arrow-repeat"></i> Spaced Repetition Review
-      </h1>
-      <p class="text-muted">Review words before you forget them (FSRS Algorithm)</p>
+    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
+      <div>
+        <h2 class="fw-bold mb-0"><i class="bi bi-arrow-repeat"></i> Study</h2>
+        <small class="text-muted">{{ scopeLabel }} · spaced repetition (FSRS)</small>
+      </div>
+      <div class="d-flex flex-wrap gap-3 align-items-center small">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Review mode">
+          <button class="btn" :class="mode === 'choose' ? 'btn-primary' : 'btn-outline-primary'" @click="mode = 'choose'"
+            title="Pick the right meaning: wrong answers are graded automatically">
+            <i class="bi bi-ui-checks"></i> Choose
+          </button>
+          <button class="btn" :class="mode === 'self' ? 'btn-primary' : 'btn-outline-primary'" @click="mode = 'self'"
+            title="Recall in your head, reveal, then grade yourself">
+            <i class="bi bi-eye"></i> Self-check
+          </button>
+        </div>
+        <div class="form-check form-switch mb-0">
+          <input id="autospeak" v-model="autoSpeak" class="form-check-input" type="checkbox" />
+          <label class="form-check-label" for="autospeak">Auto pronounce</label>
+        </div>
+        <span class="text-muted">Done: {{ done }}</span>
+      </div>
     </div>
 
-    <!-- Due Reviews -->
-    <div v-if="items.length > 0">
-      <div class="progress mb-4" style="height: 8px">
-        <div class="progress-bar bg-warning" :style="{ width: progressPct + '%' }"></div>
-      </div>
-      <p class="text-muted text-center">{{ reviewedCount }} / {{ items.length }} reviewed</p>
+    <div v-if="error" class="alert alert-danger">{{ error }}</div>
 
-      <!-- Flashcard Carousel -->
-      <div class="row justify-content-center">
-        <div class="col-md-8">
-          <div class="card border-0 shadow-lg review-card" v-if="currentItem">
-            <div class="card-body text-center p-5">
-              <h2 class="display-4 fw-bold text-primary mb-3">{{ currentItem.word }}</h2>
-              <p class="text-muted mb-4">{{ currentItem.phonetics }}</p>
+    <div v-if="item" class="row justify-content-center">
+      <div class="col-lg-8">
+        <div class="progress mb-3" style="height: 6px">
+          <div class="progress-bar bg-warning" :style="{ width: progressPct + '%' }"></div>
+        </div>
 
-              <div class="bg-light p-4 rounded mb-4">
-                <h5 class="mb-2">{{ currentItem.example_en }}</h5>
-                <p class="text-muted mb-0">{{ currentItem.example_vi }}</p>
-                <small class="d-block mt-2 text-secondary">
-                  <strong>Meaning:</strong> {{ currentItem.meaning_en }} / {{ currentItem.meaning_vi }}
-                </small>
+        <div class="card border-0 shadow-lg">
+          <div class="card-body p-4 p-md-5">
+            <!-- badges -->
+            <div class="text-center mb-3">
+              <span v-if="item.is_new" class="badge bg-info">New · learn it</span>
+              <span v-else class="badge bg-secondary">{{ stateLabel(item.progress) }}</span>
+              <span class="badge bg-light text-dark ms-1">{{ kindLabel }}</span>
+            </div>
+
+            <!-- front: word + inline speaker -->
+            <div class="text-center mb-3">
+              <div class="d-inline-flex align-items-center gap-2">
+                <h2 class="fw-bold mb-0" :class="item.card.kind === 'mcq' ? 'fs-5 text-dark text-start' : 'text-primary'">
+                  {{ item.card.front }}
+                </h2>
+                <button v-if="isEnglish" class="btn btn-light rounded-circle speak-btn" type="button"
+                  title="Listen to the word and an example (P)" aria-label="Listen" @click="speakCard(item)">
+                  <i class="bi bi-volume-up-fill"></i>
+                </button>
               </div>
-
-              <div class="mt-4">
-                <button @click="speakCurrent" class="btn btn-outline-secondary btn-lg mb-3 w-100">
-                  <i class="bi bi-volume-up me-2"></i> Listen (Anh-Việt)
-                </button>
+              <div v-if="soundLocked && autoSpeak && isEnglish" class="small text-warning mt-1">
+                <i class="bi bi-volume-mute"></i> Click anywhere or press a key to turn on sound
               </div>
-
-              <!-- Rating Buttons -->
-              <div class="d-flex gap-2 justify-content-center">
-                <button @click="rate(1)" class="btn btn-outline-danger btn-lg flex-fill" title="Forgot">
-                  <i class="bi bi-x-circle fs-4"></i><br><small>Forgot</small>
-                </button>
-                <button @click="rate(2)" class="btn btn-outline-warning btn-lg flex-fill" title="Hard">
-                  <i class="bi bi-exclamation-circle fs-4"></i><br><small>Hard</small>
-                </button>
-                <button @click="rate(3)" class="btn btn-outline-success btn-lg flex-fill" title="Good">
-                  <i class="bi bi-check-circle fs-4"></i><br><small>Good</small>
-                </button>
-                <button @click="rate(4)" class="btn btn-outline-primary btn-lg flex-fill" title="Easy">
-                  <i class="bi bi-star-fill fs-4"></i><br><small>Easy</small>
-                </button>
+              <div v-if="item.card.payload.ipa || item.card.payload.pos" class="text-muted small mt-1">
+                {{ item.card.payload.ipa }}
+                <span v-if="item.card.payload.pos" class="ms-1 fst-italic">{{ item.card.payload.pos }}</span>
               </div>
             </div>
+
+            <!-- example sentence in English only (Vietnamese is shown after answering) -->
+            <div v-if="phase === 'ask' && exampleParts" class="d-flex justify-content-center align-items-center gap-2 mb-3">
+              <p class="fst-italic text-secondary mb-0 example">
+                “{{ exampleParts[0] }}<strong class="text-primary">{{ exampleParts[1] }}</strong>{{ exampleParts[2] }}”
+              </p>
+              <button class="btn btn-light rounded-circle speak-btn speak-sm flex-shrink-0" type="button"
+                title="Listen to the sentence (E)" aria-label="Listen to the sentence" @click="speakExample(1)">
+                <i class="bi bi-volume-up-fill"></i>
+              </button>
+              <button class="btn btn-light rounded-circle speak-btn speak-sm flex-shrink-0" type="button"
+                title="Listen slowly (S)" aria-label="Listen slowly" @click="speakExample(0.7)">
+                <span aria-hidden="true">🐢</span>
+              </button>
+            </div>
+
+            <!-- ASK: multiple choice -->
+            <template v-if="phase === 'ask' && choices.length">
+              <p class="text-center text-muted small mb-2">{{ item.card.kind === 'mcq' ? 'Choose the best answer' : 'What does it mean?' }}</p>
+              <button v-for="(c, i) in choices" :key="c.id" type="button"
+                class="btn btn-outline-primary w-100 text-start mb-2 py-2 choice"
+                @click="pick(c.id)">
+                <span class="badge bg-light text-dark me-2">{{ i + 1 }}</span>{{ c.text }}
+              </button>
+              <button type="button" class="btn btn-link text-muted w-100 mt-1" @click="dontKnow">
+                I don't remember <small>(0)</small>
+              </button>
+            </template>
+
+            <!-- ASK: self-check -->
+            <div v-else-if="phase === 'ask'" class="text-center">
+              <button class="btn btn-primary btn-lg px-5" @click="reveal">
+                Show answer <small class="opacity-75 d-none d-md-inline">(Space)</small>
+              </button>
+            </div>
+
+            <!-- REVEAL -->
+            <template v-else>
+              <!-- result of the multiple choice -->
+              <div v-if="choices.length && outcome" class="mb-3">
+                <button v-for="c in choices" :key="c.id" type="button" disabled
+                  class="btn w-100 text-start mb-2 py-2 choice" :class="resultClass(c.id)">
+                  {{ c.text }}
+                </button>
+              </div>
+              <div v-if="outcome === 'correct'" class="alert alert-success py-2 text-center">
+                <i class="bi bi-check-circle-fill"></i> Correct! How easy was it?
+              </div>
+              <div v-else-if="outcome === 'wrong'" class="alert alert-warning py-2 text-center">
+                <i class="bi bi-arrow-counterclockwise"></i> No problem: this card comes back in {{ item.preview['1'] }}.
+              </div>
+
+              <CardDetails v-if="item.card.kind !== 'mcq'" :card="item.card" :speakable="isEnglish" class="text-start"
+                @speak="(en: string, vi?: string) => vi ? speakBilingual(en, vi) : speakEnglish(en)" />
+              <div v-else-if="item.card.payload.explanation" class="small text-muted">{{ item.card.payload.explanation }}</div>
+
+              <!-- grading -->
+              <div class="d-flex gap-2 mt-4">
+                <template v-if="item.is_new">
+                  <button class="btn btn-primary flex-fill py-2" :disabled="sending" @click="rate(3)">
+                    <div class="fw-semibold">Got it</div>
+                    <small class="opacity-75">practice again in {{ item.preview['3'] }} · Enter</small>
+                  </button>
+                  <button class="btn btn-outline-secondary flex-fill py-2" :disabled="sending" @click="rate(4)">
+                    <div class="fw-semibold">I already know this</div>
+                    <small class="opacity-75">next in {{ item.preview['4'] }}</small>
+                  </button>
+                </template>
+                <button v-else-if="outcome === 'wrong'" class="btn btn-warning flex-fill py-2" :disabled="sending" @click="rate(1)">
+                  <div class="fw-semibold">Continue</div>
+                  <small class="opacity-75">Enter</small>
+                </button>
+                <template v-else>
+                  <button v-for="r in visibleRatings" :key="r.value" class="btn flex-fill py-2"
+                    :class="r.value === 3 ? 'btn-success' : r.cls" :disabled="sending" @click="rate(r.value)">
+                    <div class="fw-semibold">{{ r.label }}</div>
+                    <small class="d-block opacity-75">{{ item.preview[String(r.value)] }} · {{ r.value === 3 ? 'Enter' : r.value }}</small>
+                  </button>
+                </template>
+              </div>
+            </template>
           </div>
         </div>
       </div>
@@ -59,86 +148,276 @@
 
     <div v-else-if="loaded" class="text-center py-5">
       <i class="bi bi-check-circle display-1 text-success"></i>
-      <h3 class="mt-3">All caught up!</h3>
-      <p class="text-muted">No words due for review right now.</p>
-      <router-link to="/learn" class="btn btn-primary mt-2">
-        <i class="bi bi-plus-circle me-2"></i> Learn New Words
-      </router-link>
+      <h3 class="mt-3">Nothing to study right now</h3>
+      <p class="text-muted">Cards you just learned will come back in a few minutes. New cards are limited per day (change it in Device &amp; settings).</p>
+      <div class="d-flex gap-2 justify-content-center">
+        <button class="btn btn-outline-primary" @click="load"><i class="bi bi-arrow-clockwise"></i> Check again</button>
+        <router-link to="/learn" class="btn btn-primary"><i class="bi bi-plus-circle"></i> Add cards</router-link>
+      </div>
     </div>
 
-    <div v-else class="text-center py-5 text-muted">
-      <div class="spinner-border"></div>
-      <p class="mt-2">Loading due reviews...</p>
-    </div>
+    <div v-else class="text-center py-5"><div class="spinner-border"></div></div>
   </div>
 </template>
 
 <script setup lang="ts">
-import axios from 'axios'
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
+import { api, errorMessage } from '../api'
+import CardDetails from '../components/CardDetails.vue'
 import { useSpeechSynthesis } from '../composables/useSpeechSynthesis'
+import { RATINGS, stateLabel } from '../types'
+import type { QueueItem } from '../types'
 
-const API = (import.meta as any).env.VITE_API_BASE_URL || 'http://localhost:5173'
-const USER_ID = 1
-const { speakBilingual } = useSpeechSynthesis()
+type Mode = 'choose' | 'self'
 
-interface DueItem {
-  vocab_id: number
-  word: string
-  phonetics: string
-  level: number
-  example_en: string
-  example_vi: string
-  meaning_en: string
-  meaning_vi: string
+const route = useRoute()
+const { speakEnglish, speakBilingual } = useSpeechSynthesis()
+
+const queue = ref<QueueItem[]>([])
+const idx = ref(0)
+const done = ref(0)
+const phase = ref<'ask' | 'reveal'>('ask')
+const outcome = ref<'correct' | 'wrong' | null>(null)
+const picked = ref<number | null>(null)
+const sending = ref(false)
+const loaded = ref(false)
+const error = ref('')
+const autoSpeak = ref(storageGet('elearn.autospeak') !== 'false')
+const mode = ref<Mode>(storageGet('elearn.reviewmode') === 'self' ? 'self' : 'choose')
+let shownAt = Date.now()
+
+const item = computed(() => queue.value[idx.value] ?? null)
+const isEnglish = computed(() => item.value?.card.kind === 'vocab' || item.value?.card.kind === 'phrasal')
+const progressPct = computed(() => (queue.value.length ? Math.round((idx.value / queue.value.length) * 100) : 0))
+const kindLabel = computed(() => ({ vocab: 'Word', phrasal: 'Phrasal verb', concept: 'Concept', mcq: 'Question' }[item.value?.card.kind ?? 'vocab']))
+const scopeLabel = computed(() => (route.query.deck_id ? 'This deck' : route.query.subject_id ? 'This subject' : 'All subjects'))
+
+/** Choices for the current card: mcq cards always use their own; others only in "choose" mode. */
+const choices = computed<{ id: number; text: string }[]>(() => {
+  const it = item.value
+  if (!it || it.is_new) return []
+  if (it.card.kind === 'mcq') return (it.card.payload.choices ?? []).map((text, id) => ({ id, text }))
+  return mode.value === 'choose' ? (it.choices ?? []) : []
+})
+const correctId = computed(() => (item.value?.card.kind === 'mcq' ? item.value.card.payload.answer ?? -1 : item.value?.card.id ?? -1))
+// after a correct pick "Again" makes no sense, so only Hard / Good / Easy are offered
+const visibleRatings = computed(() => (outcome.value === 'correct' ? RATINGS.filter((r) => r.value > 1) : RATINGS))
+
+function storageGet(k: string) {
+  try { return localStorage.getItem(k) } catch { return null }
+}
+function storageSet(k: string, v: string) {
+  try { localStorage.setItem(k, v) } catch { /* ignore */ }
+}
+watch(autoSpeak, (v) => storageSet('elearn.autospeak', String(v)))
+watch(mode, (v) => storageSet('elearn.reviewmode', v))
+
+watch(item, (it) => {
+  outcome.value = null
+  picked.value = null
+  // new cards are shown with the answer straight away: there is nothing to recall yet
+  phase.value = it?.is_new ? 'reveal' : 'ask'
+  shownAt = Date.now()
+  if (it && autoSpeak.value) {
+    if (soundLocked.value) return // the first click/keypress will read it
+    speakCard(it)
+  }
+})
+
+// Browsers block speech until the user has interacted with the page (autoplay
+// policy). Until then, wait for the first click/keypress and read the card.
+const soundLocked = ref(!hasUserActivation())
+function hasUserActivation(): boolean {
+  const ua = (navigator as Navigator & { userActivation?: { hasBeenActive: boolean } }).userActivation
+  return ua ? ua.hasBeenActive : false
+}
+function unlockSound() {
+  if (!soundLocked.value) return
+  soundLocked.value = false
+  window.removeEventListener('pointerdown', unlockSound, true)
+  window.removeEventListener('keydown', unlockSound, true)
+  // read the card that is on screen, unless this click already moves to the next one
+  setTimeout(() => { if (item.value && autoSpeak.value && phase.value === 'ask') speakCard(item.value) }, 50)
 }
 
-const items = ref<DueItem[]>([])
-const currentIdx = ref(0)
-const reviewedCount = ref(0)
-const loaded = ref(false)
+/**
+ * Example sentence split around the studied word so it can be highlighted:
+ * [before, word, after]. Matches the first word of the front plus common
+ * endings ("negotiate" -> "negotiated"), case-insensitive.
+ */
+const exampleParts = computed<[string, string, string] | null>(() => {
+  const it = item.value
+  if (!it || (it.card.kind !== 'vocab' && it.card.kind !== 'phrasal')) return null
+  const ex = exampleOf(it)
+  if (!ex) return null
+  const base = it.card.front.trim().split(/\s+/)[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const stem = base.length > 3 && /[ey]$/i.test(base) ? base.slice(0, -1) : base // negotiate→negotiated, carry→carried
+  const m = new RegExp(`\\b${stem}\\w*`, 'i').exec(ex)
+  if (!m) return [ex, '', '']
+  return [ex.slice(0, m.index), m[0], ex.slice(m.index + m[0].length)]
+})
 
-const currentItem = computed(() => items.value[currentIdx.value] || null)
-const progressPct = computed(() => items.value.length > 0 ? Math.round(reviewedCount.value / items.value.length * 100) : 0)
+/** Read only the example sentence (rate 1 = normal, 0.7 = slow) so the user can listen and repeat. */
+function speakExample(rate: number) {
+  const it = item.value
+  if (!it) return
+  const ex = exampleOf(it)
+  if (ex) speakEnglish(ex, rate).catch(() => {})
+}
 
-async function loadDueReviews() {
+/** Simplest English example sentence of a word/phrasal card. */
+function exampleOf(it: QueueItem): string {
+  const senses = [...(it.card.payload.senses ?? [])].sort((a, b) => a.level - b.level)
+  return senses.find((s) => s.example_en)?.example_en ?? ''
+}
+
+/**
+ * Read the word, then one example sentence that uses it (English only).
+ * If the user moves to another card meanwhile, the old card stops speaking.
+ */
+async function speakCard(it: QueueItem) {
+  if (it.card.kind !== 'vocab' && it.card.kind !== 'phrasal') return
+  const id = it.card.id
   try {
-    const { data } = await axios.get(`${API}/api/srs/due-reviews`, {
-      params: { limit: 20 },
-      headers: { 'X-User-ID': String(USER_ID) }
-    })
-    items.value = data || []
-    currentIdx.value = 0
-    reviewedCount.value = 0
-    loaded.value = true
+    await speakEnglish(it.card.front)
+    const ex = exampleOf(it)
+    if (!ex) return
+    await new Promise((r) => setTimeout(r, 400))
+    if (item.value?.card.id !== id) return
+    await speakEnglish(ex)
+  } catch {
+    /* speech was interrupted by the next card */
+  }
+}
+
+async function load() {
+  loaded.value = false
+  error.value = ''
+  try {
+    const params = { deck_id: route.query.deck_id, subject_id: route.query.subject_id, limit: 20 }
+    const { data } = await api.get('/study/queue', { params })
+    queue.value = data
+    idx.value = 0
   } catch (e) {
-    console.error(e)
+    error.value = errorMessage(e)
+  } finally {
     loaded.value = true
   }
+}
+
+function reveal() {
+  phase.value = 'reveal'
+}
+
+function pick(id: number) {
+  picked.value = id
+  outcome.value = id === correctId.value ? 'correct' : 'wrong'
+  phase.value = 'reveal'
+}
+
+function dontKnow() {
+  picked.value = null
+  outcome.value = 'wrong'
+  phase.value = 'reveal'
+}
+
+function resultClass(id: number) {
+  if (id === correctId.value) return 'btn-success'
+  if (id === picked.value) return 'btn-danger'
+  return 'btn-outline-secondary opacity-50'
 }
 
 async function rate(rating: number) {
-  if (!currentItem.value) return
+  if (!item.value || sending.value) return
+  sending.value = true
   try {
-    await axios.post(`${API}/api/srs/review`, {
-      vocab_id: currentItem.value.vocab_id,
-      rating
-    }, { headers: { 'X-User-ID': String(USER_ID) } })
-    reviewedCount.value++
-    if (currentIdx.value < items.value.length - 1) {
-      currentIdx.value++
-    } else {
-      items.value = []
-    }
+    await api.post('/study/review', { card_id: item.value.card.id, rating, duration_ms: Date.now() - shownAt })
+    done.value++
+    if (idx.value < queue.value.length - 1) idx.value++
+    else await load() // learning steps come back within minutes
   } catch (e) {
-    console.error(e)
+    error.value = errorMessage(e)
+  } finally {
+    sending.value = false
   }
 }
 
-async function speakCurrent() {
-  if (!currentItem.value) return
-  await speakBilingual(currentItem.value.example_en, currentItem.value.example_vi)
+function onKey(e: KeyboardEvent) {
+  const it = item.value
+  if (!it || sending.value || (e.target as HTMLElement)?.tagName === 'INPUT') return
+  if (e.key === 'p' || e.key === 'P') {
+    speakCard(it)
+    return
+  }
+  if (e.key === 'e' || e.key === 'E') {
+    speakExample(1)
+    return
+  }
+  if (e.key === 's' || e.key === 'S') {
+    speakExample(0.7)
+    return
+  }
+  if (phase.value === 'ask') {
+    if (choices.value.length) {
+      const n = Number(e.key)
+      if (n >= 1 && n <= choices.value.length) pick(choices.value[n - 1].id)
+      else if (e.key === '0') dontKnow()
+    } else if (e.code === 'Space') {
+      e.preventDefault()
+      reveal()
+    }
+    return
+  }
+  // reveal phase
+  if (e.key === 'Enter') {
+    e.preventDefault()
+    rate(outcome.value === 'wrong' ? 1 : 3)
+  } else if (!it.is_new && outcome.value !== 'wrong' && ['1', '2', '3', '4'].includes(e.key)) {
+    const r = Number(e.key)
+    if (outcome.value === 'correct' && r === 1) return
+    rate(r)
+  }
 }
 
-onMounted(loadDueReviews)
+watch(() => route.fullPath, load)
+onMounted(() => {
+  load()
+  window.addEventListener('keydown', onKey)
+  if (soundLocked.value) {
+    window.addEventListener('pointerdown', unlockSound, true)
+    window.addEventListener('keydown', unlockSound, true)
+  }
+})
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKey)
+  window.removeEventListener('pointerdown', unlockSound, true)
+  window.removeEventListener('keydown', unlockSound, true)
+})
 </script>
+
+<style scoped>
+.speak-btn {
+  width: 40px;
+  height: 40px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #0d6efd;
+  border: 1px solid #dee2e6;
+}
+.speak-btn:hover {
+  background: #e7f1ff;
+}
+.choice {
+  white-space: normal;
+}
+.example {
+  font-size: 1.05rem;
+}
+.speak-sm {
+  width: 32px;
+  height: 32px;
+  font-size: 0.85rem;
+}
+</style>

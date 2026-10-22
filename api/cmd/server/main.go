@@ -1,37 +1,59 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"log"
-	"os"
+	"net/http"
+	"os/signal"
+	"syscall"
+	"time"
+	_ "time/tzdata" // time zone database inside the binary, so LoadLocation works in any container
 
 	"mvp-lang-app/internal/config"
 	"mvp-lang-app/internal/db"
-	"mvp-lang-app/internal/http"
+	apihttp "mvp-lang-app/internal/http"
 	"mvp-lang-app/internal/worker"
+	"mvp-lang-app/migrations"
 )
 
 func main() {
 	cfg := config.Load()
 
+	// Retry for ~1 minute: the database may still be starting (e.g. after a reboot).
 	conn, err := db.Connect(cfg)
+	for i := 1; err != nil && i <= 30; i++ {
+		log.Printf("database not ready (%v), retrying in 2s (%d/30)", err, i)
+		time.Sleep(2 * time.Second)
+		conn, err = db.Connect(cfg)
+	}
 	if err != nil {
 		log.Fatalf("db connect error: %v", err)
 	}
-
-	// Start SRS background worker
-	go worker.StartSRSWorker(conn)
-
-	// Create uploads directory
-	os.MkdirAll("./uploads", 0755)
-
-	r := http.NewRouter(conn, cfg)
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "5173"
+	if err := db.Migrate(conn, migrations.FS); err != nil {
+		log.Fatalf("migrations failed: %v", err)
 	}
-	log.Printf("Server starting on port %s", port)
-	if err := r.Run(":" + port); err != nil {
-		log.Fatalf("server error: %v", err)
+
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	go worker.Start(ctx, conn)
+
+	srv := &http.Server{
+		Addr:              ":" + cfg.Port,
+		Handler:           apihttp.NewRouter(conn, cfg),
+		ReadHeaderTimeout: 10 * time.Second,
+		WriteTimeout:      200 * time.Second, // AI generation can take a while
 	}
+	go func() {
+		log.Printf("API listening on :%s", cfg.Port)
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("server error: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	log.Println("shutting down...")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutdownCtx)
 }

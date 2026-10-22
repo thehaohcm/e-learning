@@ -1,3 +1,4 @@
+// Package http wires routes and middleware.
 package http
 
 import (
@@ -12,69 +13,81 @@ import (
 )
 
 func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
-	r := gin.Default()
-
-	// Build CORS origins from env
-	corsOrigins := []string{
-		"http://localhost:8085",
-		"http://localhost:5173",
-		"http://localhost:8080",
+	if cfg.AppEnv == "production" {
+		gin.SetMode(gin.ReleaseMode)
 	}
-	if frontendURL := cfg.FrontendURL; frontendURL != "" {
-		corsOrigins = append(corsOrigins, frontendURL)
-	}
+	r := gin.New()
+	r.Use(gin.Logger(), gin.Recovery())
+	r.SetTrustedProxies(nil)
+	r.MaxMultipartMemory = 1 << 20
 
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     corsOrigins,
-		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Length", "Content-Type", "Accept", "Authorization", "X-User-ID"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
+		AllowOrigins:  cfg.CORSOrigins,
+		AllowMethods:  []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
+		AllowHeaders:  []string{"Origin", "Content-Type", "Accept", "Authorization"},
+		ExposeHeaders: []string{"Content-Length"},
+		MaxAge:        12 * time.Hour,
 	}))
 
-	h := &handlers.Handler{DB: db, Cfg: cfg}
+	h := handlers.New(db, cfg)
 
 	r.GET("/health", h.Health)
-
 	api := r.Group("/api")
+
+	// ---- public
+	authLimit := handlers.RateLimit(20)
+	api.POST("/auth/register", authLimit, h.Register)
+	api.POST("/auth/login", authLimit, h.Login)
+
+	// ---- study device (ESP32). Token: "Authorization: Bearer dev_..."
+	api.POST("/device/register", handlers.RateLimit(10), h.DeviceRegister)
+	dev := api.Group("/device", h.RequireDevice)
 	{
-		// Auth
-		api.POST("/auth/register", h.Register)
-		api.POST("/auth/login", h.Login)
+		dev.GET("/status", h.DeviceStatus)
+		dev.GET("/sync", h.DeviceSync)
+		dev.POST("/reviews", h.DeviceReviews)
+	}
 
-		// Vocabulary
-		api.GET("/vocabs", h.ListVocabs)
-		api.GET("/vocabs/:id", h.GetVocab)
-		api.POST("/vocabs/generate-random", h.GenerateRandomVocabs)
-		api.GET("/topics", h.GetTopics)
+	// ---- logged-in user (web)
+	u := api.Group("", h.RequireUser)
+	{
+		u.GET("/auth/me", h.Me)
 
-		// SRS
-		api.POST("/srs/start", h.StartLearning)
-		api.GET("/srs/due-reviews", h.GetDueReviews)
-		api.POST("/srs/review", h.SubmitReview)
+		u.GET("/subjects", h.ListSubjects)
+		u.GET("/cards", h.ListCards)
+		u.GET("/cards/:id", h.GetCard)
 
-		// Quiz
-		api.GET("/quiz", h.GetQuiz)
-		api.POST("/quiz/answer", h.SubmitAnswer)
+		u.POST("/study/enroll", h.Enroll)
+		u.GET("/study/queue", h.Queue)
+		u.POST("/study/review", h.Review)
+		u.POST("/study/suspend", h.Suspend)
 
-		// Writing
-		api.POST("/writing/submit", h.SubmitWriting)
-		api.GET("/writing/:id", h.GetWritingFeedback)
-		api.GET("/writing/history", h.GetWritingHistory)
+		u.GET("/quiz", h.Quiz)
+		u.POST("/quiz/answer", h.QuizAnswer)
 
-		// Dashboard
-		api.GET("/dashboard", h.GetDashboard)
+		u.GET("/stats", h.Stats)
+		u.GET("/settings", h.GetSettings)
+		u.PUT("/settings", h.UpdateSettings)
 
-		// Search
-		api.GET("/search", h.Search)
+		u.GET("/devices", h.ListDevices)
+		u.POST("/devices/pair", h.PairDevice)
+		u.PATCH("/devices/:id", h.RenameDevice)
+		u.DELETE("/devices/:id", h.UnpairDevice)
 
-		// Audio
-		api.POST("/audio/upload", h.UploadAudio)
+		u.POST("/writing", h.SubmitWriting)
+		u.GET("/writing", h.ListWriting)
+		u.GET("/writing/:id", h.GetWriting)
+	}
 
-		// Preferences
-		api.GET("/preferences", h.GetPreferences)
-		api.PUT("/preferences", h.UpdatePreferences)
+	// ---- admin: manage content
+	a := api.Group("", h.RequireUser, h.RequireAdmin)
+	{
+		a.POST("/subjects", h.CreateSubject)
+		a.POST("/decks", h.CreateDeck)
+		a.POST("/decks/:id/generate", h.GenerateCards)
+		a.POST("/cards", h.CreateCard)
+		a.PUT("/cards/:id", h.UpdateCard)
+		a.DELETE("/cards/:id", h.DeleteCard)
 	}
 
 	return r

@@ -1,70 +1,78 @@
 <template>
-  <div>
-    <div class="text-center mb-4">
-      <h1 class="fw-bold text-info mb-2">
-        <i class="bi bi-pencil"></i> Writing Lab
-      </h1>
-      <p class="text-muted">Submit your writing - AI will evaluate and provide 3-level rewrites</p>
-    </div>
+  <div class="row justify-content-center">
+    <div class="col-lg-9">
+      <h2 class="fw-bold text-info mb-1"><i class="bi bi-pencil"></i> Writing Lab</h2>
+      <p class="text-muted">AI scores your English writing, explains mistakes in Vietnamese and rewrites it at 3 levels.</p>
 
-    <div class="row justify-content-center">
-      <div class="col-md-8">
-        <div class="card border-0 shadow-sm mb-4">
-          <div class="card-body">
-            <div class="mb-3">
-              <label class="form-label fw-bold">Writing Prompt</label>
-              <textarea v-model="prompt" class="form-control" rows="2" placeholder="E.g., 'Describe your daily work routine using at least 5 vocabulary words'"></textarea>
-            </div>
-            <div class="mb-3">
-              <label class="form-label fw-bold">Your Writing</label>
-              <textarea v-model="text" class="form-control" rows="8" placeholder="Write your essay here..."></textarea>
-              <small class="text-muted">{{ text.length }} characters</small>
-            </div>
-            <button @click="submit" class="btn btn-info btn-lg w-100 text-white" :disabled="submitting">
-              <i class="bi bi-send me-2"></i>
-              {{ submitting ? 'Submitting...' : 'Submit for AI Feedback' }}
+      <div class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+          <label class="form-label fw-semibold">Task</label>
+          <textarea v-model="prompt" class="form-control mb-3" rows="2"
+            placeholder="E.g. Describe your daily work routine (IELTS Task 2 style questions work well too)"></textarea>
+          <label class="form-label fw-semibold">Your writing</label>
+          <textarea v-model="text" class="form-control" rows="8" placeholder="Write here…"></textarea>
+          <div class="d-flex justify-content-between align-items-center mt-2">
+            <small class="text-muted">{{ wordCount }} words</small>
+            <button class="btn btn-info text-white" :disabled="submitting || wordCount < 5 || !prompt.trim()" @click="submit">
+              <i class="bi bi-send"></i> {{ submitting ? 'Sending…' : 'Get feedback' }}
             </button>
           </div>
+          <div v-if="error" class="alert alert-danger mt-3 mb-0 py-2">{{ error }}</div>
         </div>
+      </div>
 
-        <!-- Feedback Result -->
-        <div v-if="feedback && feedback.status === 'completed'" class="card border-0 shadow-lg">
-          <div class="card-body">
-            <h4 class="fw-bold mb-3">AI Feedback</h4>
-            <div class="row g-3 mb-3">
+      <div v-if="current" class="card border-0 shadow-sm mb-4">
+        <div class="card-body">
+          <div v-if="current.status === 'processing' || current.status === 'pending'" class="text-center py-3">
+            <div class="spinner-border spinner-border-sm me-2"></div> AI is reading your text… (usually 10-40 s)
+          </div>
+          <div v-else-if="current.status === 'failed'" class="alert alert-warning mb-0">{{ current.error_message || 'Evaluation failed.' }}</div>
+          <template v-else>
+            <div class="row g-2 mb-3 text-center">
               <div class="col-6 col-md-3" v-for="s in scores" :key="s.label">
-                <div class="text-center p-2 rounded bg-light">
-                  <div class="fw-bold" :class="'text-' + s.color">{{ s.value }}%</div>
+                <div class="p-2 rounded bg-light">
+                  <div class="fs-4 fw-bold" :class="`text-${s.color}`">{{ Math.round(s.value ?? 0) }}</div>
                   <small class="text-muted">{{ s.label }}</small>
                 </div>
               </div>
             </div>
-            <div class="text-center">
-              <p class="text-muted">AI is evaluating your writing... Detailed 3-level rewrites will appear here.</p>
-            </div>
-          </div>
-        </div>
+            <p>{{ current.feedback?.summary_vi }}</p>
 
-        <div v-if="feedback && feedback.status === 'pending'" class="alert alert-info text-center">
-          <div class="spinner-border spinner-border-sm me-2"></div>
-          AI is evaluating your writing... <button @click="checkStatus(feedback.id)" class="btn btn-sm btn-outline-info ms-2">Check Status</button>
+            <h6 v-if="current.feedback?.errors?.length" class="fw-bold mt-3">Mistakes</h6>
+            <ul class="list-unstyled">
+              <li v-for="(e, i) in current.feedback?.errors" :key="i" class="mb-2">
+                <span class="text-danger text-decoration-line-through">{{ e.original }}</span>
+                <i class="bi bi-arrow-right mx-1"></i>
+                <span class="text-success fw-semibold">{{ e.correction }}</span>
+                <div class="small text-muted">{{ e.explanation_vi }}</div>
+              </li>
+            </ul>
+
+            <h6 class="fw-bold mt-3">Rewrites</h6>
+            <ul class="nav nav-pills mb-2 small">
+              <li class="nav-item" v-for="r in current.feedback?.rewrites" :key="r.level">
+                <button class="nav-link py-1" :class="{ active: level === r.level }" @click="level = r.level">
+                  {{ ['', 'Simple', 'Natural', 'Advanced'][r.level] || `Level ${r.level}` }}
+                </button>
+              </li>
+            </ul>
+            <div class="p-3 bg-light rounded" style="white-space: pre-wrap">{{ current.feedback?.rewrites?.find((r) => r.level === level)?.text }}</div>
+          </template>
         </div>
       </div>
-    </div>
 
-    <!-- Writing History -->
-    <div v-if="history.length > 0" class="row justify-content-center mt-5">
-      <div class="col-md-8">
-        <h5 class="fw-bold mb-3">Your Writing History</h5>
-        <div v-for="h in history" :key="h.id" class="card border-0 shadow-sm mb-2">
-          <div class="card-body d-flex justify-content-between align-items-center">
-            <div>
-              <strong>{{ h.prompt?.substring(0, 60) }}...</strong>
-              <br><small class="text-muted">{{ h.status }} | {{ new Date(h.created_at).toLocaleDateString() }}</small>
-            </div>
-            <span v-if="h.overall_score" class="badge bg-success fs-6">{{ Math.round(h.overall_score) }}%</span>
-            <span v-else class="badge bg-secondary">Pending</span>
-          </div>
+      <div v-if="history.length">
+        <h6 class="fw-bold">History</h6>
+        <div class="list-group">
+          <button v-for="h in history" :key="h.id" class="list-group-item list-group-item-action d-flex justify-content-between align-items-center"
+            @click="open(h.id)">
+            <span class="text-truncate me-2">{{ h.prompt }}</span>
+            <span>
+              <small class="text-muted me-2">{{ new Date(h.created_at).toLocaleDateString() }}</small>
+              <span v-if="h.overall_score != null" class="badge bg-success">{{ Math.round(h.overall_score) }}</span>
+              <span v-else class="badge bg-secondary">{{ h.status }}</span>
+            </span>
+          </button>
         </div>
       </div>
     </div>
@@ -72,57 +80,82 @@
 </template>
 
 <script setup lang="ts">
-import axios from 'axios'
-import { ref, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { api, errorMessage } from '../api'
 
-const API = (import.meta as any).env.VITE_API_BASE_URL || 'http://localhost:5173'
-const USER_ID = 1
+interface Submission {
+  id: number
+  prompt: string
+  status: string
+  created_at: string
+  error_message?: string
+  overall_score?: number
+  grammar_score?: number
+  vocab_score?: number
+  coherence_score?: number
+  feedback?: {
+    summary_vi?: string
+    errors?: { original: string; correction: string; explanation_vi: string }[]
+    rewrites?: { level: number; text: string }[]
+  }
+}
 
 const prompt = ref('')
 const text = ref('')
 const submitting = ref(false)
-const feedback = ref<any>(null)
-const history = ref<any[]>([])
+const error = ref('')
+const current = ref<Submission | null>(null)
+const history = ref<Submission[]>([])
+const level = ref(2)
+let timer: number | undefined
 
-const scores = [
-  { label: 'Grammar', value: 72, color: 'primary' },
-  { label: 'Vocabulary', value: 78, color: 'success' },
-  { label: 'Coherence', value: 75, color: 'warning' },
-  { label: 'Overall', value: 75, color: 'info' },
-]
+const wordCount = computed(() => text.value.trim().split(/\s+/).filter(Boolean).length)
+const scores = computed(() => [
+  { label: 'Overall', value: current.value?.overall_score, color: 'info' },
+  { label: 'Grammar', value: current.value?.grammar_score, color: 'primary' },
+  { label: 'Vocabulary', value: current.value?.vocab_score, color: 'success' },
+  { label: 'Coherence', value: current.value?.coherence_score, color: 'warning' },
+])
 
 async function submit() {
-  if (!prompt.value || !text.value) return alert('Please fill in both prompt and text')
   submitting.value = true
+  error.value = ''
   try {
-    const { data } = await axios.post(`${API}/api/writing/submit`, {
-      prompt: prompt.value,
-      text: text.value,
-      required_vocab_ids: []
-    }, { headers: { 'X-User-ID': String(USER_ID) } })
-    feedback.value = data
-    loadHistory()
+    const { data } = await api.post('/writing', { prompt: prompt.value, text: text.value })
+    current.value = data
+    poll(data.id)
   } catch (e) {
-    console.error(e)
+    error.value = errorMessage(e)
+  } finally {
+    submitting.value = false
   }
-  submitting.value = false
 }
 
-async function checkStatus(id: number) {
+function poll(id: number) {
+  clearTimeout(timer)
+  timer = window.setTimeout(async () => {
+    await open(id)
+    if (current.value?.status === 'processing' || current.value?.status === 'pending') poll(id)
+    else loadHistory()
+  }, 3000)
+}
+
+async function open(id: number) {
   try {
-    const { data } = await axios.get(`${API}/api/writing/${id}`)
-    feedback.value = data
-  } catch (e) { console.error(e) }
+    const { data } = await api.get(`/writing/${id}`)
+    current.value = data
+  } catch (e) {
+    error.value = errorMessage(e)
+  }
 }
 
 async function loadHistory() {
   try {
-    const { data } = await axios.get(`${API}/api/writing/history`, {
-      headers: { 'X-User-ID': String(USER_ID) }
-    })
-    history.value = data || []
-  } catch (e) { console.error(e) }
+    const { data } = await api.get('/writing')
+    history.value = data
+  } catch { /* ignore */ }
 }
 
 onMounted(loadHistory)
+onUnmounted(() => clearTimeout(timer))
 </script>

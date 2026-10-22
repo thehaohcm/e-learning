@@ -5,10 +5,13 @@
 *.DS_Store
 .env
 .env.*
+!.env.example
 
 # ---- Golang ----
 api/bin/
 api/server
+api/go.dev.mod
+api/go.dev.sum
 api/*.exe
 api/*.out
 api/*.test
@@ -41,3 +44,4 @@ ehthumbs.db
 Desktop.ini
 .aider*
 .exe
+.tar.gz

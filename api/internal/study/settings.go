@@ -1,0 +1,74 @@
+package study
+
+import (
+	"encoding/json"
+	"regexp"
+)
+
+// Settings are per-user study preferences stored in users.settings (JSONB).
+// The device receives them on every sync.
+type Settings struct {
+	// New cards introduced per day across all active decks.
+	DailyNew int `json:"daily_new"`
+	// Decks that automatically feed new cards into the study queue.
+	// Empty = use the default English core vocabulary deck.
+	ActiveDeckIDs []int64 `json:"active_deck_ids"`
+	// Device "pop-up" reminder: show one card every N minutes inside the window.
+	ReminderEveryMin int    `json:"reminder_every_min"`
+	ActiveFrom       string `json:"active_from"` // "07:30"
+	ActiveTo         string `json:"active_to"`   // "22:00"
+	// Text-to-speech speed for the web app.
+	TTSSpeed float64 `json:"tts_speed"`
+}
+
+func DefaultSettings() Settings {
+	return Settings{
+		DailyNew:         10,
+		ReminderEveryMin: 45,
+		ActiveFrom:       "07:30",
+		ActiveTo:         "22:00",
+		TTSSpeed:         1.0,
+	}
+}
+
+var hhmm = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
+
+// ParseSettings reads stored settings and fills missing values with defaults.
+func ParseSettings(raw []byte) Settings {
+	s := DefaultSettings()
+	if len(raw) > 0 {
+		_ = json.Unmarshal(raw, &s)
+	}
+	return s.sanitized()
+}
+
+func (s Settings) sanitized() Settings {
+	d := DefaultSettings()
+	if s.DailyNew < 0 || s.DailyNew > 200 {
+		s.DailyNew = d.DailyNew
+	}
+	if s.ReminderEveryMin < 5 || s.ReminderEveryMin > 24*60 {
+		s.ReminderEveryMin = d.ReminderEveryMin
+	}
+	if !hhmm.MatchString(s.ActiveFrom) {
+		s.ActiveFrom = d.ActiveFrom
+	}
+	if !hhmm.MatchString(s.ActiveTo) {
+		s.ActiveTo = d.ActiveTo
+	}
+	if s.TTSSpeed < 0.5 || s.TTSSpeed > 2 {
+		s.TTSSpeed = d.TTSSpeed
+	}
+	if s.ActiveDeckIDs == nil {
+		s.ActiveDeckIDs = []int64{}
+	}
+	return s
+}
+
+// Merge applies a partial JSON update on top of the current settings.
+func (s Settings) Merge(patch []byte) (Settings, error) {
+	if err := json.Unmarshal(patch, &s); err != nil {
+		return s, err
+	}
+	return s.sanitized(), nil
+}

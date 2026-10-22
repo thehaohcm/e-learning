@@ -1,186 +1,60 @@
--- IELTS 7.5 Vocabulary Words
-INSERT INTO vocabs (word, meaning_en, meaning_vi, example_en, example_vi, topic)
-VALUES
-('substantial', 'considerable in amount', 'đáng kể', 'There was a substantial increase in sales.', 'Có một sự gia tăng đáng kể trong doanh số bán hàng.', 'Business'),
-('contemporary', 'belonging to the same time period', 'đương đại', 'Contemporary art is often controversial.', 'Nghệ thuật đương đại thường gây tranh cãi.', 'Art'),
-('ambiguous', 'having more than one possible meaning', 'mơ hồ', 'The instructions were ambiguous.', 'Các hướng dẫn thì mơ hồ.', 'Language'),
-('fundamental', 'basic and important', 'cơ bản', 'Reading is a fundamental skill.', 'Đọc là một kỹ năng cơ bản.', 'Education'),
-('sophisticated', 'complex and refined', 'tinh vi', 'The system is highly sophisticated.', 'Hệ thống rất tinh vi.', 'Technology'),
-('comprehensive', 'complete and thorough', 'toàn diện', 'The report provides comprehensive analysis.', 'Báo cáo cung cấp phân tích toàn diện.', 'Academic'),
-('inevitable', 'certain to happen', 'không thể tránh khỏi', 'Change is inevitable.', 'Sự thay đổi là không thể tránh khỏi.', 'Philosophy'),
-('controversial', 'causing disagreement', 'gây tranh cãi', 'The policy was highly controversial.', 'Chính sách đó gây tranh cãi cao độ.', 'Politics'),
-('innovative', 'featuring new methods', 'đổi mới', 'The company is known for innovative products.', 'Công ty được biết đến với các sản phẩm đổi mới.', 'Business'),
-('fluctuate', 'to rise and fall irregularly', 'dao động', 'Prices fluctuate daily.', 'Giá cả dao động hàng ngày.', 'Economics'),
-('implement', 'to put into effect', 'thực hiện', 'We need to implement the new policy.', 'Chúng ta cần thực hiện chính sách mới.', 'Management'),
-('consequence', 'a result or effect', 'hậu quả', 'Every action has consequences.', 'Mọi hành động đều có hậu quả.', 'Philosophy'),
-('significant', 'important or noticeable', 'quan trọng', 'This is a significant discovery.', 'Đây là một phát hiện quan trọng.', 'Science'),
-('efficient', 'achieving maximum productivity', 'hiệu quả', 'The system is very efficient.', 'Hệ thống rất hiệu quả.', 'Technology'),
-('phenomenon', 'a fact or event that can be observed', 'hiện tượng', 'This phenomenon is rare.', 'Hiện tượng này hiếm gặp.', 'Science'),
-('subsequent', 'coming after something', 'tiếp theo', 'The subsequent events were surprising.', 'Các sự kiện tiếp theo thật bất ngờ.', 'History'),
-('alternative', 'another possibility', 'thay thế', 'We need an alternative solution.', 'Chúng ta cần một giải pháp thay thế.', 'Problem Solving'),
-('demonstrate', 'to show clearly', 'chứng minh', 'The results demonstrate our success.', 'Kết quả chứng minh sự thành công của chúng tôi.', 'Academic'),
-('eliminate', 'to remove completely', 'loại bỏ', 'We must eliminate waste.', 'Chúng ta phải loại bỏ lãng phí.', 'Environment'),
-('exaggerate', 'to make something seem larger', 'cường điệu', 'Don''t exaggerate the problem.', 'Đừng cường điệu vấn đề.', 'Communication'),
-('facilitate', 'to make something easier', 'tạo điều kiện', 'Technology facilitates learning.', 'Công nghệ tạo điều kiện cho việc học.', 'Education'),
-('guarantee', 'to promise something', 'đảm bảo', 'We guarantee quality service.', 'Chúng tôi đảm bảo dịch vụ chất lượng.', 'Business'),
-('hypothesis', 'a proposed explanation', 'giả thuyết', 'The hypothesis needs testing.', 'Giả thuyết cần được kiểm nghiệm.', 'Science'),
-('illustrate', 'to explain with examples', 'minh họa', 'The diagram illustrates the process.', 'Sơ đồ minh họa quá trình.', 'Education'),
-('justify', 'to show something is right', 'biện minh', 'Can you justify your decision?', 'Bạn có thể biện minh cho quyết định của mình không?', 'Philosophy'),
-('legitimate', 'reasonable and acceptable', 'hợp pháp', 'This is a legitimate concern.', 'Đây là một mối quan tâm hợp pháp.', 'Law'),
-('manipulate', 'to control or influence', 'thao túng', 'Don''t manipulate the data.', 'Đừng thao túng dữ liệu.', 'Ethics'),
-('notorious', 'famous for something bad', 'khét tiếng', 'The area is notorious for crime.', 'Khu vực này khét tiếng về tội phạm.', 'Society'),
-('objective', 'not influenced by personal feelings', 'khách quan', 'We need objective analysis.', 'Chúng ta cần phân tích khách quan.', 'Academic'),
-('perceive', 'to understand or interpret', 'nhận thức', 'How do you perceive the situation?', 'Bạn nhận thức tình huống này như thế nào?', 'Psychology'),
-('qualitative', 'relating to quality', 'định tính', 'The research is qualitative.', 'Nghiên cứu là định tính.', 'Research'),
-('reluctant', 'unwilling to do something', 'miễn cưỡng', 'He was reluctant to help.', 'Anh ấy miễn cưỡng giúp đỡ.', 'Behavior'),
-('simulate', 'to imitate something', 'mô phỏng', 'The program simulates reality.', 'Chương trình mô phỏng thực tế.', 'Technology'),
-('tentative', 'not certain or fixed', 'thử nghiệm', 'This is a tentative plan.', 'Đây là một kế hoạch thử nghiệm.', 'Planning'),
-('undermine', 'to weaken gradually', 'làm suy yếu', 'This could undermine our efforts.', 'Điều này có thể làm suy yếu nỗ lực của chúng ta.', 'Strategy'),
-('versatile', 'able to adapt to many functions', 'đa năng', 'She is a versatile performer.', 'Cô ấy là một nghệ sĩ đa năng.', 'Skills'),
-('withstand', 'to resist or endure', 'chịu đựng', 'The building can withstand earthquakes.', 'Tòa nhà có thể chịu đựng động đất.', 'Engineering'),
-('yield', 'to produce or provide', 'mang lại', 'The investment yielded profits.', 'Khoản đầu tư mang lại lợi nhuận.', 'Economics'),
-('accelerate', 'to increase speed', 'đẩy nhanh', 'We need to accelerate progress.', 'Chúng ta cần đẩy nhanh tiến độ.', 'Development'),
-('bureaucratic', 'relating to government officials', 'quan liêu', 'The process is too bureaucratic.', 'Quá trình quá quan liêu.', 'Government'),
-('catastrophic', 'causing great damage', 'thảm khốc', 'The results were catastrophic.', 'Kết quả thật thảm khốc.', 'Disaster'),
-('denounce', 'to criticize strongly', 'tố cáo', 'They denounced the policy.', 'Họ đã tố cáo chính sách.', 'Politics'),
-('eliminate', 'to remove completely', 'loại bỏ', 'We must eliminate corruption.', 'Chúng ta phải loại bỏ tham nhũng.', 'Society'),
-('frustrated', 'feeling annoyed or upset', 'nản chí', 'She felt frustrated with delays.', 'Cô ấy cảm thấy nản chí với sự chậm trễ.', 'Emotions'),
-('guarantee', 'to promise something', 'đảm bảo', 'We guarantee satisfaction.', 'Chúng tôi đảm bảo sự hài lòng.', 'Business'),
-('hesitate', 'to pause before doing something', 'do dự', 'Don''t hesitate to ask questions.', 'Đừng do dự đặt câu hỏi.', 'Communication'),
-('infrastructure', 'basic physical structures', 'cơ sở hạ tầng', 'The infrastructure needs improvement.', 'Cơ sở hạ tầng cần được cải thiện.', 'Development'),
-('jeopardize', 'to put something at risk', 'gây nguy hiểm', 'This could jeopardize our future.', 'Điều này có thể gây nguy hiểm cho tương lai của chúng ta.', 'Risk'),
-('legitimate', 'reasonable and acceptable', 'hợp pháp', 'This is a legitimate request.', 'Đây là một yêu cầu hợp pháp.', 'Law'),
-('magnificent', 'impressive in appearance', 'tráng lệ', 'The view was magnificent.', 'Cảnh quan thật tráng lệ.', 'Nature'),
-('negotiate', 'to discuss to reach agreement', 'đàm phán', 'They negotiated successfully.', 'Họ đàm phán thành công.', 'Business')
-ON CONFLICT DO NOTHING;
+-- 0003_ielts_vocabulary: starter English vocabulary (converted from the old
+-- 0002/0003 seed files into the new cards format). One simple example per word;
+-- use "Generate with AI" on the deck to add more words with 3 example levels.
 
--- Insert quiz questions for the new vocabulary
-INSERT INTO quiz_questions (vocab_id, prompt, choices, answer_idx)
-SELECT 
-    v.id,
-    'What is the closest meaning of "substantial"?',
-    '["considerable","tiny","fake","old"]',
-    0
-FROM vocabs v
-WHERE v.word = 'substantial'
-AND NOT EXISTS (
-    SELECT 1 FROM quiz_questions q 
-    WHERE q.prompt = 'What is the closest meaning of "substantial"?'
-);
-
-INSERT INTO quiz_questions (vocab_id, prompt, choices, answer_idx)
-SELECT 
-    v.id,
-    'Choose the best meaning of "contemporary".',
-    '["ancient","modern","broken","expensive"]',
-    1
-FROM vocabs v
-WHERE v.word = 'contemporary'
-AND NOT EXISTS (
-    SELECT 1 FROM quiz_questions q 
-    WHERE q.prompt = 'Choose the best meaning of "contemporary".'
-);
-
-INSERT INTO quiz_questions (vocab_id, prompt, choices, answer_idx)
-SELECT 
-    v.id,
-    'What does "ambiguous" mean?',
-    '["clear","having multiple meanings","simple","bright"]',
-    1
-FROM vocabs v
-WHERE v.word = 'ambiguous'
-AND NOT EXISTS (
-    SELECT 1 FROM quiz_questions q 
-    WHERE q.prompt = 'What does "ambiguous" mean?'
-);
-
-INSERT INTO quiz_questions (vocab_id, prompt, choices, answer_idx)
-SELECT 
-    v.id,
-    'Choose the best meaning of "fundamental".',
-    '["basic","complicated","expensive","temporary"]',
-    0
-FROM vocabs v
-WHERE v.word = 'fundamental'
-AND NOT EXISTS (
-    SELECT 1 FROM quiz_questions q 
-    WHERE q.prompt = 'Choose the best meaning of "fundamental".'
-);
-
-INSERT INTO quiz_questions (vocab_id, prompt, choices, answer_idx)
-SELECT 
-    v.id,
-    'What is the closest meaning of "sophisticated"?',
-    '["simple","complex and refined","cheap","old"]',
-    1
-FROM vocabs v
-WHERE v.word = 'sophisticated'
-AND NOT EXISTS (
-    SELECT 1 FROM quiz_questions q 
-    WHERE q.prompt = 'What is the closest meaning of "sophisticated"?'
-);
-
-INSERT INTO quiz_questions (vocab_id, prompt, choices, answer_idx)
-SELECT 
-    v.id,
-    'Choose the best meaning of "comprehensive".',
-    '["incomplete","complete and thorough","confusing","small"]',
-    1
-FROM vocabs v
-WHERE v.word = 'comprehensive'
-AND NOT EXISTS (
-    SELECT 1 FROM quiz_questions q 
-    WHERE q.prompt = 'Choose the best meaning of "comprehensive".'
-);
-
-INSERT INTO quiz_questions (vocab_id, prompt, choices, answer_idx)
-SELECT 
-    v.id,
-    'What does "inevitable" mean?',
-    '["avoidable","certain to happen","impossible","rare"]',
-    1
-FROM vocabs v
-WHERE v.word = 'inevitable'
-AND NOT EXISTS (
-    SELECT 1 FROM quiz_questions q 
-    WHERE q.prompt = 'What does "inevitable" mean?'
-);
-
-INSERT INTO quiz_questions (vocab_id, prompt, choices, answer_idx)
-SELECT 
-    v.id,
-    'Choose the best meaning of "controversial".',
-    '["agreeable","causing disagreement","simple","expensive"]',
-    1
-FROM vocabs v
-WHERE v.word = 'controversial'
-AND NOT EXISTS (
-    SELECT 1 FROM quiz_questions q 
-    WHERE q.prompt = 'Choose the best meaning of "controversial".'
-);
-
-INSERT INTO quiz_questions (vocab_id, prompt, choices, answer_idx)
-SELECT 
-    v.id,
-    'What is the closest meaning of "innovative"?',
-    '["traditional","featuring new methods","boring","expensive"]',
-    1
-FROM vocabs v
-WHERE v.word = 'innovative'
-AND NOT EXISTS (
-    SELECT 1 FROM quiz_questions q 
-    WHERE q.prompt = 'What is the closest meaning of "innovative"?'
-);
-
-INSERT INTO quiz_questions (vocab_id, prompt, choices, answer_idx)
-SELECT 
-    v.id,
-    'What does "fluctuate" mean?',
-    '["to stay constant","to rise and fall","to disappear","to increase"]',
-    1
-FROM vocabs v
-WHERE v.word = 'fluctuate'
-AND NOT EXISTS (
-    SELECT 1 FROM quiz_questions q 
-    WHERE q.prompt = 'What does "fluctuate" mean?'
-);
+INSERT INTO cards (deck_id, kind, front, payload, source)
+SELECT d.id, 'vocab', v.front, v.payload::jsonb, 'seed'
+FROM (VALUES
+  ('substantial', '{"senses": [{"level": 1, "meaning_en": "considerable in amount", "meaning_vi": "đáng kể", "example_en": "There was a substantial increase in sales.", "example_vi": "Có một sự gia tăng đáng kể trong doanh số bán hàng."}], "topic": "Business"}'),
+  ('contemporary', '{"senses": [{"level": 1, "meaning_en": "belonging to the same time period", "meaning_vi": "đương đại", "example_en": "Contemporary art is often controversial.", "example_vi": "Nghệ thuật đương đại thường gây tranh cãi."}], "topic": "Art"}'),
+  ('ambiguous', '{"senses": [{"level": 1, "meaning_en": "having more than one possible meaning", "meaning_vi": "mơ hồ", "example_en": "The instructions were ambiguous.", "example_vi": "Các hướng dẫn thì mơ hồ."}], "topic": "Language"}'),
+  ('fundamental', '{"senses": [{"level": 1, "meaning_en": "basic and important", "meaning_vi": "cơ bản", "example_en": "Reading is a fundamental skill.", "example_vi": "Đọc là một kỹ năng cơ bản."}], "topic": "Education"}'),
+  ('sophisticated', '{"senses": [{"level": 1, "meaning_en": "complex and refined", "meaning_vi": "tinh vi", "example_en": "The system is highly sophisticated.", "example_vi": "Hệ thống rất tinh vi."}], "topic": "Technology"}'),
+  ('comprehensive', '{"senses": [{"level": 1, "meaning_en": "complete and thorough", "meaning_vi": "toàn diện", "example_en": "The report provides comprehensive analysis.", "example_vi": "Báo cáo cung cấp phân tích toàn diện."}], "topic": "Academic"}'),
+  ('inevitable', '{"senses": [{"level": 1, "meaning_en": "certain to happen", "meaning_vi": "không thể tránh khỏi", "example_en": "Change is inevitable.", "example_vi": "Sự thay đổi là không thể tránh khỏi."}], "topic": "Philosophy"}'),
+  ('controversial', '{"senses": [{"level": 1, "meaning_en": "causing disagreement", "meaning_vi": "gây tranh cãi", "example_en": "The policy was highly controversial.", "example_vi": "Chính sách đó gây tranh cãi cao độ."}], "topic": "Politics"}'),
+  ('innovative', '{"senses": [{"level": 1, "meaning_en": "featuring new methods", "meaning_vi": "đổi mới", "example_en": "The company is known for innovative products.", "example_vi": "Công ty được biết đến với các sản phẩm đổi mới."}], "topic": "Business"}'),
+  ('fluctuate', '{"senses": [{"level": 1, "meaning_en": "to rise and fall irregularly", "meaning_vi": "dao động", "example_en": "Prices fluctuate daily.", "example_vi": "Giá cả dao động hàng ngày."}], "topic": "Economics"}'),
+  ('implement', '{"senses": [{"level": 1, "meaning_en": "to put into effect", "meaning_vi": "thực hiện", "example_en": "We need to implement the new policy.", "example_vi": "Chúng ta cần thực hiện chính sách mới."}], "topic": "Management"}'),
+  ('consequence', '{"senses": [{"level": 1, "meaning_en": "a result or effect", "meaning_vi": "hậu quả", "example_en": "Every action has consequences.", "example_vi": "Mọi hành động đều có hậu quả."}], "topic": "Philosophy"}'),
+  ('significant', '{"senses": [{"level": 1, "meaning_en": "important or noticeable", "meaning_vi": "quan trọng", "example_en": "This is a significant discovery.", "example_vi": "Đây là một phát hiện quan trọng."}], "topic": "Science"}'),
+  ('efficient', '{"senses": [{"level": 1, "meaning_en": "achieving maximum productivity", "meaning_vi": "hiệu quả", "example_en": "The system is very efficient.", "example_vi": "Hệ thống rất hiệu quả."}], "topic": "Technology"}'),
+  ('phenomenon', '{"senses": [{"level": 1, "meaning_en": "a fact or event that can be observed", "meaning_vi": "hiện tượng", "example_en": "This phenomenon is rare.", "example_vi": "Hiện tượng này hiếm gặp."}], "topic": "Science"}'),
+  ('subsequent', '{"senses": [{"level": 1, "meaning_en": "coming after something", "meaning_vi": "tiếp theo", "example_en": "The subsequent events were surprising.", "example_vi": "Các sự kiện tiếp theo thật bất ngờ."}], "topic": "History"}'),
+  ('alternative', '{"senses": [{"level": 1, "meaning_en": "another possibility", "meaning_vi": "thay thế", "example_en": "We need an alternative solution.", "example_vi": "Chúng ta cần một giải pháp thay thế."}], "topic": "Problem Solving"}'),
+  ('demonstrate', '{"senses": [{"level": 1, "meaning_en": "to show clearly", "meaning_vi": "chứng minh", "example_en": "The results demonstrate our success.", "example_vi": "Kết quả chứng minh sự thành công của chúng tôi."}], "topic": "Academic"}'),
+  ('eliminate', '{"senses": [{"level": 1, "meaning_en": "to remove completely", "meaning_vi": "loại bỏ", "example_en": "We must eliminate waste.", "example_vi": "Chúng ta phải loại bỏ lãng phí."}], "topic": "Environment"}'),
+  ('exaggerate', '{"senses": [{"level": 1, "meaning_en": "to make something seem larger", "meaning_vi": "cường điệu", "example_en": "Don''t exaggerate the problem.", "example_vi": "Đừng cường điệu vấn đề."}], "topic": "Communication"}'),
+  ('facilitate', '{"senses": [{"level": 1, "meaning_en": "to make something easier", "meaning_vi": "tạo điều kiện", "example_en": "Technology facilitates learning.", "example_vi": "Công nghệ tạo điều kiện cho việc học."}], "topic": "Education"}'),
+  ('guarantee', '{"senses": [{"level": 1, "meaning_en": "to promise something", "meaning_vi": "đảm bảo", "example_en": "We guarantee quality service.", "example_vi": "Chúng tôi đảm bảo dịch vụ chất lượng."}], "topic": "Business"}'),
+  ('hypothesis', '{"senses": [{"level": 1, "meaning_en": "a proposed explanation", "meaning_vi": "giả thuyết", "example_en": "The hypothesis needs testing.", "example_vi": "Giả thuyết cần được kiểm nghiệm."}], "topic": "Science"}'),
+  ('illustrate', '{"senses": [{"level": 1, "meaning_en": "to explain with examples", "meaning_vi": "minh họa", "example_en": "The diagram illustrates the process.", "example_vi": "Sơ đồ minh họa quá trình."}], "topic": "Education"}'),
+  ('justify', '{"senses": [{"level": 1, "meaning_en": "to show something is right", "meaning_vi": "biện minh", "example_en": "Can you justify your decision?", "example_vi": "Bạn có thể biện minh cho quyết định của mình không?"}], "topic": "Philosophy"}'),
+  ('legitimate', '{"senses": [{"level": 1, "meaning_en": "reasonable and acceptable", "meaning_vi": "hợp pháp", "example_en": "This is a legitimate concern.", "example_vi": "Đây là một mối quan tâm hợp pháp."}], "topic": "Law"}'),
+  ('manipulate', '{"senses": [{"level": 1, "meaning_en": "to control or influence", "meaning_vi": "thao túng", "example_en": "Don''t manipulate the data.", "example_vi": "Đừng thao túng dữ liệu."}], "topic": "Ethics"}'),
+  ('notorious', '{"senses": [{"level": 1, "meaning_en": "famous for something bad", "meaning_vi": "khét tiếng", "example_en": "The area is notorious for crime.", "example_vi": "Khu vực này khét tiếng về tội phạm."}], "topic": "Society"}'),
+  ('objective', '{"senses": [{"level": 1, "meaning_en": "not influenced by personal feelings", "meaning_vi": "khách quan", "example_en": "We need objective analysis.", "example_vi": "Chúng ta cần phân tích khách quan."}], "topic": "Academic"}'),
+  ('perceive', '{"senses": [{"level": 1, "meaning_en": "to understand or interpret", "meaning_vi": "nhận thức", "example_en": "How do you perceive the situation?", "example_vi": "Bạn nhận thức tình huống này như thế nào?"}], "topic": "Psychology"}'),
+  ('qualitative', '{"senses": [{"level": 1, "meaning_en": "relating to quality", "meaning_vi": "định tính", "example_en": "The research is qualitative.", "example_vi": "Nghiên cứu là định tính."}], "topic": "Research"}'),
+  ('reluctant', '{"senses": [{"level": 1, "meaning_en": "unwilling to do something", "meaning_vi": "miễn cưỡng", "example_en": "He was reluctant to help.", "example_vi": "Anh ấy miễn cưỡng giúp đỡ."}], "topic": "Behavior"}'),
+  ('simulate', '{"senses": [{"level": 1, "meaning_en": "to imitate something", "meaning_vi": "mô phỏng", "example_en": "The program simulates reality.", "example_vi": "Chương trình mô phỏng thực tế."}], "topic": "Technology"}'),
+  ('tentative', '{"senses": [{"level": 1, "meaning_en": "not certain or fixed", "meaning_vi": "thử nghiệm", "example_en": "This is a tentative plan.", "example_vi": "Đây là một kế hoạch thử nghiệm."}], "topic": "Planning"}'),
+  ('undermine', '{"senses": [{"level": 1, "meaning_en": "to weaken gradually", "meaning_vi": "làm suy yếu", "example_en": "This could undermine our efforts.", "example_vi": "Điều này có thể làm suy yếu nỗ lực của chúng ta."}], "topic": "Strategy"}'),
+  ('versatile', '{"senses": [{"level": 1, "meaning_en": "able to adapt to many functions", "meaning_vi": "đa năng", "example_en": "She is a versatile performer.", "example_vi": "Cô ấy là một nghệ sĩ đa năng."}], "topic": "Skills"}'),
+  ('withstand', '{"senses": [{"level": 1, "meaning_en": "to resist or endure", "meaning_vi": "chịu đựng", "example_en": "The building can withstand earthquakes.", "example_vi": "Tòa nhà có thể chịu đựng động đất."}], "topic": "Engineering"}'),
+  ('yield', '{"senses": [{"level": 1, "meaning_en": "to produce or provide", "meaning_vi": "mang lại", "example_en": "The investment yielded profits.", "example_vi": "Khoản đầu tư mang lại lợi nhuận."}], "topic": "Economics"}'),
+  ('accelerate', '{"senses": [{"level": 1, "meaning_en": "to increase speed", "meaning_vi": "đẩy nhanh", "example_en": "We need to accelerate progress.", "example_vi": "Chúng ta cần đẩy nhanh tiến độ."}], "topic": "Development"}'),
+  ('bureaucratic', '{"senses": [{"level": 1, "meaning_en": "relating to government officials", "meaning_vi": "quan liêu", "example_en": "The process is too bureaucratic.", "example_vi": "Quá trình quá quan liêu."}], "topic": "Government"}'),
+  ('catastrophic', '{"senses": [{"level": 1, "meaning_en": "causing great damage", "meaning_vi": "thảm khốc", "example_en": "The results were catastrophic.", "example_vi": "Kết quả thật thảm khốc."}], "topic": "Disaster"}'),
+  ('denounce', '{"senses": [{"level": 1, "meaning_en": "to criticize strongly", "meaning_vi": "tố cáo", "example_en": "They denounced the policy.", "example_vi": "Họ đã tố cáo chính sách."}], "topic": "Politics"}'),
+  ('frustrated', '{"senses": [{"level": 1, "meaning_en": "feeling annoyed or upset", "meaning_vi": "nản chí", "example_en": "She felt frustrated with delays.", "example_vi": "Cô ấy cảm thấy nản chí với sự chậm trễ."}], "topic": "Emotions"}'),
+  ('hesitate', '{"senses": [{"level": 1, "meaning_en": "to pause before doing something", "meaning_vi": "do dự", "example_en": "Don''t hesitate to ask questions.", "example_vi": "Đừng do dự đặt câu hỏi."}], "topic": "Communication"}'),
+  ('infrastructure', '{"senses": [{"level": 1, "meaning_en": "basic physical structures", "meaning_vi": "cơ sở hạ tầng", "example_en": "The infrastructure needs improvement.", "example_vi": "Cơ sở hạ tầng cần được cải thiện."}], "topic": "Development"}'),
+  ('jeopardize', '{"senses": [{"level": 1, "meaning_en": "to put something at risk", "meaning_vi": "gây nguy hiểm", "example_en": "This could jeopardize our future.", "example_vi": "Điều này có thể gây nguy hiểm cho tương lai của chúng ta."}], "topic": "Risk"}'),
+  ('magnificent', '{"senses": [{"level": 1, "meaning_en": "impressive in appearance", "meaning_vi": "tráng lệ", "example_en": "The view was magnificent.", "example_vi": "Cảnh quan thật tráng lệ."}], "topic": "Nature"}'),
+  ('negotiate', '{"senses": [{"level": 1, "meaning_en": "to discuss to reach agreement", "meaning_vi": "đàm phán", "example_en": "They negotiated successfully.", "example_vi": "Họ đàm phán thành công."}], "topic": "Business"}'),
+  ('sustainable', '{"senses": [{"level": 1, "meaning_en": "able to be maintained", "meaning_vi": "bền vững", "example_en": "We need sustainable solutions.", "example_vi": "Chúng ta cần các giải pháp bền vững."}], "topic": "Environment"}')
+) AS v(front, payload)
+JOIN decks d ON d.slug = 'core-vocab'
+JOIN subjects s ON s.id = d.subject_id AND s.slug = 'english'
+ON CONFLICT (deck_id, kind, lower(front)) DO NOTHING;

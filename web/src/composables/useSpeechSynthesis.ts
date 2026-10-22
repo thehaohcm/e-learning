@@ -9,6 +9,7 @@ export function useSpeechSynthesis() {
   // Load available voices (lazy - browser loads them async)
   function loadVoices(): Promise<SpeechSynthesisVoice[]> {
     return new Promise((resolve) => {
+      if (typeof speechSynthesis === 'undefined') return resolve([])
       const voices = speechSynthesis.getVoices()
       if (voices.length > 0) {
         availableVoices.value = voices
@@ -16,7 +17,11 @@ export function useSpeechSynthesis() {
         resolve(voices)
         return
       }
+      // Some browsers never fire "voiceschanged": don't wait forever,
+      // speak with the default voice after 1s instead.
+      const timer = setTimeout(() => resolve([]), 1000)
       speechSynthesis.addEventListener('voiceschanged', () => {
+        clearTimeout(timer)
         const v = speechSynthesis.getVoices()
         availableVoices.value = v
         voicesLoaded.value = true

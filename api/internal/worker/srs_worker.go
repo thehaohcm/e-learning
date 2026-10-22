@@ -1,48 +1,40 @@
+// Package worker runs small periodic maintenance jobs.
+//
+// Note: no worker is needed to "find due cards" any more. Due cards are found
+// at query time with the (user_id, due) index on user_cards.
 package worker
 
 import (
+	"context"
 	"log"
 	"time"
-
-	"mvp-lang-app/internal/models"
 
 	"gorm.io/gorm"
 )
 
-func StartSRSWorker(db *gorm.DB) {
-	log.Println("[SRS Worker] Background worker started - scanning every 5 minutes")
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		processDueReviews(db)
+// Start runs maintenance every hour until ctx is cancelled.
+func Start(ctx context.Context, db *gorm.DB) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		cleanup(db)
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
 	}
 }
 
-func processDueReviews(db *gorm.DB) {
-	var count int64
-	db.Model(&models.UserVocabProgress{}).
-		Where("next_review_at <= NOW() AND is_active = true").
-		Count(&count)
-
-	if count > 0 {
-		log.Printf("[SRS Worker] Found %d items due for review", count)
-
-		// Update elapsed days for due items
-		db.Exec(`
-			UPDATE user_vocab_progress
-			SET elapsed_days = GREATEST(0, EXTRACT(DAY FROM NOW() - last_review_at)::int)
-			WHERE next_review_at <= NOW() AND is_active = true AND last_review_at IS NOT NULL
-		`)
+func cleanup(db *gorm.DB) {
+	// Devices that registered but were never paired within 7 days.
+	res := db.Exec(`DELETE FROM devices WHERE user_id IS NULL AND created_at < NOW() - INTERVAL '7 days'`)
+	if res.Error != nil {
+		log.Printf("[worker] cleanup devices: %v", res.Error)
+	} else if res.RowsAffected > 0 {
+		log.Printf("[worker] removed %d unpaired devices", res.RowsAffected)
 	}
-
-	// Log review sessions for tracking
-	db.Exec(`
-		INSERT INTO review_sessions (user_id, vocab_count, duration_ms, session_type, created_at)
-		SELECT user_id, COUNT(*), 0, 'auto', NOW()
-		FROM user_vocab_progress
-		WHERE next_review_at <= NOW() AND is_active = true
-		GROUP BY user_id
-		HAVING COUNT(*) > 0
-	`)
+	// Writing evaluations stuck in "processing" (e.g. server restarted mid-request).
+	db.Exec(`UPDATE writing_submissions SET status = 'failed', error_message = 'evaluation interrupted, please submit again'
+	         WHERE status IN ('pending', 'processing') AND created_at < NOW() - INTERVAL '15 minutes'`)
 }

@@ -1,73 +1,102 @@
 #!/bin/bash
-# Deploy e-learning platform to remote server
-# Reads credentials from .env file
-# Usage: bash deploy.sh
+# Deploy the e-learning platform to the server over ONE ssh connection
+# (password asked only once).
+#
+# Usage (Git Bash / WSL / Linux / macOS, from the project folder):
+#   bash deploy.sh            # normal deploy (uses Docker build cache)
+#   bash deploy.sh --clean    # rebuild images from scratch
+#
+# Reads from .env:
+#   DEPLOY_HOST        server IP/hostname       (fallback: DB_HOST)
+#   DEPLOY_USER        ssh user                 (fallback: DB_USER)
+#   DEPLOY_REMOTE_DIR  folder on the server     (default: /home/<user>/e-learning)
+#   WEB_PORT           public port              (default: 8085)
+# The local .env is copied to the server (Windows line endings removed).
 
-set -e
+set -euo pipefail
+cd "$(dirname "$0")"
 
-# Load .env file
 if [ ! -f ".env" ]; then
-    echo "ERROR: .env file not found!"
-    echo "  cp .env.example .env"
-    echo "  Then edit .env with your real credentials"
+    echo "ERROR: .env not found. Run: cp .env.example .env  and fill it in."
     exit 1
 fi
 
-# Source .env (only exports variables, safe for bash)
-export $(grep -v '^#' .env | grep -v '^$' | xargs)
+# Read one value from .env without executing it: strips \r and surrounding quotes.
+env_get() {
+    { grep -E "^[[:space:]]*$1[[:space:]]*=" .env || true; } | tail -n 1 | cut -d= -f2- \
+        | tr -d '\r' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
+}
 
-# Use DEPLOY_* vars for SSH connection (or fallback to DB creds)
-DEPLOY_HOST="${DEPLOY_HOST:-$DB_HOST}"
-DEPLOY_USER="${DEPLOY_USER:-$DB_USER}"
-SERVER="${DEPLOY_USER}@${DEPLOY_HOST}"
-REMOTE_DIR="${DEPLOY_REMOTE_DIR:-/home/${DEPLOY_USER}/e-learning}"
-API_PORT="${PORT:-5173}"
-FRONTEND_PORT="${FRONTEND_PORT:-8085}"
+DEPLOY_HOST="$(env_get DEPLOY_HOST)"; DEPLOY_HOST="${DEPLOY_HOST:-$(env_get DB_HOST)}"
+DEPLOY_USER="$(env_get DEPLOY_USER)"; DEPLOY_USER="${DEPLOY_USER:-$(env_get DB_USER)}"
+REMOTE_DIR="$(env_get DEPLOY_REMOTE_DIR)"; REMOTE_DIR="${REMOTE_DIR:-/home/${DEPLOY_USER}/e-learning}"
+WEB_PORT="$(env_get WEB_PORT)"; WEB_PORT="${WEB_PORT:-8085}"
+BUILD_FLAGS=""
+[ "${1:-}" = "--clean" ] && BUILD_FLAGS="--no-cache"
 
-echo "=== Deploying E-Learning Platform ==="
-echo "Server: $SERVER"
-echo ""
-
-# 1. Create remote directory
-echo "[1/4] Creating remote directory..."
-ssh "$SERVER" "mkdir -p $REMOTE_DIR/uploads"
-
-# 2. Copy source files
-echo "[2/4] Copying source files..."
-scp -r api web docker-compose.yaml .env "$SERVER:$REMOTE_DIR/"
-
-# 3. Build and start with Docker Compose
-echo "[3/4] Building and starting Docker services..."
-ssh "$SERVER" "cd $REMOTE_DIR && docker compose down 2>/dev/null; docker compose build --no-cache && docker compose up -d"
-
-# 4. Verify
-echo "[4/4] Verifying..."
-sleep 8
-echo ""
-ssh "$SERVER" "cd $REMOTE_DIR && docker compose ps"
-echo ""
-
-# Health check
-HTTP_CODE=$(ssh "$SERVER" "curl -s -o /dev/null -w '%{http_code}' http://localhost:${API_PORT}/health 2>/dev/null || echo '000'")
-if [ "$HTTP_CODE" = "200" ]; then
-    echo "✅ Backend is healthy (HTTP $HTTP_CODE)"
-else
-    echo "⏳ Backend starting... (HTTP $HTTP_CODE) - check logs:"
-    echo "   ssh $SERVER 'cd $REMOTE_DIR && docker compose logs api'"
+# ---- sanity checks before touching the server
+fail=0
+[ -z "$DEPLOY_HOST" ] && { echo "ERROR: set DEPLOY_HOST in .env"; fail=1; }
+[ -z "$DEPLOY_USER" ] && { echo "ERROR: set DEPLOY_USER in .env"; fail=1; }
+jwt="$(env_get JWT_SECRET)"
+if [ ${#jwt} -lt 32 ] || [[ "$jwt" == *change-this* ]]; then
+    echo "ERROR: JWT_SECRET must be at least 32 random characters (got ${#jwt}). Create one with: openssl rand -hex 32"
+    fail=1
 fi
+for v in DB_USER DB_PASSWORD DB_NAME; do
+    [ -z "$(env_get $v)" ] && { echo "ERROR: $v is empty in .env"; fail=1; }
+done
+[ $fail -eq 1 ] && exit 1
 
+SERVER="${DEPLOY_USER}@${DEPLOY_HOST}"
+ENV_CONTENT="$(tr -d '\r' < .env)"
+
+echo "=== Deploying E-Learning ==="
+echo "Server: $SERVER"
+echo "Folder: $REMOTE_DIR"
+echo "(enter the ssh password once if asked)"
 echo ""
-echo "============================================"
-echo "  DEPLOYMENT COMPLETE"
-echo "============================================"
-echo ""
-echo "  Frontend:  http://${DEPLOY_HOST}:${FRONTEND_PORT}"
-echo "  Backend:   http://${DEPLOY_HOST}:${API_PORT}"
-echo "  Health:    http://${DEPLOY_HOST}:${API_PORT}/health"
-echo ""
-echo "  View logs:"
-echo "    ssh $SERVER 'cd $REMOTE_DIR && docker compose logs -f'"
-echo ""
-echo "  Stop server:"
-echo "    ssh $SERVER 'cd $REMOTE_DIR && docker compose down'"
-echo ""
+
+tar czf - \
+    --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" \
+    --exclude="go.dev.mod" --exclude="go.dev.sum" \
+    api web docker-compose.yaml .env.example README.md docs | \
+ssh "$SERVER" "
+set -e
+mkdir -p '$REMOTE_DIR'
+cd '$REMOTE_DIR'
+
+echo '[1/4] Extracting files...'
+cat > /tmp/elearn_deploy.tar.gz
+tar xzf /tmp/elearn_deploy.tar.gz
+rm -f /tmp/elearn_deploy.tar.gz
+
+echo '[2/4] Writing .env...'
+cat > .env <<'ENVEOF'
+$ENV_CONTENT
+ENVEOF
+chmod 600 .env
+
+echo '[3/4] Building and starting containers...'
+docker compose build $BUILD_FLAGS
+docker compose up -d --remove-orphans
+
+echo '[4/4] Waiting for the API (max 90s)...'
+ok=0
+for i in \$(seq 1 30); do
+    code=\$(curl -s -o /dev/null -w '%{http_code}' http://localhost:$WEB_PORT/health || true)
+    if [ \"\$code\" = '200' ]; then ok=1; break; fi
+    sleep 3
+done
+docker compose ps
+echo ''
+if [ \$ok -eq 1 ]; then
+    echo '✅ Deploy OK'
+    echo '   Website:  http://$DEPLOY_HOST:$WEB_PORT'
+    echo '   Device:   http://$DEPLOY_HOST:$WEB_PORT/api'
+else
+    echo '❌ API is not healthy. Last API logs:'
+    docker compose logs --tail 40 api
+    exit 1
+fi
+"
