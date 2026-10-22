@@ -259,6 +259,20 @@
             </p>
           </div>
         </div>
+
+        <!-- write about it -->
+        <div class="card border-0 shadow-sm mt-3">
+          <div class="card-body d-flex flex-wrap align-items-center gap-2">
+            <div class="me-auto">
+              <div class="fw-bold"><i class="bi bi-pencil text-danger"></i> Write about this</div>
+              <small class="text-muted">
+                {{ current.kind === 'conversation' ? 'A short message as one of the speakers' : 'A reply or your opinion' }},
+                using words from this {{ current.kind === 'conversation' ? 'conversation' : 'text' }}. AI scores it.
+              </small>
+            </div>
+            <router-link :to="`/writing?reading_id=${current.id}`" class="btn btn-outline-danger">Start writing</router-link>
+          </div>
+        </div>
       </template>
     </div>
   </div>

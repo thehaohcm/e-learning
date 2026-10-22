@@ -5,8 +5,14 @@
         <h2 class="fw-bold text-success mb-0"><i class="bi bi-question-circle"></i> Quiz</h2>
         <small class="text-muted">Correct answers on due cards also count as a review.</small>
       </div>
-      <div class="d-flex gap-2 align-items-center">
-        <div class="form-check form-switch mb-0 small">
+      <div class="d-flex flex-wrap gap-2 align-items-center">
+        <div class="btn-group btn-group-sm" role="group" aria-label="Quiz mode">
+          <button class="btn" :class="qmode === 'choose' ? 'btn-success' : 'btn-outline-success'" @click="setMode('choose')"
+            title="Pick the right meaning"><i class="bi bi-ui-checks"></i> Choose</button>
+          <button class="btn" :class="qmode === 'write' ? 'btn-success' : 'btn-outline-success'" @click="setMode('write')"
+            title="Write the English sentence for a Vietnamese one"><i class="bi bi-pencil"></i> Write it</button>
+        </div>
+        <div v-if="qmode === 'choose'" class="form-check form-switch mb-0 small">
           <input id="listen" v-model="listening" class="form-check-input" type="checkbox" />
           <label class="form-check-label" for="listen">Listening mode</label>
         </div>
@@ -19,7 +25,8 @@
     </div>
 
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
-    <div v-if="loading" class="text-center py-5"><div class="spinner-border text-success"></div></div>
+    <WriteIt v-if="qmode === 'write'" :key="deckId" :deck-id="deckId" />
+    <div v-else-if="loading" class="text-center py-5"><div class="spinner-border text-success"></div></div>
 
     <div v-else-if="!questions.length" class="text-center py-5 text-muted">
       <i class="bi bi-inbox display-4"></i>
@@ -117,6 +124,7 @@ import { api, errorMessage } from '../api'
 import { RATE_REPLAY, RATE_SLOW, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import SpeakCheck from '../components/common/SpeakCheck.vue'
 import ForgottenWords from '../components/common/ForgottenWords.vue'
+import WriteIt from '../components/quiz/WriteIt.vue'
 import type { Subject } from '../types'
 
 interface Question { card_id: number; kind: string; mode: string; prompt: string; speak?: string; choices: { id: number; text: string }[] }
@@ -296,6 +304,7 @@ function back() {
 }
 
 function onKey(e: KeyboardEvent) {
+  if (qmode.value === 'write') return
   const tag = (e.target as HTMLElement)?.tagName
   if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
   if (e.key === 'ArrowLeft' && idx.value > 0) back()
@@ -304,9 +313,22 @@ function onKey(e: KeyboardEvent) {
 onMounted(() => window.addEventListener('keydown', onKey))
 onUnmounted(() => window.removeEventListener('keydown', onKey))
 
+// "choose" = multiple choice (+ listening), "write" = Write it (Vietnamese -> English sentence)
+const qmode = ref<'choose' | 'write'>(route.query.mode === 'write' ? 'write' : 'choose')
+
+function setMode(m: 'choose' | 'write') {
+  if (qmode.value === m) return
+  qmode.value = m
+  start()
+}
+
 async function start() {
   if (!deckId.value) return
-  router.replace({ query: { deck_id: deckId.value } })
+  router.replace({ query: { deck_id: deckId.value, ...(qmode.value === 'write' ? { mode: 'write' } : {}) } })
+  if (qmode.value === 'write') {
+    loading.value = false // WriteIt loads its own sentences
+    return
+  }
   loading.value = true
   error.value = ''
   try {

@@ -163,3 +163,71 @@ Return JSON: {"results":[{"i":1,"correct":true,"score":90,"feedback_vi":"..."}]}
 	}
 	return res, nil
 }
+
+// WrittenItem is one English sentence written by the learner from a Vietnamese prompt.
+type WrittenItem struct {
+	Word        string // the word that must be used
+	MeaningVi   string
+	PromptVi    string // the Vietnamese sentence to translate
+	ReferenceEn string // a correct English version
+	LearnerEn   string
+}
+
+// WrittenResult is the verdict on one written sentence.
+type WrittenResult struct {
+	Correct    bool   `json:"correct"`     // meaning right, target word used correctly, no serious error
+	Score      int    `json:"score"`       // 0-100
+	FeedbackVi string `json:"feedback_vi"` // short, Vietnamese: the main problem or praise
+	Corrected  string `json:"corrected"`   // the learner's sentence, minimally corrected
+}
+
+// GradeWrittenSentences checks all Vietnamese -> English sentences in ONE
+// request. Results are in the same order as items; skipped ones get Score -1.
+func (c *Client) GradeWrittenSentences(ctx context.Context, items []WrittenItem) ([]WrittenResult, error) {
+	if !c.Enabled() {
+		return nil, ErrNotConfigured
+	}
+	var b strings.Builder
+	for i, it := range items {
+		fmt.Fprintf(&b, "%d. Must use: %s (= %s)\n   Vietnamese: %s\n   Reference: %s\n   Learner: %s\n\n",
+			i+1, it.Word, it.MeaningVi, it.PromptVi, it.ReferenceEn, it.LearnerEn)
+	}
+	prompt := fmt.Sprintf(`A Vietnamese learner translated Vietnamese sentences into English, each time using a given English word.
+Judge each English sentence:
+- "correct": true when it conveys the meaning of the Vietnamese sentence, uses the given word (any form) with the right
+  meaning and collocation, and has no serious grammar error. Different wording from the reference is fine.
+  Small slips (an article, a plural "s") do not make it wrong: mention them in the feedback.
+- "score": 0-100.
+- "feedback_vi": one short sentence in Vietnamese: the most important problem (especially how the word is used), or praise.
+- "corrected": the learner's sentence with the minimum changes needed to be correct and natural (same as the learner's if already fine).
+
+%s
+Return JSON: {"results":[{"i":1,"correct":true,"score":90,"feedback_vi":"...","corrected":"..."}]} with one entry per item.`, b.String())
+
+	var out struct {
+		Results []struct {
+			I int `json:"i"`
+			WrittenResult
+		} `json:"results"`
+	}
+	if err := c.chatJSON(ctx, "You are a precise but encouraging English teacher for Vietnamese learners. Reply with a single JSON object only.", prompt, 0.2, &out); err != nil {
+		return nil, err
+	}
+	res := make([]WrittenResult, len(items))
+	for i := range res {
+		res[i].Score = -1
+	}
+	for k, r := range out.Results {
+		i := r.I - 1
+		if i < 0 || i >= len(items) {
+			i = k
+		}
+		if i < 0 || i >= len(items) {
+			continue
+		}
+		r.Score = max(0, min(100, r.Score))
+		r.Corrected = strings.TrimSpace(r.Corrected)
+		res[i] = r.WrittenResult
+	}
+	return res, nil
+}

@@ -10,6 +10,7 @@ import (
 	"mvp-lang-app/internal/ai"
 	"mvp-lang-app/internal/content"
 	"mvp-lang-app/internal/models"
+	"mvp-lang-app/internal/study"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm/clause"
@@ -304,6 +305,42 @@ func (h *Handler) PracticeGrade(c *gin.Context) {
 		results[slots[k]].Graded = true
 	}
 	c.JSON(http.StatusOK, gin.H{"results": results})
+}
+
+// PracticeForgotten: GET /api/practice/forgotten
+// English words the user graded "Again" today (review or due-card quiz) and has
+// not practised since. Used by the Practice page and the forgotten-words drill.
+func (h *Handler) PracticeForgotten(c *gin.Context) {
+	uid := userID(c)
+	var u models.User
+	if err := h.DB.Select("id, timezone").First(&u, uid).Error; err != nil {
+		internal(c, err)
+		return
+	}
+	loc := study.UserLocation(u.Timezone)
+	now := time.Now().In(loc)
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
+
+	type word struct {
+		ID    int64  `json:"id"`
+		Front string `json:"front"`
+	}
+	words := []word{}
+	err := h.DB.Raw(`
+		SELECT c.id, c.front
+		FROM review_logs r
+		JOIN cards c ON c.id = r.card_id
+		LEFT JOIN practice_rounds p ON p.user_id = r.user_id AND p.card_id = c.id
+		WHERE r.user_id = ? AND r.rating = 1 AND r.reviewed_at >= ? AND c.kind IN ?
+		GROUP BY c.id, c.front, p.updated_at
+		HAVING p.updated_at IS NULL OR p.updated_at < MAX(r.reviewed_at)
+		ORDER BY MAX(r.reviewed_at) DESC
+		LIMIT 30`, uid, today.UTC(), []string{models.KindVocab, models.KindPhrasal}).Scan(&words).Error
+	if err != nil {
+		internal(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, words)
 }
 
 func uniqueIDs(in []int64, limit int) []int64 {

@@ -169,7 +169,7 @@
           </div>
           <div class="small mb-2">
             The daily limit keeps future reviews manageable. Want more today? It only applies to today;
-            the daily amount is in <router-link to="/devices">Device &amp; settings</router-link>.
+            the daily amount is in <router-link to="/devices">Settings</router-link>.
           </div>
           <button class="btn btn-primary btn-sm me-2" :disabled="addingMore" @click="learnMore(5)">
             <span v-if="addingMore" class="spinner-border spinner-border-sm me-1"></span>

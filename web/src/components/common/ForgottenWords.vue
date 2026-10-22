@@ -23,6 +23,6 @@ const props = defineProps<{ words: { id: number; front: string }[]; compact?: bo
 const router = useRouter()
 
 function go() {
-  router.push({ path: '/practice', query: { ids: props.words.slice(0, 10).map((w) => w.id).join(',') } })
+  router.push({ path: '/practice/forgotten', query: { ids: props.words.slice(0, 10).map((w) => w.id).join(',') } })
 }
 </script>

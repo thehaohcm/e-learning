@@ -17,11 +17,27 @@
         </button>
         <div class="collapse navbar-collapse" :class="{ show: navOpen }">
           <ul class="navbar-nav ms-auto align-items-lg-center gap-1">
-            <li class="nav-item" v-for="l in links" :key="l.to">
-              <router-link class="nav-link nav-pill" :to="l.to" active-class="active" :exact-active-class="l.exact ? 'active' : ''">
-                <i :class="'bi ' + l.icon + ' me-1'"></i>{{ l.label }}
-              </router-link>
-            </li>
+            <template v-for="l in links" :key="l.to">
+              <!-- Practice: dropdown on desktop, plain list inside the collapsed menu on phones -->
+              <li v-if="l.children" class="nav-item dropdown">
+                <button type="button" class="nav-link nav-pill dropdown-toggle border-0 bg-transparent"
+                  :class="{ active: isPractice }" :aria-expanded="practiceOpen" @click.stop="practiceOpen = !practiceOpen">
+                  <i :class="'bi ' + l.icon + ' me-1'"></i>{{ l.label }}
+                </button>
+                <ul class="dropdown-menu dropdown-menu-dark shadow" :class="{ show: practiceOpen }">
+                  <li v-for="c in l.children" :key="c.to">
+                    <router-link class="dropdown-item" :to="c.to" active-class="active" :exact-active-class="c.exact ? 'active' : ''">
+                      <i :class="'bi ' + c.icon + ' me-2'"></i>{{ c.label }}
+                    </router-link>
+                  </li>
+                </ul>
+              </li>
+              <li v-else class="nav-item">
+                <router-link class="nav-link nav-pill" :to="l.to" active-class="active" :exact-active-class="l.exact ? 'active' : ''">
+                  <i :class="'bi ' + l.icon + ' me-1'"></i>{{ l.label }}
+                </router-link>
+              </li>
+            </template>
             <li class="nav-item ms-lg-2">
               <button class="btn btn-sm btn-outline-light rounded-pill" @click="signOut" :title="auth.user?.email">
                 <i class="bi bi-box-arrow-right me-1"></i>Sign out
@@ -55,25 +71,43 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth, logout } from './auth'
 
 const router = useRouter()
 const route = useRoute()
 const navOpen = ref(false)
-watch(() => route.fullPath, () => { navOpen.value = false })
+const practiceOpen = ref(false)
+watch(() => route.fullPath, () => {
+  navOpen.value = false
+  practiceOpen.value = false
+})
 
-const links = [
+interface NavLink { to: string; label: string; icon: string; exact?: boolean; children?: NavLink[] }
+const links: NavLink[] = [
   { to: '/', label: 'Home', icon: 'bi-speedometer2', exact: true },
-  { to: '/review', label: 'Review', icon: 'bi-arrow-repeat' },
+  { to: '/review', label: 'Study', icon: 'bi-arrow-repeat' },
+  {
+    to: '/practice', label: 'Practice', icon: 'bi-lightning-charge',
+    children: [
+      { to: '/practice', label: 'Overview', icon: 'bi-grid', exact: true },
+      { to: '/quiz', label: 'Quiz', icon: 'bi-question-circle' },
+      { to: '/reading', label: 'Reading & listening', icon: 'bi-book-half' },
+      { to: '/writing', label: 'Writing', icon: 'bi-pencil' },
+      { to: '/practice/forgotten', label: 'Forgotten words', icon: 'bi-translate' },
+    ],
+  },
   { to: '/learn', label: 'Browse', icon: 'bi-collection' },
-  { to: '/quiz', label: 'Quiz', icon: 'bi-question-circle' },
-  { to: '/reading', label: 'Reading', icon: 'bi-book-half' },
-  { to: '/writing', label: 'Writing', icon: 'bi-pencil' },
-  { to: '/search', label: 'Search', icon: 'bi-search' },
-  { to: '/devices', label: 'Device & settings', icon: 'bi-cpu' },
+  { to: '/devices', label: 'Settings', icon: 'bi-gear' },
 ]
+const practicePaths = ['/practice', '/quiz', '/reading', '/writing']
+const isPractice = computed(() => practicePaths.some((p) => route.path === p || route.path.startsWith(p + '/')))
+
+// close the Practice dropdown when clicking elsewhere
+function closeMenu() { practiceOpen.value = false }
+onMounted(() => document.addEventListener('click', closeMenu))
+onUnmounted(() => document.removeEventListener('click', closeMenu))
 
 function signOut() {
   logout()

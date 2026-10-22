@@ -134,11 +134,35 @@ không cần server:
 - Chrome gửi âm thanh lên dịch vụ nhận giọng nói của Google để chuyển thành chữ.
 - Lần đầu trình duyệt sẽ hỏi quyền micro.
 
+## Menu
+
+Home · **Study** (ôn thẻ đến hạn + từ mới) · **Practice** (Overview, Quiz, Reading & listening, Writing,
+Forgotten words) · **Browse** (duyệt bộ từ; chọn "All decks" để tìm trong mọi bộ, thay cho trang Search cũ) · **Settings**.
+Practice chỉ có trên web; thiết bị ESP32 chỉ làm phần Study (flashcard / quiz / listening).
+
+## Quiz: Write it
+
+Trong **Quiz** chọn **Write it**: mỗi lượt 10 câu tiếng Việt (lấy từ `card_examples`, câu tiếng Anh là đáp án mẫu;
+từ nào chưa có câu thì AI viết bù trong 1 request). Bạn viết câu tiếng Anh có dùng từ được yêu cầu:
+*Easy* hiện sẵn từ, *Hard* chỉ hiện nghĩa tiếng Việt (gợi ý chữ cái đầu / hiện từ). Nộp từng câu thì app kiểm tra
+ngay câu có dùng từ đó không (kể cả dạng chia) và hiện câu mẫu; cuối lượt **1 request AI** chấm tất cả
+(đúng/sai, điểm, góp ý, câu đã sửa). Câu đúng có dùng từ = ôn "Good" nếu thẻ đang đến hạn; câu sai không bị phạt.
+Từ sai/bỏ qua được gợi ý luyện ở Forgotten words.
+
+## Writing: "Write about this" từ Reading
+
+Cuối mỗi bài Reading có thẻ **Write about this** → `/writing?reading_id=…`. Lần đầu mở, **1 request AI**
+soạn đề theo bài (trả lời email/thông báo, tin nhắn sau hội thoại, ý kiến/tóm tắt cho bài báo) kèm
+3 từ bắt buộc lấy từ bài, số từ theo trình độ, **dàn ý** (tiếng Việt), **cụm từ hữu ích** và **bài mẫu**;
+đề được lưu trong bài (`content.writing_task`), lần sau mở ngay. Không có AI: dùng đề mẫu + dàn ý/cụm từ chung.
+Trang Writing hiện đề, đếm từ, từ bắt buộc chuyển xanh khi đã dùng; gợi ý mở dần: Outline → Useful phrases
+(bấm để chèn vào bài) → Sample answer. Chấm điểm như Writing thường.
+
 ## Luyện từ đã quên
 
 Trong **Review** (thẻ bị chấm Again: chọn sai, "I don't remember", hoặc Again) và **Quiz** (chọn sai lần đầu),
 app gom các từ tiếng Anh đã quên. Màn hình cuối (và thanh trên cùng trong Review) có nút **Practise them**
-→ trang `/practice`:
+→ trang `/practice/forgotten` (mở trực tiếp thì tự lấy các từ bị chấm Again hôm nay chưa luyện):
 1. **1 request AI** viết 3 câu ví dụ cho mọi từ (tối đa 10 từ/lần), lưu vào `card_examples` để lần sau mở ngay.
    Mỗi thẻ giữ 6 câu; lần quên sau sẽ gặp 3 câu khác (`practice_rounds`).
 2. Mỗi câu: gõ bản dịch tiếng Việt → xem bản dịch mẫu → đọc to (🎤, cần ≥ 80%, sau 3 lần vẫn cho qua;

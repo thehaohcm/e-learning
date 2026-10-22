@@ -20,6 +20,14 @@
         <p class="mt-3 text-muted">AI is writing example sentences for {{ idCount }} word{{ idCount > 1 ? 's' : '' }}… (up to ~40 s)</p>
       </div>
 
+      <div v-else-if="phase === 'empty'" class="text-center py-5">
+        <i class="bi bi-emoji-smile display-4 text-success"></i>
+        <p class="mt-3 mb-1 fw-semibold">No forgotten words to practise right now.</p>
+        <p class="text-muted small">Words you mark “Again” in Study or miss in a Quiz show up here.</p>
+        <router-link to="/review" class="btn btn-primary me-2">Study</router-link>
+        <router-link to="/quiz" class="btn btn-outline-primary">Quiz</router-link>
+      </div>
+
       <div v-else-if="phase === 'error'" class="alert alert-danger">
         {{ error }}
         <button class="btn btn-sm btn-outline-danger ms-2" @click="load">Try again</button>
@@ -191,7 +199,7 @@ const route = useRoute()
 const { speakEnglish } = useSpeechSynthesis()
 const speechOK = speechRecognitionSupported
 
-const phase = ref<'loading' | 'error' | 'practice' | 'grading' | 'done'>('loading')
+const phase = ref<'loading' | 'empty' | 'error' | 'practice' | 'grading' | 'done'>('loading')
 const words = ref<Word[]>([])
 const wi = ref(0)
 const ei = ref(0)
@@ -201,7 +209,9 @@ const gradeError = ref('')
 const noMic = ref(storageGet('elearn.practice.nomic') === 'true')
 watch(noMic, (v) => storageSet('elearn.practice.nomic', String(v)))
 
-const ids = computed(() =>
+// words to practise: ?ids=1,2,3 from a quiz/study session, otherwise the
+// words graded "Again" today and not practised yet (asked from the server)
+const ids = ref<number[]>(
   String(route.query.ids ?? '')
     .split(',')
     .map(Number)
@@ -292,16 +302,19 @@ function nextWord() {
 }
 
 async function load() {
-  if (!ids.value.length) {
-    phase.value = 'error'
-    error.value = 'No words to practise. Finish a quiz or a study session first.'
-    return
-  }
   phase.value = 'loading'
   error.value = ''
   warning.value = ''
   gradeError.value = ''
   try {
+    if (!ids.value.length) {
+      const { data } = await api.get('/practice/forgotten')
+      ids.value = (data ?? []).map((w: { id: number }) => w.id).slice(0, 10)
+    }
+    if (!ids.value.length) {
+      phase.value = 'empty'
+      return
+    }
     const { data } = await api.post('/practice/examples', { card_ids: ids.value.slice(0, 10) })
     words.value = (data.words ?? []).map((w: Omit<Word, 'examples'> & { examples: { id: number; en: string; vi: string }[] }) => ({
       ...w,

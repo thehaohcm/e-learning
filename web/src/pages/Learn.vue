@@ -2,10 +2,11 @@
   <div>
     <div class="d-flex flex-wrap gap-2 align-items-end mb-3">
       <div class="flex-grow-1">
-        <h2 class="fw-bold mb-1"><i class="bi bi-collection"></i> {{ deck?.name ?? 'Browse cards' }}</h2>
-        <small class="text-muted">{{ deck?.description }}</small>
+        <h2 class="fw-bold mb-1"><i class="bi bi-collection"></i> {{ deck?.name ?? (isAll ? 'All decks' : 'Browse cards') }}</h2>
+        <small class="text-muted">{{ isAll ? 'Search words, Vietnamese meanings and PMP terms in every deck.' : deck?.description }}</small>
       </div>
       <select v-model.number="deckId" class="form-select w-auto" @change="onDeckChange">
+        <option :value="ALL">🔍 All decks</option>
         <optgroup v-for="s in subjects" :key="s.id" :label="s.name">
           <option v-for="d in s.decks" :key="d.id" :value="d.id">{{ d.name }} ({{ d.card_count }})</option>
         </optgroup>
@@ -14,14 +15,14 @@
 
     <div class="row g-2 mb-3">
       <div class="col-md-6">
-        <input v-model="search" @keyup.enter="load(1)" class="form-control" placeholder="Search this deck…" />
+        <input v-model="search" @keyup.enter="load(1)" class="form-control" :placeholder="isAll ? 'Search all decks: word, Vietnamese meaning, PMP term…' : 'Search this deck…'" />
       </div>
       <div class="col-md-6 d-flex gap-2 flex-wrap justify-content-md-end">
         <button class="btn btn-primary" @click="load(1)"><i class="bi bi-search"></i></button>
         <button class="btn btn-success" @click="addAll" :disabled="!notAdded.length">
           <i class="bi bi-plus-circle"></i> Add {{ notAdded.length }} on this page
         </button>
-        <router-link v-if="deckId" :to="`/review?deck_id=${deckId}`" class="btn btn-warning">
+        <router-link v-if="deckId > 0" :to="`/review?deck_id=${deckId}`" class="btn btn-warning">
           <i class="bi bi-arrow-repeat"></i> Study deck
         </router-link>
       </div>
@@ -84,9 +85,11 @@ const router = useRouter()
 const { speakEnglish, speakBilingual } = useSpeechSynthesis()
 
 const subjects = ref<Subject[]>([])
-const deckId = ref<number>(Number(route.query.deck_id) || 0)
+const ALL = -1 // "All decks": search everything (the old Search page)
+const deckId = ref<number>(route.query.deck_id === 'all' ? ALL : Number(route.query.deck_id) || 0)
+const isAll = computed(() => deckId.value === ALL)
 const cards = ref<CardWithProgress[]>([])
-const search = ref('')
+const search = ref(String(route.query.q ?? ''))
 const page = ref(1)
 const total = ref(0)
 const limit = 30
@@ -110,7 +113,8 @@ async function load(p = 1) {
   if (!deckId.value) return
   loading.value = true
   try {
-    const { data } = await api.get('/cards', { params: { deck_id: deckId.value, q: search.value || undefined, page: p, limit } })
+    const params = { deck_id: isAll.value ? undefined : deckId.value, q: search.value || undefined, page: p, limit }
+    const { data } = await api.get('/cards', { params })
     cards.value = data.data
     total.value = data.total
     page.value = p
@@ -122,7 +126,7 @@ async function load(p = 1) {
 }
 
 function onDeckChange() {
-  router.replace({ query: { deck_id: deckId.value } })
+  router.replace({ query: { deck_id: isAll.value ? 'all' : deckId.value } })
   search.value = ''
   load(1)
 }

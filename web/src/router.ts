@@ -11,9 +11,11 @@ const router = createRouter({
     { path: '/review', component: () => import('./pages/Review.vue') }, // ?deck_id= / ?subject_id=
     { path: '/quiz', component: () => import('./pages/Quiz.vue') },
     { path: '/reading', component: () => import('./pages/Reading.vue') }, // ?id=
-    { path: '/practice', component: () => import('./pages/Practice.vue') }, // ?ids=1,2,3 (forgotten words)
+    { path: '/practice', component: () => import('./pages/PracticeHub.vue') },
+    { path: '/practice/forgotten', component: () => import('./pages/Practice.vue') }, // ?ids=1,2,3, default: today's forgotten words
     { path: '/writing', component: () => import('./pages/Writing.vue') },
-    { path: '/search', component: () => import('./pages/Search.vue') },
+    // search is part of Browse now ("All decks")
+    { path: '/search', redirect: (to) => ({ path: '/learn', query: { deck_id: 'all', q: to.query.q } }) },
     { path: '/devices', component: () => import('./pages/Devices.vue') },
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

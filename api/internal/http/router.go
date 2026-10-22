@@ -54,6 +54,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 	// ---- logged-in user (web)
 	u := api.Group("", h.RequireUser)
 	{
+		practiceLimit := handlers.RateLimit(20) // endpoints that call AI
 		u.GET("/auth/me", h.Me)
 
 		u.GET("/subjects", h.ListSubjects)
@@ -82,12 +83,15 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.GET("/readings", h.ListReadings)
 		u.GET("/readings/:id", h.GetReading)
 		u.POST("/readings/:id/answers", h.AnswerReading)
+		u.POST("/readings/:id/writing-task", practiceLimit, h.ReadingWritingTask)
 		u.DELETE("/readings/:id", h.DeleteReading)
 
 		// practise forgotten words (AI: one request per batch)
-		practiceLimit := handlers.RateLimit(20)
+		u.GET("/practice/forgotten", h.PracticeForgotten)
 		u.POST("/practice/examples", practiceLimit, h.PracticeExamples)
 		u.POST("/practice/grade", practiceLimit, h.PracticeGrade)
+		u.POST("/practice/write/prompts", practiceLimit, h.WritePrompts)
+		u.POST("/practice/write/grade", practiceLimit, h.WriteGrade)
 
 		u.POST("/writing", h.SubmitWriting)
 		u.GET("/writing", h.ListWriting)

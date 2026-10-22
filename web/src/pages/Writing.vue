@@ -4,19 +4,81 @@
       <h2 class="fw-bold text-info mb-1"><i class="bi bi-pencil"></i> Writing Lab</h2>
       <p class="text-muted">AI scores your English writing, explains mistakes in Vietnamese and rewrites it at 3 levels.</p>
 
+      <!-- task from a reading ("Write about this") -->
+      <div v-if="readingId" class="card border-0 shadow-sm mb-3 border-start border-danger border-4">
+        <div class="card-body">
+          <div v-if="taskLoading" class="text-muted small"><span class="spinner-border spinner-border-sm me-2"></span>Preparing the task…</div>
+          <div v-else-if="taskError" class="alert alert-warning py-2 mb-0">{{ taskError }}</div>
+          <template v-else-if="task">
+            <div class="d-flex flex-wrap justify-content-between gap-2 mb-2">
+              <small class="text-muted">
+                Write about: <router-link :to="`/reading?id=${readingId}`">{{ taskTitle }}</router-link>
+              </small>
+              <router-link to="/writing" class="small">Write on my own topic instead</router-link>
+            </div>
+            <p class="fw-semibold mb-1">{{ task.instruction_en }}</p>
+            <p class="small text-muted mb-2">{{ task.instruction_vi }}</p>
+            <div class="small mb-2">
+              <span class="me-2"><i class="bi bi-rulers"></i> {{ task.min_words }}–{{ task.max_words }} words</span>
+              <span class="text-muted">Use:</span>
+              <span v-for="w in task.required_words" :key="w" class="badge ms-1"
+                :class="used(w) ? 'bg-success' : 'bg-light text-dark border'">
+                <i v-if="used(w)" class="bi bi-check-lg"></i> {{ w }}
+              </span>
+            </div>
+
+            <!-- help when stuck: outline → phrases → sample -->
+            <div class="d-flex flex-wrap gap-2 small">
+              <button class="btn btn-sm" :class="help >= 1 ? 'btn-secondary' : 'btn-outline-secondary'" @click="help = Math.max(help, 1)">
+                <i class="bi bi-list-ol"></i> Outline
+              </button>
+              <button class="btn btn-sm" :class="help >= 2 ? 'btn-secondary' : 'btn-outline-secondary'" @click="help = Math.max(help, 2)">
+                <i class="bi bi-chat-quote"></i> Useful phrases
+              </button>
+              <button v-if="task.sample_answer" class="btn btn-sm" :class="help >= 3 ? 'btn-secondary' : 'btn-outline-secondary'" @click="showSample">
+                <i class="bi bi-file-text"></i> Sample answer
+              </button>
+            </div>
+            <ol v-if="help >= 1" class="small mt-2 mb-0">
+              <li v-for="(o, i) in task.outline_vi" :key="i">{{ o }}</li>
+            </ol>
+            <div v-if="help >= 2" class="small mt-2">
+              <span class="text-muted">Click to add to your text:</span>
+              <ul class="list-unstyled mb-0 mt-1">
+                <li v-for="(ph, i) in task.useful_phrases" :key="i">
+                  <a href="#" @click.prevent="insert(ph.phrase)">{{ ph.phrase }}</a>
+                  <span class="text-muted"> — {{ ph.meaning_vi }}</span>
+                </li>
+              </ul>
+            </div>
+            <div v-if="help >= 3" class="mt-2 p-2 rounded bg-light small">
+              <div class="text-muted mb-1"><i class="bi bi-info-circle"></i> Read it, then close it and write your own version: don't copy.</div>
+              <div style="white-space: pre-wrap">{{ task.sample_answer }}</div>
+              <button class="btn btn-link btn-sm p-0 mt-1" @click="help = 2">Hide sample</button>
+            </div>
+          </template>
+        </div>
+      </div>
+
       <div class="card border-0 shadow-sm mb-4">
         <div class="card-body">
-          <label class="form-label fw-semibold">Task</label>
-          <textarea v-model="prompt" class="form-control mb-3" rows="2"
-            placeholder="E.g. Describe your daily work routine (IELTS Task 2 style questions work well too)"></textarea>
+          <template v-if="!readingId">
+            <label class="form-label fw-semibold">Task</label>
+            <textarea v-model="prompt" class="form-control mb-3" rows="2"
+              placeholder="E.g. Describe your daily work routine (IELTS Task 2 style questions work well too)"></textarea>
+          </template>
           <label class="form-label fw-semibold">Your writing</label>
-          <textarea v-model="text" class="form-control" rows="8" placeholder="Write here…"></textarea>
-          <div class="d-flex justify-content-between align-items-center mt-2">
-            <small class="text-muted">{{ wordCount }} words</small>
-            <button class="btn btn-info text-white" :disabled="submitting || wordCount < 5 || !prompt.trim()" @click="submit">
+          <textarea ref="textBox" v-model="text" class="form-control" rows="8" placeholder="Write here…"></textarea>
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2">
+            <small :class="countClass">
+              {{ wordCount }} words<template v-if="task"> (target {{ task.min_words }}–{{ task.max_words }})</template>
+              <template v-if="task && missingWords.length"> · not used yet: {{ missingWords.join(', ') }}</template>
+            </small>
+            <button class="btn btn-info text-white" :disabled="submitting || wordCount < 5 || !effectivePrompt.trim()" @click="submit">
               <i class="bi bi-send"></i> {{ submitting ? 'Sending…' : 'Get feedback' }}
             </button>
           </div>
+          <div v-if="sampleSeen" class="small text-muted mt-1"><i class="bi bi-eye"></i> You looked at the sample answer.</div>
           <div v-if="error" class="alert alert-danger mt-3 mb-0 py-2">{{ error }}</div>
         </div>
       </div>
@@ -80,8 +142,22 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { api, errorMessage } from '../api'
+import { usesWord } from '../utils/words'
+
+interface WritingTask {
+  type: string
+  instruction_en: string
+  instruction_vi: string
+  min_words: number
+  max_words: number
+  required_words: string[]
+  outline_vi: string[]
+  useful_phrases: { phrase: string; meaning_vi: string }[]
+  sample_answer: string
+}
 
 interface Submission {
   id: number
@@ -109,7 +185,75 @@ const history = ref<Submission[]>([])
 const level = ref(2)
 let timer: number | undefined
 
+const route = useRoute()
+const readingId = computed(() => Number(route.query.reading_id) || 0)
+const task = ref<WritingTask | null>(null)
+const taskTitle = ref('')
+const taskLoading = ref(false)
+const taskError = ref('')
+const help = ref(0) // 0 none, 1 outline, 2 + phrases, 3 + sample
+const sampleSeen = ref(false)
+const textBox = ref<HTMLTextAreaElement | null>(null)
+
 const wordCount = computed(() => text.value.trim().split(/\s+/).filter(Boolean).length)
+const used = (w: string) => usesWord(text.value, w)
+const missingWords = computed(() => (task.value?.required_words ?? []).filter((w) => !used(w)))
+const countClass = computed(() => {
+  const t = task.value
+  if (!t) return 'text-muted'
+  if (wordCount.value < t.min_words) return 'text-muted'
+  return wordCount.value > t.max_words ? 'text-warning' : 'text-success'
+})
+// what the evaluator sees as the task
+const effectivePrompt = computed(() => {
+  const t = task.value
+  if (!readingId.value) return prompt.value
+  if (!t) return ''
+  return `${t.instruction_en} (${t.min_words}-${t.max_words} words; use these words: ${t.required_words.join(', ')})`
+})
+
+async function loadTask() {
+  task.value = null
+  help.value = 0
+  sampleSeen.value = false
+  if (!readingId.value) return
+  taskLoading.value = true
+  taskError.value = ''
+  try {
+    const { data } = await api.post(`/readings/${readingId.value}/writing-task`)
+    task.value = data.task
+    taskTitle.value = data.title
+  } catch (e) {
+    taskError.value = errorMessage(e)
+  } finally {
+    taskLoading.value = false
+  }
+}
+
+function showSample() {
+  help.value = 3
+  sampleSeen.value = true
+}
+
+/** Add a useful phrase at the cursor. */
+async function insert(phrase: string) {
+  const el = textBox.value
+  const p = phrase.replace(/…$/, ' ')
+  if (!el) {
+    text.value += (text.value && !text.value.endsWith(' ') ? ' ' : '') + p
+    return
+  }
+  const start = el.selectionStart ?? text.value.length
+  const before = text.value.slice(0, start)
+  const sep = before && !/\s$/.test(before) ? ' ' : ''
+  text.value = before + sep + p + text.value.slice(el.selectionEnd ?? start)
+  await nextTick()
+  const pos = (before + sep + p).length
+  el.focus()
+  el.setSelectionRange(pos, pos)
+}
+
+watch(readingId, loadTask)
 const scores = computed(() => [
   { label: 'Overall', value: current.value?.overall_score, color: 'info' },
   { label: 'Grammar', value: current.value?.grammar_score, color: 'primary' },
@@ -121,7 +265,7 @@ async function submit() {
   submitting.value = true
   error.value = ''
   try {
-    const { data } = await api.post('/writing', { prompt: prompt.value, text: text.value })
+    const { data } = await api.post('/writing', { prompt: effectivePrompt.value, text: text.value })
     current.value = data
     poll(data.id)
   } catch (e) {
@@ -156,6 +300,9 @@ async function loadHistory() {
   } catch { /* ignore */ }
 }
 
-onMounted(loadHistory)
+onMounted(() => {
+  loadHistory()
+  loadTask()
+})
 onUnmounted(() => clearTimeout(timer))
 </script>

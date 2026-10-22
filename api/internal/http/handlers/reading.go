@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -20,6 +22,8 @@ import (
 type readingDoc struct {
 	ai.ReadingContent
 	Vocab []study.ReadingWord `json:"vocab"`
+	// "Write about this": created on first request, then kept with the reading
+	WritingTask *ai.WritingTask `json:"writing_task,omitempty"`
 }
 
 type readingSummary struct {
@@ -139,6 +143,51 @@ func (h *Handler) loadReading(c *gin.Context) (*models.Reading, *readingDoc, boo
 	var doc readingDoc
 	_ = json.Unmarshal(r.Content, &doc)
 	return &r, &doc, true
+}
+
+// ReadingWritingTask: POST /api/readings/:id/writing-task
+// Returns the writing task for this reading, creating it (one AI request) the
+// first time. Without AI a template task is returned (and not saved).
+func (h *Handler) ReadingWritingTask(c *gin.Context) {
+	r, doc, ok := h.loadReading(c)
+	if !ok {
+		return
+	}
+	if r.Status != "completed" {
+		abort(c, http.StatusConflict, "this reading is not ready yet")
+		return
+	}
+	if doc.WritingTask != nil {
+		c.JSON(http.StatusOK, gin.H{"reading_id": r.ID, "title": r.Title, "task": doc.WritingTask})
+		return
+	}
+	vocab := make([]string, 0, len(doc.Vocab))
+	for _, w := range doc.Vocab {
+		vocab = append(vocab, w.Word)
+	}
+	text := doc.Passage
+	if r.Kind == "conversation" {
+		var b strings.Builder
+		for _, l := range doc.Lines {
+			fmt.Fprintf(&b, "%s: %s\n", l.Speaker, l.Text)
+		}
+		text = b.String()
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 90*time.Second)
+	defer cancel()
+	task, err := h.AI.GenerateWritingTask(ctx, r.Kind, r.Level, r.Title, text, vocab)
+	if err != nil {
+		if !errors.Is(err, ai.ErrNotConfigured) {
+			log.Printf("[ai] writing task for reading %d: %v", r.ID, err)
+		}
+		c.JSON(http.StatusOK, gin.H{"reading_id": r.ID, "title": r.Title, "task": ai.TemplateWritingTask(r.Kind, r.Level, r.Title, vocab)})
+		return
+	}
+	doc.WritingTask = task
+	if b, err := json.Marshal(doc); err == nil {
+		h.DB.Model(&models.Reading{}).Where("id = ?", r.ID).Update("content", models.JSON(b))
+	}
+	c.JSON(http.StatusOK, gin.H{"reading_id": r.ID, "title": r.Title, "task": task})
 }
 
 // GetReading returns the reading. Correct answers are hidden until the quiz is submitted.
