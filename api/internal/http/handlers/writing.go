@@ -75,7 +75,7 @@ func (h *Handler) GetWriting(c *gin.Context) {
 }
 
 func (h *Handler) ListWriting(c *gin.Context) {
-	var subs []models.WritingSubmission
+	subs := []models.WritingSubmission{}
 	if err := h.DB.Where("user_id = ?", userID(c)).Order("created_at DESC").Limit(30).Find(&subs).Error; err != nil {
 		internal(c, err)
 		return

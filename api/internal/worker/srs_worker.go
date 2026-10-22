@@ -37,4 +37,6 @@ func cleanup(db *gorm.DB) {
 	// Writing evaluations stuck in "processing" (e.g. server restarted mid-request).
 	db.Exec(`UPDATE writing_submissions SET status = 'failed', error_message = 'evaluation interrupted, please submit again'
 	         WHERE status IN ('pending', 'processing') AND created_at < NOW() - INTERVAL '15 minutes'`)
+	db.Exec(`UPDATE readings SET status = 'failed', error_message = 'generation interrupted, please try again'
+	         WHERE status = 'processing' AND created_at < NOW() - INTERVAL '15 minutes'`)
 }

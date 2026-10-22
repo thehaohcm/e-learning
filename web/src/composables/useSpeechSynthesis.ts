@@ -1,6 +1,13 @@
 // Browser Web Speech API composable - FREE TTS (no Google Cloud cost)
 import { ref } from 'vue'
 
+/** Speech rates: automatic reading is normal speed; when the user asks to hear it
+ *  again (play / speaker buttons, "Try again") it is slower so it can be followed
+ *  and repeated; the 🐢 button is slower still. */
+export const RATE_NORMAL = 1
+export const RATE_REPLAY = 0.8
+export const RATE_SLOW = 0.65
+
 export function useSpeechSynthesis() {
   const isSpeaking = ref(false)
   const voicesLoaded = ref(false)
@@ -41,20 +48,33 @@ export function useSpeechSynthesis() {
     return voices.find(v => v.lang.startsWith(langPrefix)) || null
   }
 
+  // English voices, best first (Google, Microsoft, others), for multi-speaker dialogues
+  function englishVoices(): SpeechSynthesisVoice[] {
+    const en = availableVoices.value.filter(v => v.lang.toLowerCase().startsWith('en'))
+    const rank = (v: SpeechSynthesisVoice) => (v.name.includes('Google') ? 0 : v.name.includes('Microsoft') ? 1 : 2)
+    return [...en].sort((a, b) => rank(a) - rank(b))
+  }
+
   // Speak text in given language
-  function speak(text: string, lang: 'en' | 'vi', rate: number = 1.0): Promise<void> {
+  function speak(
+    text: string,
+    lang: 'en' | 'vi',
+    rate: number = 1.0,
+    opts: { voice?: SpeechSynthesisVoice | null; pitch?: number } = {},
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
       speechSynthesis.cancel() // Stop any current speech
 
       const utterance = new SpeechSynthesisUtterance(text)
       utterance.rate = rate
+      if (opts.pitch) utterance.pitch = opts.pitch
 
       const langCode = lang === 'en' ? 'en-US' : 'vi-VN'
-      const voice = findVoice(langCode)
+      const voice = opts.voice ?? findVoice(langCode)
       if (voice) {
         utterance.voice = voice
       }
-      utterance.lang = langCode
+      utterance.lang = voice?.lang || langCode
 
       utterance.onstart = () => { isSpeaking.value = true }
       utterance.onend = () => { isSpeaking.value = false; resolve() }
@@ -79,6 +99,18 @@ export function useSpeechSynthesis() {
     await speak(text, 'en', rate)
   }
 
+  // Speak English with a different voice per speaker (dialogues). If the
+  // browser has only one English voice, speakers are told apart by pitch.
+  async function speakAs(text: string, speaker: number, rate: number = 1.0) {
+    await loadVoices()
+    const voices = englishVoices()
+    if (voices.length >= 2) {
+      await speak(text, 'en', rate, { voice: voices[speaker % voices.length] })
+    } else {
+      await speak(text, 'en', rate, { pitch: speaker % 2 === 0 ? 1.0 : 0.75 })
+    }
+  }
+
   function stop() {
     speechSynthesis.cancel()
     isSpeaking.value = false
@@ -92,6 +124,7 @@ export function useSpeechSynthesis() {
     speak,
     speakBilingual,
     speakEnglish,
+    speakAs,
     stop,
   }
 }

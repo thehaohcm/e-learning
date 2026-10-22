@@ -207,7 +207,7 @@ func sortByTime(rs []dto.DeviceReview) {
 // ---------------------------------------------------------------- user-side device management
 
 func (h *Handler) ListDevices(c *gin.Context) {
-	var ds []models.Device
+	ds := []models.Device{}
 	if err := h.DB.Where("user_id = ?", userID(c)).Order("id").Find(&ds).Error; err != nil {
 		internal(c, err)
 		return

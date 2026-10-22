@@ -175,3 +175,24 @@ type WritingSubmission struct {
 func (UserCard) TableName() string          { return "user_cards" }
 func (ReviewLog) TableName() string         { return "review_logs" }
 func (WritingSubmission) TableName() string { return "writing_submissions" }
+
+// ---------------------------------------------------------------- reading
+
+type Reading struct {
+	ID           int64      `gorm:"primaryKey" json:"id"`
+	UserID       int64      `json:"user_id"`
+	Kind         string     `json:"kind"`
+	Level        string     `json:"level"`
+	Title        string     `json:"title"`
+	Status       string     `json:"status"`
+	ErrorMessage *string    `json:"error_message"`
+	Content      JSON       `gorm:"type:jsonb" json:"content"`
+	Answers      JSON       `gorm:"type:jsonb" json:"answers"`
+	Score        *int       `json:"score"`
+	Total        *int       `json:"total"`
+	CreatedAt    time.Time  `json:"created_at"`
+	CompletedAt  *time.Time `json:"completed_at"`
+	AnsweredAt   *time.Time `json:"answered_at"`
+}
+
+func (Reading) TableName() string { return "readings" }

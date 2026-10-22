@@ -9,8 +9,8 @@
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
     <div v-if="results.length" class="row g-3">
       <div v-for="c in results" :key="c.id" class="col-md-6 col-lg-4">
-        <FlashCard :card="c" @speak="(t: string) => speakEnglish(t)"
-          @speak-sentence="(en: string, vi?: string) => vi ? speakBilingual(en, vi) : speakEnglish(en)"
+        <FlashCard :card="c" @speak="(t: string) => speakEnglish(t, RATE_REPLAY)"
+          @speak-sentence="(en: string, vi?: string) => vi ? speakBilingual(en, vi, RATE_REPLAY) : speakEnglish(en, RATE_REPLAY)"
           @add="add(c)" />
       </div>
     </div>
@@ -22,7 +22,7 @@
 import { ref } from 'vue'
 import { api, errorMessage } from '../api'
 import FlashCard from '../components/flashcard/FlashCard.vue'
-import { useSpeechSynthesis } from '../composables/useSpeechSynthesis'
+import { RATE_REPLAY, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import type { CardWithProgress } from '../types'
 
 const { speakEnglish, speakBilingual } = useSpeechSynthesis()

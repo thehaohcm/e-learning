@@ -18,7 +18,10 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 	}
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
-	r.SetTrustedProxies(nil)
+	// Requests arrive via Cloudflare -> edge nginx -> web nginx (all on the
+	// docker network), which pass the visitor's IP in X-Real-IP.
+	_ = r.SetTrustedProxies([]string{"10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "127.0.0.1/32"})
+	r.RemoteIPHeaders = []string{"X-Real-IP", "X-Forwarded-For"}
 	r.MaxMultipartMemory = 1 << 20
 
 	r.Use(cors.New(cors.Config{
@@ -73,6 +76,12 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/devices/pair", h.PairDevice)
 		u.PATCH("/devices/:id", h.RenameDevice)
 		u.DELETE("/devices/:id", h.UnpairDevice)
+
+		u.POST("/readings", h.CreateReading)
+		u.GET("/readings", h.ListReadings)
+		u.GET("/readings/:id", h.GetReading)
+		u.POST("/readings/:id/answers", h.AnswerReading)
+		u.DELETE("/readings/:id", h.DeleteReading)
 
 		u.POST("/writing", h.SubmitWriting)
 		u.GET("/writing", h.ListWriting)

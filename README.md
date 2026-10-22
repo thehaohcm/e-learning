@@ -19,6 +19,21 @@ docker compose up --build -d
 - Chạy dev không Docker: `make api-dev` (cổng 8000) và `make web-dev` (cổng 8080, tự proxy `/api`).
 - Test: `make test`.
 
+## Domain + Cloudflare (cổng 80/443)
+
+Container `proxy` (nginx) nhận cổng **80** và **443** rồi chuyển vào web; web chuyển `/api` vào API.
+Cổng 8085 không còn mở ra ngoài.
+
+1. Cloudflare → DNS: thêm bản ghi **A** `learn` → IP server, bật **Proxied** (đám mây cam).
+2. Cloudflare → SSL/TLS → **Origin Server** → *Create Certificate* (RSA, 15 năm). Lưu 2 file vào
+   `proxy/certs/origin.pem` và `proxy/certs/origin.key` (trên server hoặc trên máy rồi deploy).
+3. Cloudflare → SSL/TLS → Overview: chọn **Full (strict)**. Bật *Always Use HTTPS*.
+4. Mở firewall cổng 80, 443 trên VPS. Deploy lại.
+
+Chưa có chứng chỉ thì proxy chỉ chạy HTTP cổng 80 (dùng được với chế độ *Flexible* của Cloudflare,
+nhưng đoạn Cloudflare → server không mã hoá). Proxy lấy IP thật của người dùng từ `CF-Connecting-IP`
+(chỉ tin các dải IP của Cloudflare), nên giới hạn đăng nhập theo IP hoạt động đúng.
+
 ## Nâng cấp từ bản cũ
 
 1. Deploy bản mới. Migration `0005_import_legacy` tự **copy** từ vựng, phrasal verbs
@@ -88,6 +103,24 @@ Thiết bị gọi qua cùng cổng với web (nginx proxy `/api`), ví dụ `ht
    `{"reviews":[{"client_review_id":"<uuid>","card_id":12,"rating":3,"reviewed_at":"2026-10-22T08:00:00Z","duration_ms":4000}]}`.
    `rating`: 1 = quên, 2 = khó, 3 = nhớ, 4 = dễ. Gửi lại cùng `client_review_id` sẽ không bị tính hai lần.
    Thiết bị nên lấy giờ qua NTP. Nếu giờ sai (ở tương lai), server dùng giờ của server.
+
+## Reading (bài đọc / hội thoại do AI viết)
+
+Trang **Reading** tạo một bài đọc kiểu TOEIC/IELTS hoặc một đoạn hội thoại hằng ngày, dùng
+4–6 từ bạn đã học (ưu tiên từ hay quên, sắp đến hạn) và 2–3 từ sắp học. Có đọc to từng câu,
+hội thoại 2 giọng, bật/tắt bản dịch tiếng Việt, 3–4 câu hỏi kèm giải thích và câu trích dẫn.
+Câu hỏi về nghĩa của một từ đã học cũng cập nhật lịch ôn của từ đó (đúng = Good, sai = Again).
+Server kiểm tra bài AI trả về (đủ câu hỏi, đáp án hợp lệ, ≥70% từ yêu cầu có trong bài) và yêu cầu
+viết lại 1 lần nếu không đạt. Cần cấu hình AI (`DEEPSEEK_*`).
+
+## Luyện nói (speech-to-text)
+
+Nút 🎤 **Read it aloud** cạnh câu ví dụ (Review, phím `R`; Quiz sau khi trả lời): đọc to câu, trình duyệt
+chuyển giọng nói thành chữ và app tô xanh/đỏ từng từ, chấm % khớp. Dùng Web Speech API của trình duyệt,
+không cần server:
+- Chỉ chạy trên **HTTPS** (hoặc localhost) và **Chrome / Edge / Safari**. Firefox không hỗ trợ nên nút bị ẩn.
+- Chrome gửi âm thanh lên dịch vụ nhận giọng nói của Google để chuyển thành chữ.
+- Lần đầu trình duyệt sẽ hỏi quyền micro.
 
 ## Còn thiếu / bước tiếp theo
 

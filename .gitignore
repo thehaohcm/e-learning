@@ -45,3 +45,7 @@ Desktop.ini
 .aider*
 .exe
 .tar.gz
+# ---- TLS certificates (never commit)
+proxy/certs/*.pem
+proxy/certs/*.key
+backups/

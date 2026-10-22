@@ -48,7 +48,7 @@
                   {{ item.card.front }}
                 </h2>
                 <button v-if="isEnglish" class="btn btn-light rounded-circle speak-btn" type="button"
-                  title="Listen to the word and an example (P)" aria-label="Listen" @click="speakCard(item)">
+                  title="Listen to the word and an example (P)" aria-label="Listen" @click="speakCard(item, RATE_REPLAY)">
                   <i class="bi bi-volume-up-fill"></i>
                 </button>
               </div>
@@ -67,13 +67,17 @@
                 “{{ exampleParts[0] }}<strong class="text-primary">{{ exampleParts[1] }}</strong>{{ exampleParts[2] }}”
               </p>
               <button class="btn btn-light rounded-circle speak-btn speak-sm flex-shrink-0" type="button"
-                title="Listen to the sentence (E)" aria-label="Listen to the sentence" @click="speakExample(1)">
+                title="Listen to the sentence (E)" aria-label="Listen to the sentence" @click="speakExample(RATE_REPLAY)">
                 <i class="bi bi-volume-up-fill"></i>
               </button>
               <button class="btn btn-light rounded-circle speak-btn speak-sm flex-shrink-0" type="button"
-                title="Listen slowly (S)" aria-label="Listen slowly" @click="speakExample(0.7)">
+                title="Listen slowly (S)" aria-label="Listen slowly" @click="speakExample(RATE_SLOW)">
                 <span aria-hidden="true">🐢</span>
               </button>
+            </div>
+            <!-- shadowing: read the example aloud, speech-to-text checks each word -->
+            <div v-if="phase === 'ask' && exampleText" class="text-center mb-3">
+              <SpeakCheck ref="speakCheck" :text="exampleText" />
             </div>
 
             <!-- ASK: multiple choice -->
@@ -113,8 +117,12 @@
               </div>
 
               <CardDetails v-if="item.card.kind !== 'mcq'" :card="item.card" :speakable="isEnglish" class="text-start"
-                @speak="(en: string, vi?: string) => vi ? speakBilingual(en, vi) : speakEnglish(en)" />
+                @speak="(en: string, vi?: string) => vi ? speakBilingual(en, vi, RATE_REPLAY) : speakEnglish(en, RATE_REPLAY)" />
               <div v-else-if="item.card.payload.explanation" class="small text-muted">{{ item.card.payload.explanation }}</div>
+              <div v-if="exampleText" class="text-center mt-3 pt-3 border-top">
+                <div class="small text-muted mb-2">Practise saying: <em>“{{ exampleText }}”</em></div>
+                <SpeakCheck ref="speakCheck" :text="exampleText" />
+              </div>
 
               <!-- grading -->
               <div class="d-flex gap-2 mt-4">
@@ -153,6 +161,7 @@
       <div class="d-flex gap-2 justify-content-center">
         <button class="btn btn-outline-primary" @click="load"><i class="bi bi-arrow-clockwise"></i> Check again</button>
         <router-link to="/learn" class="btn btn-primary"><i class="bi bi-plus-circle"></i> Add cards</router-link>
+        <router-link to="/reading" class="btn btn-warning"><i class="bi bi-book-half"></i> Read a story with your words</router-link>
       </div>
     </div>
 
@@ -165,7 +174,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, errorMessage } from '../api'
 import CardDetails from '../components/CardDetails.vue'
-import { useSpeechSynthesis } from '../composables/useSpeechSynthesis'
+import SpeakCheck from '../components/common/SpeakCheck.vue'
+import { RATE_REPLAY, RATE_SLOW, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import { RATINGS, stateLabel } from '../types'
 import type { QueueItem } from '../types'
 
@@ -258,7 +268,11 @@ const exampleParts = computed<[string, string, string] | null>(() => {
   return [ex.slice(0, m.index), m[0], ex.slice(m.index + m[0].length)]
 })
 
-/** Read only the example sentence (rate 1 = normal, 0.7 = slow) so the user can listen and repeat. */
+/** Example sentence of the current English card ('' if none): used by the 🎤 check. */
+const exampleText = computed(() => (item.value && isEnglish.value ? exampleOf(item.value) : ''))
+const speakCheck = ref<InstanceType<typeof SpeakCheck> | null>(null)
+
+/** Read only the example sentence (user asked for it: slower) so the user can listen and repeat. */
 function speakExample(rate: number) {
   const it = item.value
   if (!it) return
@@ -276,16 +290,16 @@ function exampleOf(it: QueueItem): string {
  * Read the word, then one example sentence that uses it (English only).
  * If the user moves to another card meanwhile, the old card stops speaking.
  */
-async function speakCard(it: QueueItem) {
+async function speakCard(it: QueueItem, rate = 1) {
   if (it.card.kind !== 'vocab' && it.card.kind !== 'phrasal') return
   const id = it.card.id
   try {
-    await speakEnglish(it.card.front)
+    await speakEnglish(it.card.front, rate)
     const ex = exampleOf(it)
     if (!ex) return
     await new Promise((r) => setTimeout(r, 400))
     if (item.value?.card.id !== id) return
-    await speakEnglish(ex)
+    await speakEnglish(ex, rate)
   } catch {
     /* speech was interrupted by the next card */
   }
@@ -347,15 +361,19 @@ function onKey(e: KeyboardEvent) {
   const it = item.value
   if (!it || sending.value || (e.target as HTMLElement)?.tagName === 'INPUT') return
   if (e.key === 'p' || e.key === 'P') {
-    speakCard(it)
+    speakCard(it, RATE_REPLAY)
     return
   }
   if (e.key === 'e' || e.key === 'E') {
-    speakExample(1)
+    speakExample(RATE_REPLAY)
     return
   }
   if (e.key === 's' || e.key === 'S') {
-    speakExample(0.7)
+    speakExample(RATE_SLOW)
+    return
+  }
+  if ((e.key === 'r' || e.key === 'R') && speakCheck.value) {
+    speakCheck.value.toggle()
     return
   }
   if (phase.value === 'ask') {

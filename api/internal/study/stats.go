@@ -34,7 +34,7 @@ type DayCount struct {
 }
 
 func (s *Service) Stats(userID int64, now time.Time) (Stats, error) {
-	var st Stats
+	st := Stats{Subjects: []SubjectStats{}}
 	u, settings, err := s.loadUser(userID)
 	if err != nil {
 		return st, err

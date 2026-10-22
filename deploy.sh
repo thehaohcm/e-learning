@@ -10,7 +10,7 @@
 #   DEPLOY_HOST        server IP/hostname       (fallback: DB_HOST)
 #   DEPLOY_USER        ssh user                 (fallback: DB_USER)
 #   DEPLOY_REMOTE_DIR  folder on the server     (default: /home/<user>/e-learning)
-#   WEB_PORT           public port              (default: 8085)
+#   APP_DOMAIN         your domain, only used in the final message
 # The local .env is copied to the server (Windows line endings removed).
 
 set -euo pipefail
@@ -30,7 +30,7 @@ env_get() {
 DEPLOY_HOST="$(env_get DEPLOY_HOST)"; DEPLOY_HOST="${DEPLOY_HOST:-$(env_get DB_HOST)}"
 DEPLOY_USER="$(env_get DEPLOY_USER)"; DEPLOY_USER="${DEPLOY_USER:-$(env_get DB_USER)}"
 REMOTE_DIR="$(env_get DEPLOY_REMOTE_DIR)"; REMOTE_DIR="${REMOTE_DIR:-/home/${DEPLOY_USER}/e-learning}"
-WEB_PORT="$(env_get WEB_PORT)"; WEB_PORT="${WEB_PORT:-8085}"
+APP_DOMAIN="$(env_get APP_DOMAIN)"; APP_DOMAIN="${APP_DOMAIN:-$DEPLOY_HOST}"
 BUILD_FLAGS=""
 [ "${1:-}" = "--clean" ] && BUILD_FLAGS="--no-cache"
 
@@ -60,7 +60,7 @@ echo ""
 tar czf - \
     --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" \
     --exclude="go.dev.mod" --exclude="go.dev.sum" \
-    api web docker-compose.yaml .env.example README.md docs | \
+    api web proxy docker-compose.yaml .env.example README.md docs | \
 ssh "$SERVER" "
 set -e
 mkdir -p '$REMOTE_DIR'
@@ -84,7 +84,7 @@ docker compose up -d --remove-orphans
 echo '[4/4] Waiting for the API (max 90s)...'
 ok=0
 for i in \$(seq 1 30); do
-    code=\$(curl -s -o /dev/null -w '%{http_code}' http://localhost:$WEB_PORT/health || true)
+    code=\$(curl -s -o /dev/null -w '%{http_code}' http://localhost/health || true)
     if [ \"\$code\" = '200' ]; then ok=1; break; fi
     sleep 3
 done
@@ -92,8 +92,8 @@ docker compose ps
 echo ''
 if [ \$ok -eq 1 ]; then
     echo '✅ Deploy OK'
-    echo '   Website:  http://$DEPLOY_HOST:$WEB_PORT'
-    echo '   Device:   http://$DEPLOY_HOST:$WEB_PORT/api'
+    echo '   Website:  https://$APP_DOMAIN  (or http://$DEPLOY_HOST)'
+    echo '   Device:   https://$APP_DOMAIN/api'
 else
     echo '❌ API is not healthy. Last API logs:'
     docker compose logs --tail 40 api

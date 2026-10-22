@@ -30,12 +30,12 @@ type subjectView struct {
 
 // ListSubjects returns subjects with their decks and card counts.
 func (h *Handler) ListSubjects(c *gin.Context) {
-	var subjects []models.Subject
+	subjects := []models.Subject{}
 	if err := h.DB.Order("sort_order, id").Find(&subjects).Error; err != nil {
 		internal(c, err)
 		return
 	}
-	var decks []deckView
+	decks := []deckView{}
 	if err := h.DB.Raw(`
 		SELECT d.*,
 		       (SELECT COUNT(*) FROM cards c WHERE c.deck_id = d.id) AS card_count,
@@ -92,7 +92,7 @@ func (h *Handler) ListCards(c *gin.Context) {
 		internal(c, err)
 		return
 	}
-	var cards []models.Card
+	cards := []models.Card{}
 	q := build().Select("c.*")
 	if s := search; s != "" {
 		// exact matches first, then prefix matches, then the rest

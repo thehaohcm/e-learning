@@ -43,10 +43,27 @@ services:
     # so no API URL is baked into the build.
     build: ./web
     container_name: elearn_web
-    ports:
-      - "${WEB_PORT:-8085}:8080"   # website + /api for the ESP32 device
     depends_on:
       - api
+    restart: unless-stopped
+    # Not published any more: the "proxy" service below is the public entry.
+    # Uncomment to also reach it directly on :8085 (e.g. for debugging).
+    # ports:
+    #   - "8085:8080"
+
+  # Public entry point: ports 80/443 (point your Cloudflare DNS record here).
+  # HTTPS on 443 turns on automatically when proxy/certs/origin.pem and
+  # proxy/certs/origin.key exist (Cloudflare Origin Certificate).
+  proxy:
+    build: ./proxy
+    container_name: elearn_proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./proxy/certs:/etc/nginx/certs:ro
+    depends_on:
+      - web
     restart: unless-stopped
 
 volumes:

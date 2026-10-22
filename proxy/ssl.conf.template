@@ -1,0 +1,18 @@
+# Enabled only when the certificate files exist (Cloudflare SSL mode: Full (strict)).
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    http2 on;
+    server_name _;
+
+    ssl_certificate     /etc/nginx/certs/origin.pem;
+    ssl_certificate_key /etc/nginx/certs/origin.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_cache shared:SSL:10m;
+
+    set $web_upstream web:8080;
+
+    location / {
+        include /etc/nginx/snippets/proxy_params.conf;
+    }
+}

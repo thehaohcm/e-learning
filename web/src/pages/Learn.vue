@@ -49,8 +49,8 @@
     <div v-else-if="cards.length" class="row g-3">
       <div v-for="c in cards" :key="c.id" class="col-md-6 col-lg-4">
         <FlashCard :card="c" :can-delete="auth.isAdmin"
-          @speak="(t: string) => speakEnglish(t)"
-          @speak-sentence="(en: string, vi?: string) => vi ? speakBilingual(en, vi) : speakEnglish(en)"
+          @speak="(t: string) => speakEnglish(t, RATE_REPLAY)"
+          @speak-sentence="(en: string, vi?: string) => vi ? speakBilingual(en, vi, RATE_REPLAY) : speakEnglish(en, RATE_REPLAY)"
           @add="enroll([c.id])" @remove="remove(c)" />
       </div>
     </div>
@@ -76,7 +76,7 @@ import { api, errorMessage } from '../api'
 import { auth } from '../auth'
 import FlashCard from '../components/flashcard/FlashCard.vue'
 import CardForm from '../components/CardForm.vue'
-import { useSpeechSynthesis } from '../composables/useSpeechSynthesis'
+import { RATE_REPLAY, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import type { CardWithProgress, Subject } from '../types'
 
 const route = useRoute()

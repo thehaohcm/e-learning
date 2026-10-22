@@ -10,6 +10,7 @@ const router = createRouter({
     { path: '/learn', component: () => import('./pages/Learn.vue') }, // ?deck_id=
     { path: '/review', component: () => import('./pages/Review.vue') }, // ?deck_id= / ?subject_id=
     { path: '/quiz', component: () => import('./pages/Quiz.vue') },
+    { path: '/reading', component: () => import('./pages/Reading.vue') }, // ?id=
     { path: '/writing', component: () => import('./pages/Writing.vue') },
     { path: '/search', component: () => import('./pages/Search.vue') },
     { path: '/devices', component: () => import('./pages/Devices.vue') },

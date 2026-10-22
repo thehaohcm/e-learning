@@ -69,6 +69,7 @@ const links = [
   { to: '/review', label: 'Review', icon: 'bi-arrow-repeat' },
   { to: '/learn', label: 'Browse', icon: 'bi-collection' },
   { to: '/quiz', label: 'Quiz', icon: 'bi-question-circle' },
+  { to: '/reading', label: 'Reading', icon: 'bi-book-half' },
   { to: '/writing', label: 'Writing', icon: 'bi-pencil' },
   { to: '/search', label: 'Search', icon: 'bi-search' },
   { to: '/devices', label: 'Device & settings', icon: 'bi-cpu' },
