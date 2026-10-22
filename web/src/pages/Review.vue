@@ -28,6 +28,7 @@
 
     <div v-if="item" class="row justify-content-center">
       <div class="col-lg-8">
+        <ForgottenWords :words="forgotten" compact class="mb-3" />
         <div class="progress mb-3" style="height: 6px">
           <div class="progress-bar bg-warning" :style="{ width: progressPct + '%' }"></div>
         </div>
@@ -157,8 +158,36 @@
     <div v-else-if="loaded" class="text-center py-5">
       <i class="bi bi-check-circle display-1 text-success"></i>
       <h3 class="mt-3">Nothing to study right now</h3>
-      <p class="text-muted">Cards you just learned will come back in a few minutes. New cards are limited per day (change it in Device &amp; settings).</p>
-      <div class="d-flex gap-2 justify-content-center">
+      <ForgottenWords :words="forgotten" class="mx-auto my-3" style="max-width: 640px" />
+
+      <!-- why it is empty -->
+      <div v-if="empty" class="mx-auto mb-3" style="max-width: 640px">
+        <div v-if="empty.new_left_today === 0" class="alert alert-info text-start">
+          <div class="fw-semibold mb-1">
+            <i class="bi bi-calendar-check"></i>
+            You've started all {{ empty.new_limit_today }} new words for today ({{ empty.new_today }}/{{ empty.new_limit_today }}).
+          </div>
+          <div class="small mb-2">
+            The daily limit keeps future reviews manageable. Want more today? It only applies to today;
+            the daily amount is in <router-link to="/devices">Device &amp; settings</router-link>.
+          </div>
+          <button class="btn btn-primary btn-sm me-2" :disabled="addingMore" @click="learnMore(5)">
+            <span v-if="addingMore" class="spinner-border spinner-border-sm me-1"></span>
+            <i v-else class="bi bi-plus-lg"></i> Learn 5 more today
+          </button>
+          <button class="btn btn-outline-primary btn-sm" :disabled="addingMore" @click="learnMore(10)">+10</button>
+        </div>
+        <div v-else class="alert alert-light border text-start small">
+          <i class="bi bi-info-circle"></i>
+          No new cards left {{ route.query.deck_id ? 'in this deck' : route.query.subject_id ? 'in this subject' : 'in your active decks' }}:
+          every card is already in your list. Add another deck or come back when cards are due.
+        </div>
+        <p v-if="empty.next_due_at" class="text-muted mb-0">
+          <i class="bi bi-clock-history"></i> Next review {{ fromNow(empty.next_due_at) }}.
+        </p>
+      </div>
+      <p v-else class="text-muted">Cards you just learned will come back in a few minutes.</p>
+      <div class="d-flex flex-wrap gap-2 justify-content-center">
         <button class="btn btn-outline-primary" @click="load"><i class="bi bi-arrow-clockwise"></i> Check again</button>
         <router-link to="/learn" class="btn btn-primary"><i class="bi bi-plus-circle"></i> Add cards</router-link>
         <router-link to="/reading" class="btn btn-warning"><i class="bi bi-book-half"></i> Read a story with your words</router-link>
@@ -175,6 +204,7 @@ import { useRoute } from 'vue-router'
 import { api, errorMessage } from '../api'
 import CardDetails from '../components/CardDetails.vue'
 import SpeakCheck from '../components/common/SpeakCheck.vue'
+import ForgottenWords from '../components/common/ForgottenWords.vue'
 import { RATE_REPLAY, RATE_SLOW, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import { RATINGS, stateLabel } from '../types'
 import type { QueueItem } from '../types'
@@ -196,6 +226,8 @@ const error = ref('')
 const autoSpeak = ref(storageGet('elearn.autospeak') !== 'false')
 const mode = ref<Mode>(storageGet('elearn.reviewmode') === 'self' ? 'self' : 'choose')
 let shownAt = Date.now()
+// English cards graded "Again" in this session: offered for practice
+const forgotten = ref<{ id: number; front: string }[]>([])
 
 const item = computed(() => queue.value[idx.value] ?? null)
 const isEnglish = computed(() => item.value?.card.kind === 'vocab' || item.value?.card.kind === 'phrasal')
@@ -305,6 +337,38 @@ async function speakCard(it: QueueItem, rate = 1) {
   }
 }
 
+// stats shown when the queue is empty
+interface EmptyInfo { new_left_today: number; new_today: number; new_limit_today: number; next_due_at: string | null }
+const empty = ref<EmptyInfo | null>(null)
+const addingMore = ref(false)
+
+/** Allow n more new cards today only, then reload the queue. */
+async function learnMore(n: number) {
+  addingMore.value = true
+  try {
+    await api.post('/study/extra-new', { count: n })
+    await load()
+  } catch (e) {
+    error.value = errorMessage(e)
+  } finally {
+    addingMore.value = false
+  }
+}
+
+/** "in 7 min", "in 3 h", "tomorrow at 08:15" */
+function fromNow(iso: string): string {
+  const t = new Date(iso)
+  const min = Math.max(1, Math.round((t.getTime() - Date.now()) / 60000))
+  const hhmm = t.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  if (min < 60) return `in ${min} min (${hhmm})`
+  if (min < 12 * 60) return `in ${Math.round(min / 60)} h (${hhmm})`
+  const days = Math.round((startOfDay(t) - startOfDay(new Date())) / 86400000)
+  return days === 1 ? `tomorrow at ${hhmm}` : `on ${t.toLocaleDateString()} at ${hhmm}`
+}
+function startOfDay(d: Date): number {
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
+}
+
 async function load() {
   loaded.value = false
   error.value = ''
@@ -313,6 +377,13 @@ async function load() {
     const { data } = await api.get('/study/queue', { params })
     queue.value = data
     idx.value = 0
+    empty.value = null
+    if (!data.length) {
+      // explain why there is nothing (daily limit reached? next card due when?)
+      try {
+        empty.value = (await api.get('/stats')).data
+      } catch { /* the generic message is shown */ }
+    }
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -346,7 +417,11 @@ async function rate(rating: number) {
   if (!item.value || sending.value) return
   sending.value = true
   try {
-    await api.post('/study/review', { card_id: item.value.card.id, rating, duration_ms: Date.now() - shownAt })
+    const it = item.value
+    await api.post('/study/review', { card_id: it.card.id, rating, duration_ms: Date.now() - shownAt })
+    if (rating === 1 && isEnglish.value && !forgotten.value.some((w) => w.id === it.card.id)) {
+      forgotten.value.push({ id: it.card.id, front: it.card.front })
+    }
     done.value++
     if (idx.value < queue.value.length - 1) idx.value++
     else await load() // learning steps come back within minutes

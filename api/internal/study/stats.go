@@ -1,6 +1,7 @@
 package study
 
 import (
+	"database/sql"
 	"time"
 
 	"mvp-lang-app/internal/srs"
@@ -19,6 +20,9 @@ type SubjectStats struct {
 type Stats struct {
 	DueNow        int            `json:"due_now"`
 	NewLeftToday  int            `json:"new_left_today"`
+	NewToday      int            `json:"new_today"`       // new cards started today
+	NewLimitToday int            `json:"new_limit_today"` // daily setting + extra added for today
+	NextDueAt     *time.Time     `json:"next_due_at"`     // next card coming back (any deck), nil if none
 	ReviewsToday  int            `json:"reviews_today"`
 	CorrectToday  int            `json:"correct_today"`
 	StreakDays    int            `json:"streak_days"`
@@ -66,7 +70,17 @@ func (s *Service) Stats(userID int64, now time.Time) (Stats, error) {
 	if err != nil {
 		return st, err
 	}
-	st.NewLeftToday = max(0, settings.DailyNew-introduced)
+	st.NewToday = introduced
+	st.NewLimitToday = settings.NewLimit(dayKey(now, loc))
+	st.NewLeftToday = max(0, st.NewLimitToday-introduced)
+
+	var next sql.NullTime
+	_ = s.DB.Raw(`SELECT MIN(due) FROM user_cards WHERE user_id = ? AND NOT suspended AND state <> 0 AND due > ?`, userID, now).
+		Row().Scan(&next)
+	if next.Valid {
+		t := next.Time.UTC()
+		st.NextDueAt = &t
+	}
 
 	s.DB.Raw(`SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE rating >= 3) AS ok
 	          FROM review_logs WHERE user_id = ? AND reviewed_at >= ?`, userID, today).

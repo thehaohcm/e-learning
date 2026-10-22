@@ -100,6 +100,7 @@
           <i class="bi bi-trophy-fill display-3 text-warning"></i>
           <h3 class="mt-3 fw-bold">{{ score }} / {{ questions.length }}</h3>
           <p class="text-muted">{{ Math.round((score / questions.length) * 100) }}% correct</p>
+          <ForgottenWords :words="forgotten" class="mx-auto mb-4" style="max-width: 640px" />
           <button class="btn btn-outline-secondary me-2" @click="back"><i class="bi bi-chevron-left"></i> Back to questions</button>
           <button class="btn btn-primary me-2" @click="start"><i class="bi bi-arrow-repeat"></i> New quiz</button>
           <router-link to="/" class="btn btn-outline-secondary">Home</router-link>
@@ -115,6 +116,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
 import { RATE_REPLAY, RATE_SLOW, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import SpeakCheck from '../components/common/SpeakCheck.vue'
+import ForgottenWords from '../components/common/ForgottenWords.vue'
 import type { Subject } from '../types'
 
 interface Question { card_id: number; kind: string; mode: string; prompt: string; speak?: string; choices: { id: number; text: string }[] }
@@ -144,6 +146,13 @@ const loading = ref(true)
 const listening = ref(false)
 const error = ref('')
 let speakToken = 0
+// English words answered wrong on the first try: offered for practice at the end
+const forgotten = ref<{ id: number; front: string }[]>([])
+function remember(r: Result | null) {
+  if (!r || (r.card.kind !== 'vocab' && r.card.kind !== 'phrasal')) return
+  const id = q.value.card_id
+  if (!forgotten.value.some((w) => w.id === id)) forgotten.value.push({ id, front: r.card.front })
+}
 
 const q = computed(() => questions.value[idx.value])
 
@@ -231,6 +240,7 @@ async function answer(id: number) {
       speakResolved()
     } else {
       wrong.add(id)
+      remember(data)
       speakHint(1)
     }
   } catch (e) {
@@ -303,6 +313,7 @@ async function start() {
     const { data } = await api.get('/quiz', { params: { deck_id: deckId.value, count: 10 } })
     questions.value = data
     saved = {}
+    forgotten.value = []
     idx.value = 0
     score.value = 0
     resetQuestion()

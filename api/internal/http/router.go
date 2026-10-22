@@ -64,6 +64,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.GET("/study/queue", h.Queue)
 		u.POST("/study/review", h.Review)
 		u.POST("/study/suspend", h.Suspend)
+		u.POST("/study/extra-new", h.ExtraNew)
 
 		u.GET("/quiz", h.Quiz)
 		u.POST("/quiz/answer", h.QuizAnswer)
@@ -82,6 +83,11 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.GET("/readings/:id", h.GetReading)
 		u.POST("/readings/:id/answers", h.AnswerReading)
 		u.DELETE("/readings/:id", h.DeleteReading)
+
+		// practise forgotten words (AI: one request per batch)
+		practiceLimit := handlers.RateLimit(20)
+		u.POST("/practice/examples", practiceLimit, h.PracticeExamples)
+		u.POST("/practice/grade", practiceLimit, h.PracticeGrade)
 
 		u.POST("/writing", h.SubmitWriting)
 		u.GET("/writing", h.ListWriting)

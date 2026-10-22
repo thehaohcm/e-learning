@@ -11,6 +11,7 @@ const router = createRouter({
     { path: '/review', component: () => import('./pages/Review.vue') }, // ?deck_id= / ?subject_id=
     { path: '/quiz', component: () => import('./pages/Quiz.vue') },
     { path: '/reading', component: () => import('./pages/Reading.vue') }, // ?id=
+    { path: '/practice', component: () => import('./pages/Practice.vue') }, // ?ids=1,2,3 (forgotten words)
     { path: '/writing', component: () => import('./pages/Writing.vue') },
     { path: '/search', component: () => import('./pages/Search.vue') },
     { path: '/devices', component: () => import('./pages/Devices.vue') },

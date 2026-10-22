@@ -31,6 +31,7 @@ import { RATE_REPLAY, useSpeechSynthesis } from '../../composables/useSpeechSynt
 import type { SpeechScore } from '../../composables/useSpeechRecognition'
 
 const props = defineProps<{ text: string }>()
+const emit = defineEmits<{ (e: 'scored', pct: number): void }>()
 const { supported, listening, transcript, error, listen, stop } = useSpeechRecognition()
 const { speakEnglish } = useSpeechSynthesis()
 const result = ref<SpeechScore | null>(null)
@@ -82,6 +83,7 @@ async function start() {
   if (target !== props.text) return // card changed while listening
   if (!heard.length && error.value) return
   result.value = scoreSpeech(target, heard)
+  emit('scored', result.value.pct)
 }
 
 function toggle() {

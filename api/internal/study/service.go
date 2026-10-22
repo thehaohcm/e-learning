@@ -3,6 +3,7 @@
 package study
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -74,6 +75,31 @@ func scope(q *gorm.DB, f Filter) *gorm.DB {
 	return q
 }
 
+// dayKey is the user's calendar day ("2026-10-22").
+func dayKey(now time.Time, loc *time.Location) string {
+	return startOfDay(now, loc).Format("2006-01-02")
+}
+
+// AddExtraNew allows n more new cards today (on top of the daily setting).
+func (s *Service) AddExtraNew(userID int64, n int, now time.Time) (Settings, error) {
+	u, settings, err := s.loadUser(userID)
+	if err != nil {
+		return settings, err
+	}
+	day := dayKey(now, UserLocation(u.Timezone))
+	if settings.ExtraNewDate != day {
+		settings.ExtraNewDate, settings.ExtraNew = day, 0
+	}
+	settings.ExtraNew = min(MaxExtraNew, settings.ExtraNew+n)
+	b, err := json.Marshal(settings)
+	if err != nil {
+		return settings, err
+	}
+	err = s.DB.Model(&models.User{}).Where("id = ?", userID).
+		Updates(map[string]any{"settings": models.JSON(b), "updated_at": now}).Error
+	return settings, err
+}
+
 // NewIntroducedToday counts cards answered for the first time today.
 func (s *Service) NewIntroducedToday(userID int64, loc *time.Location, now time.Time) (int, error) {
 	var n int64
@@ -120,7 +146,7 @@ func (s *Service) Queue(userID int64, f Filter, limit int, now time.Time) ([]Que
 		if err != nil {
 			return nil, err
 		}
-		quota := min(room, settings.DailyNew-introduced)
+		quota := min(room, settings.NewLimit(dayKey(now, loc))-introduced)
 		if quota > 0 {
 			q := s.DB.Table("user_cards uc").Select(sel).
 				Joins("JOIN cards c ON c.id = uc.card_id").

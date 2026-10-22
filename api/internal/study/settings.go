@@ -20,6 +20,10 @@ type Settings struct {
 	// What the device shows at each pop-up: "flashcard", "quiz", "listening" or
 	// "mix" (rotates the three). See DeviceCardMode.
 	DeviceMode string `json:"device_mode"`
+	// "Learn N more today": extra new cards allowed on ExtraNewDate only
+	// (YYYY-MM-DD in the user's time zone). Set via POST /api/study/extra-new.
+	ExtraNewDate string `json:"extra_new_date,omitempty"`
+	ExtraNew     int    `json:"extra_new,omitempty"`
 	// Text-to-speech speed for the web app.
 	TTSSpeed float64 `json:"tts_speed"`
 }
@@ -33,6 +37,18 @@ func DefaultSettings() Settings {
 		DeviceMode:       DeviceModeFlashcard,
 		TTSSpeed:         1.0,
 	}
+}
+
+// MaxExtraNew caps the extra new cards a user can add for one day.
+const MaxExtraNew = 100
+
+// NewLimit is the number of new cards allowed on the given day (YYYY-MM-DD):
+// the daily setting plus any extra added for that day.
+func (s Settings) NewLimit(day string) int {
+	if s.ExtraNewDate == day {
+		return s.DailyNew + s.ExtraNew
+	}
+	return s.DailyNew
 }
 
 var hhmm = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
@@ -67,6 +83,9 @@ func (s Settings) sanitized() Settings {
 	case DeviceModeFlashcard, DeviceModeQuiz, DeviceModeListening, DeviceModeMix:
 	default:
 		s.DeviceMode = d.DeviceMode
+	}
+	if s.ExtraNew < 0 || s.ExtraNew > MaxExtraNew {
+		s.ExtraNew = 0
 	}
 	if s.ActiveDeckIDs == nil {
 		s.ActiveDeckIDs = []int64{}

@@ -196,3 +196,17 @@ type Reading struct {
 }
 
 func (Reading) TableName() string { return "readings" }
+
+// ---------------------------------------------------------------- practice
+
+// CardExample is an extra example sentence of a card (see migration 0007).
+type CardExample struct {
+	ID            int64     `gorm:"primaryKey" json:"id"`
+	CardID        int64     `json:"card_id"`
+	SentenceEn    string    `json:"sentence_en"`
+	TranslationVi string    `json:"translation_vi"`
+	Source        string    `json:"source"`
+	CreatedAt     time.Time `json:"created_at"`
+}
+
+func (CardExample) TableName() string { return "card_examples" }

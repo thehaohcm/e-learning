@@ -112,6 +112,29 @@ func (h *Handler) Stats(c *gin.Context) {
 	c.JSON(http.StatusOK, st)
 }
 
+// ExtraNew: POST /api/study/extra-new {"count":5} lets the user learn more new
+// cards today than the daily setting (only for today).
+func (h *Handler) ExtraNew(c *gin.Context) {
+	var req struct {
+		Count int `json:"count"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	if req.Count <= 0 || req.Count > 50 {
+		req.Count = 5
+	}
+	now := time.Now().UTC()
+	if _, err := h.Study.AddExtraNew(userID(c), req.Count, now); err != nil {
+		internal(c, err)
+		return
+	}
+	st, err := h.Study.Stats(userID(c), now)
+	if err != nil {
+		internal(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, st)
+}
+
 // ---------------------------------------------------------------- settings
 
 func (h *Handler) GetSettings(c *gin.Context) {

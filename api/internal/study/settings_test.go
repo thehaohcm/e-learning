@@ -31,3 +31,13 @@ func TestStreak(t *testing.T) {
 		t.Fatalf("want 0, got %d", got)
 	}
 }
+
+func TestNewLimitExtraOnlyToday(t *testing.T) {
+	s := ParseSettings([]byte(`{"daily_new": 10, "extra_new_date": "2026-10-22", "extra_new": 5}`))
+	if s.NewLimit("2026-10-22") != 15 || s.NewLimit("2026-10-23") != 10 {
+		t.Fatalf("got %d / %d", s.NewLimit("2026-10-22"), s.NewLimit("2026-10-23"))
+	}
+	if s := ParseSettings([]byte(`{"extra_new": 9999}`)); s.ExtraNew != 0 {
+		t.Fatalf("not capped: %d", s.ExtraNew)
+	}
+}

@@ -126,6 +126,19 @@ không cần server:
 - Chrome gửi âm thanh lên dịch vụ nhận giọng nói của Google để chuyển thành chữ.
 - Lần đầu trình duyệt sẽ hỏi quyền micro.
 
+## Luyện từ đã quên
+
+Trong **Review** (thẻ bị chấm Again: chọn sai, "I don't remember", hoặc Again) và **Quiz** (chọn sai lần đầu),
+app gom các từ tiếng Anh đã quên. Màn hình cuối (và thanh trên cùng trong Review) có nút **Practise them**
+→ trang `/practice`:
+1. **1 request AI** viết 3 câu ví dụ cho mọi từ (tối đa 10 từ/lần), lưu vào `card_examples` để lần sau mở ngay.
+   Mỗi thẻ giữ 6 câu; lần quên sau sẽ gặp 3 câu khác (`practice_rounds`).
+2. Mỗi câu: gõ bản dịch tiếng Việt → xem bản dịch mẫu → đọc to (🎤, cần ≥ 80%, sau 3 lần vẫn cho qua;
+   công tắc "Can't speak right now" để bỏ bước đọc). Câu 1 của mỗi từ là bắt buộc, câu 2–3 tùy chọn.
+3. Cuối buổi **1 request AI** chấm mọi bản dịch (đúng/sai, điểm, góp ý tiếng Việt).
+
+Không có AI: dùng câu ví dụ có sẵn của thẻ và bỏ bước chấm. Lịch ôn FSRS không bị thay đổi bởi phần luyện này.
+
 ## Còn thiếu / bước tiếp theo
 
 - Firmware ESP32 (LVGL, WiFiManager captive portal, lưu cache trên SD).
