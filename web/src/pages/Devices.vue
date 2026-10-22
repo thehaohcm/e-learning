@@ -50,6 +50,16 @@
             </div>
             <div class="form-text">None selected = Core Vocabulary.</div>
           </div>
+          <div class="mb-3">
+            <label class="form-label" for="devmode">Device pop-up shows</label>
+            <select id="devmode" v-model="settings.device_mode" class="form-select">
+              <option v-for="m in DEVICE_MODES" :key="m.value" :value="m.value">{{ m.label }}</option>
+            </select>
+            <div class="form-text">
+              {{ DEVICE_MODES.find((m) => m.value === settings!.device_mode)?.help }}
+              New words are always shown as flashcards first.
+            </div>
+          </div>
           <div class="row g-2 mb-3">
             <div class="col-4">
               <label class="form-label">Device pop-up every (min)</label>
@@ -82,7 +92,14 @@ import { api, errorMessage } from '../api'
 import type { Subject } from '../types'
 
 interface Device { id: number; name: string; firmware: string; last_seen_at: string | null }
-interface Settings { daily_new: number; active_deck_ids: number[]; reminder_every_min: number; active_from: string; active_to: string; tts_speed: number }
+interface Settings { daily_new: number; active_deck_ids: number[]; reminder_every_min: number; active_from: string; active_to: string; tts_speed: number; device_mode: string }
+
+const DEVICE_MODES = [
+  { value: 'flashcard', label: 'Flashcard', help: 'The word, tap to see the meaning, then rate how well you knew it.' },
+  { value: 'quiz', label: 'Quiz (4 options)', help: 'The word with 4 meanings: tap the right one.' },
+  { value: 'listening', label: 'Listening', help: 'The device plays the word/sentence, you pick the meaning. Needs audio files on the server (coming soon): until then these cards are shown as a quiz.' },
+  { value: 'mix', label: 'Mix (flashcard · quiz · listening)', help: 'Rotates the three modes.' },
+]
 
 const devices = ref<Device[]>([])
 const subjects = ref<Subject[]>([])

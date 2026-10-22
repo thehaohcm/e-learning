@@ -97,6 +97,10 @@ Thiết bị gọi qua cùng cổng với web (nginx proxy `/api`), ví dụ `ht
    (`id, kind, front, ipa, meaning_vi, meaning_en, example_en, example_vi, back, choices, answer, is_new`).
    Thẻ đến hạn ôn có thêm `options[]`: 4 nghĩa tiếng Việt để hỏi trắc nghiệm, đáp án đúng là option có `id` bằng `id` của thẻ.
    Chọn sai → gửi rating 1; chọn đúng → cho user chọn 2/3/4.
+   Mỗi thẻ có `mode` (theo cài đặt "Device pop-up shows" = `settings.device_mode`):
+   `flashcard` (hiện từ → chạm xem nghĩa → tự chấm), `quiz` (4 `options`, hoặc `choices` với thẻ mcq),
+   `listening` (phát `audio_url` rồi chọn nghĩa). Thẻ mới luôn là `flashcard`; thẻ không có audio thì
+   `listening` thành `quiz`. Thiết bị chỉ cần làm theo `mode`.
    Lưu vào thẻ SD để học offline.
 4. **Gửi kết quả** (có thể gửi dồn sau khi mất mạng):
    `POST /api/device/reviews` với

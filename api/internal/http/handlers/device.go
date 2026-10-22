@@ -109,6 +109,9 @@ type deviceCard struct {
 	State   int            `json:"state"`
 	Due     time.Time      `json:"due"`
 	Options []study.Choice `json:"options,omitempty"` // 4 meanings, correct one has id == card id
+	// How to show the card: "flashcard", "quiz" (options, or choices for mcq)
+	// or "listening" (play audio_url, then the options). From settings.device_mode.
+	Mode string `json:"mode"`
 }
 
 // DeviceSync returns everything the device needs to work offline for a while:
@@ -129,24 +132,34 @@ func (h *Handler) DeviceSync(c *gin.Context) {
 		internal(c, err)
 		return
 	}
+	var u models.User
+	h.DB.Select("id, settings, timezone").First(&u, uid)
+	settings := study.ParseSettings(u.Settings)
+
 	cards := make([]deviceCard, 0, len(items))
+	nth := 0 // cards that can be quizzed, for "mix"
 	for _, it := range items {
-		cards = append(cards, deviceCard{Compact: content.ToCompact(it.Card), IsNew: it.IsNew, State: it.Progress.State, Due: it.Progress.Due, Options: it.Choices})
+		cc := content.ToCompact(it.Card)
+		mode := study.DeviceCardMode(settings.DeviceMode, study.DeviceCard{
+			Kind: it.Card.Kind, IsNew: it.IsNew, HasOptions: len(it.Choices) >= 2, HasAudio: cc.AudioURL != "",
+		}, nth)
+		if !it.IsNew {
+			nth++
+		}
+		cards = append(cards, deviceCard{Compact: cc, IsNew: it.IsNew, State: it.Progress.State, Due: it.Progress.Due, Options: it.Choices, Mode: mode})
 	}
 	stats, err := h.Study.Stats(uid, now)
 	if err != nil {
 		internal(c, err)
 		return
 	}
-	var u models.User
-	h.DB.Select("id, settings, timezone").First(&u, uid)
 	loc := study.UserLocation(u.Timezone)
 	_, offset := now.In(loc).Zone()
 
 	c.JSON(http.StatusOK, gin.H{
 		"server_time":    now,
 		"utc_offset_sec": offset,
-		"settings":       study.ParseSettings(u.Settings),
+		"settings":       settings,
 		"due_now":        stats.DueNow,
 		"new_left_today": stats.NewLeftToday,
 		"reviews_today":  stats.ReviewsToday,

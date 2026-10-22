@@ -17,6 +17,9 @@ type Settings struct {
 	ReminderEveryMin int    `json:"reminder_every_min"`
 	ActiveFrom       string `json:"active_from"` // "07:30"
 	ActiveTo         string `json:"active_to"`   // "22:00"
+	// What the device shows at each pop-up: "flashcard", "quiz", "listening" or
+	// "mix" (rotates the three). See DeviceCardMode.
+	DeviceMode string `json:"device_mode"`
 	// Text-to-speech speed for the web app.
 	TTSSpeed float64 `json:"tts_speed"`
 }
@@ -27,6 +30,7 @@ func DefaultSettings() Settings {
 		ReminderEveryMin: 45,
 		ActiveFrom:       "07:30",
 		ActiveTo:         "22:00",
+		DeviceMode:       DeviceModeFlashcard,
 		TTSSpeed:         1.0,
 	}
 }
@@ -58,6 +62,11 @@ func (s Settings) sanitized() Settings {
 	}
 	if s.TTSSpeed < 0.5 || s.TTSSpeed > 2 {
 		s.TTSSpeed = d.TTSSpeed
+	}
+	switch s.DeviceMode {
+	case DeviceModeFlashcard, DeviceModeQuiz, DeviceModeListening, DeviceModeMix:
+	default:
+		s.DeviceMode = d.DeviceMode
 	}
 	if s.ActiveDeckIDs == nil {
 		s.ActiveDeckIDs = []int64{}
