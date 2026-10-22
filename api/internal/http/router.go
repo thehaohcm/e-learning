@@ -54,7 +54,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 	// ---- logged-in user (web)
 	u := api.Group("", h.RequireUser)
 	{
-		practiceLimit := handlers.RateLimit(20) // endpoints that call AI
+		practiceLimit := handlers.RateLimit(40) // endpoints that call AI (Write it checks each sentence)
 		u.GET("/auth/me", h.Me)
 
 		u.GET("/subjects", h.ListSubjects)

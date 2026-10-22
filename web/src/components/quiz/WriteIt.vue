@@ -15,15 +15,7 @@
 
       <!-- writing -->
       <template v-else-if="phase === 'write' && item">
-        <div class="d-flex justify-content-between align-items-center small text-muted mb-2">
-          <span>Sentence {{ idx + 1 }} / {{ items.length }}</span>
-          <div class="btn-group btn-group-sm">
-            <button class="btn" :class="level === 'easy' ? 'btn-secondary' : 'btn-outline-secondary'" @click="level = 'easy'"
-              title="The English word to use is shown">Easy</button>
-            <button class="btn" :class="level === 'hard' ? 'btn-secondary' : 'btn-outline-secondary'" @click="level = 'hard'"
-              title="Only its Vietnamese meaning is shown: recall the English word">Hard</button>
-          </div>
-        </div>
+        <div class="small text-muted mb-2">Sentence {{ idx + 1 }} / {{ items.length }}</div>
 
         <div class="card border-0 shadow-sm">
           <div class="card-body p-4">
@@ -31,17 +23,12 @@
             <p class="fs-5 fw-semibold mb-3">“{{ item.prompt_vi }}”</p>
 
             <div class="mb-3 small">
-              <template v-if="level === 'easy' || item.submitted || hints >= 2">
-                Use: <strong class="text-primary">{{ item.word }}</strong>
-                <span class="text-muted">({{ item.meaning_vi }})</span>
+              Use the English word for: <strong>{{ item.meaning_vi }}</strong>
+              <template v-if="item.hinted || item.submitted">
+                → <strong class="text-primary">{{ item.word }}</strong>
               </template>
-              <template v-else>
-                Use the English word for: <strong>{{ item.meaning_vi }}</strong>
-                <span v-if="hints === 1" class="ms-2 font-monospace text-primary">{{ letterHint }}</span>
-                <button class="btn btn-link btn-sm py-0" @click="hints++">
-                  <i class="bi bi-lightbulb"></i> {{ hints === 0 ? 'First letter' : 'Show the word' }}
-                </button>
-              </template>
+              <button v-else class="btn btn-outline-secondary btn-sm rounded-circle ms-1 hint-btn" title="Show the word to use"
+                @click="item.hinted = true">?</button>
             </div>
 
             <textarea ref="box" v-model="item.answer" class="form-control mb-2" rows="2" :readonly="item.submitted"
@@ -55,10 +42,35 @@
             </div>
 
             <template v-else>
-              <div v-if="item.answer.trim()" class="small mb-2" :class="item.usedWord ? 'text-success' : 'text-warning'">
-                <i :class="item.usedWord ? 'bi bi-check-circle-fill' : 'bi bi-exclamation-triangle-fill'"></i>
-                {{ item.usedWord ? `You used “${item.word}”.` : `You didn't use “${item.word}”.` }}
-                <button v-if="!item.usedWord" class="btn btn-link btn-sm p-0 ms-1 align-baseline" @click="edit">Edit my sentence</button>
+              <!-- forgot the word? (in Hard mode, remembering it is worth a tick) -->
+              <div v-if="item.answer.trim() && !item.usedWord" class="small mb-2 text-warning">
+                <i class="bi bi-exclamation-triangle-fill"></i> You didn't use “{{ item.word }}”.
+                <button class="btn btn-link btn-sm p-0 ms-1 align-baseline" @click="edit">Edit my sentence</button>
+              </div>
+              <div v-else-if="item.answer.trim() && !item.hinted" class="small mb-2 text-success">
+                <i class="bi bi-check-circle-fill"></i> You remembered “{{ item.word }}”.
+              </div>
+
+              <!-- AI verdict for this sentence -->
+              <div v-if="item.answer.trim()" class="mb-2">
+                <div v-if="item.checking" class="small text-muted">
+                  <span class="spinner-border spinner-border-sm me-1"></span> AI is checking your sentence…
+                </div>
+                <div v-else-if="item.result?.graded" class="p-2 rounded small"
+                  :class="item.result.correct ? 'bg-success-subtle' : 'bg-danger-subtle'">
+                  <span class="badge me-1" :class="item.result.correct ? 'bg-success' : 'bg-danger'">
+                    {{ item.result.correct ? '✓ Correct' : '✗ Not quite' }} · {{ item.result.score }}
+                  </span>
+                  {{ item.result.feedback_vi }}
+                  <div v-if="item.result.corrected && item.result.corrected !== item.answer.trim()" class="mt-1">
+                    <span class="text-muted">Better:</span> <span class="fw-semibold">{{ item.result.corrected }}</span>
+                  </div>
+                  <div v-if="item.result.scheduled" class="text-muted mt-1"><i class="bi bi-calendar-check"></i> Counted as a review of this word.</div>
+                </div>
+                <div v-else-if="item.checkError" class="small text-warning">
+                  <i class="bi bi-wifi-off"></i> {{ item.checkError }}
+                  <button class="btn btn-link btn-sm p-0 ms-1 align-baseline" @click="check(item)">Try again</button>
+                </div>
               </div>
               <div class="p-2 rounded bg-light small d-flex align-items-start gap-2">
                 <div class="flex-grow-1"><span class="text-muted">Sample:</span> {{ item.reference_en }}</div>
@@ -66,10 +78,9 @@
                   <i class="bi bi-volume-up-fill"></i>
                 </button>
               </div>
-              <div class="small text-muted mt-1">AI checks your sentences at the end.</div>
               <div class="d-flex mt-3">
                 <button ref="nextBtn" class="btn btn-primary ms-auto" @click="next">
-                  {{ idx < items.length - 1 ? 'Next' : 'Finish & check' }} <i class="bi bi-arrow-right"></i>
+                  {{ idx < items.length - 1 ? 'Next' : 'Finish' }} <i class="bi bi-arrow-right"></i>
                 </button>
               </div>
             </template>
@@ -79,7 +90,7 @@
 
       <div v-else-if="phase === 'grading'" class="text-center py-5">
         <div class="spinner-border text-success"></div>
-        <p class="mt-3 text-muted">AI is checking your sentences…</p>
+        <p class="mt-3 text-muted">Waiting for the last checks…</p>
       </div>
 
       <!-- summary -->
@@ -93,7 +104,7 @@
             </h4>
             <div v-if="scheduledCount" class="small text-muted">{{ scheduledCount }} due word{{ scheduledCount > 1 ? 's' : '' }} counted as reviewed.</div>
             <div v-if="gradeError" class="alert alert-warning py-2 small mt-3 mb-0">
-              {{ gradeError }} <button class="btn btn-sm btn-outline-secondary ms-2" @click="grade">Check again</button>
+              {{ gradeError }} <button class="btn btn-sm btn-outline-secondary ms-2" @click="finish">Check again</button>
             </div>
           </div>
         </div>
@@ -150,6 +161,9 @@ interface Item {
   answer: string
   submitted: boolean
   usedWord: boolean
+  hinted: boolean // "?" pressed: the English word was shown before writing
+  checking: boolean
+  checkError: string
   result?: Result
 }
 
@@ -159,20 +173,13 @@ const { speakEnglish } = useSpeechSynthesis()
 const phase = ref<'loading' | 'error' | 'write' | 'grading' | 'done'>('loading')
 const items = ref<Item[]>([])
 const idx = ref(0)
-const hints = ref(0)
 const error = ref('')
 const warning = ref('')
 const gradeError = ref('')
 const box = ref<HTMLTextAreaElement | null>(null)
 const nextBtn = ref<HTMLButtonElement | null>(null)
-const level = ref<'easy' | 'hard'>(storageGet('elearn.writeit.level') === 'hard' ? 'hard' : 'easy')
-watch(level, (v) => storageSet('elearn.writeit.level', v))
 
 const item = computed(() => items.value[idx.value])
-const letterHint = computed(() => {
-  const w = item.value?.word ?? ''
-  return w.split(' ').map((p) => p[0] + ' _'.repeat(Math.max(0, p.length - 1))).join('   ')
-})
 const graded = computed(() => items.value.filter((i) => i.result?.graded))
 const gradedCount = computed(() => graded.value.length)
 const correctCount = computed(() => graded.value.filter((i) => i.result!.correct).length)
@@ -183,13 +190,6 @@ const toPractise = computed(() =>
     ? []
     : items.value.filter((i) => !i.answer.trim() || (i.result?.graded && !i.result.correct)).map((i) => ({ id: i.card_id, front: i.word })),
 )
-
-function storageGet(k: string) {
-  try { return localStorage.getItem(k) } catch { return null }
-}
-function storageSet(k: string, v: string) {
-  try { localStorage.setItem(k, v) } catch { /* ignore */ }
-}
 
 function say(text: string) {
   speakEnglish(text, RATE_REPLAY).catch(() => {})
@@ -206,7 +206,29 @@ function submit() {
   it.usedWord = usesWord(it.answer, it.word)
   it.submitted = true
   say(it.reference_en)
+  check(it) // AI verdict arrives while the sample is read
   focus('next')
+}
+
+// one request per sentence, so the verdict comes right after "Check"
+const pending = new Map<number, Promise<void>>()
+function check(it: Item): Promise<void> {
+  const answer = it.answer.trim()
+  const p = (async () => {
+    it.checking = true
+    it.checkError = ''
+    it.result = undefined
+    try {
+      const { data } = await api.post('/practice/write/grade', { items: [{ example_id: it.example_id, answer, hinted: it.hinted }] })
+      if (it.answer.trim() === answer) it.result = data.results?.[0]
+    } catch (e) {
+      it.checkError = `Could not check this sentence: ${errorMessage(e)}`
+    } finally {
+      it.checking = false
+    }
+  })()
+  pending.set(it.example_id, p)
+  return p
 }
 
 function giveUp() {
@@ -222,20 +244,21 @@ function edit() {
   const it = item.value
   if (!it) return
   it.submitted = false
+  it.result = undefined
   focus('box')
 }
 
 function next() {
-  hints.value = 0
   if (idx.value < items.value.length - 1) {
     idx.value++
     focus('box')
   } else {
-    grade()
+    finish()
   }
 }
 
 async function load() {
+  pending.clear()
   phase.value = 'loading'
   error.value = ''
   warning.value = ''
@@ -243,7 +266,7 @@ async function load() {
   try {
     const { data } = await api.post('/practice/write/prompts', { deck_id: props.deckId, count: 10 })
     items.value = (data.prompts ?? []).map((p: Omit<Item, 'answer' | 'submitted' | 'usedWord'>) => ({
-      ...p, answer: '', submitted: false, usedWord: false,
+      ...p, answer: '', submitted: false, usedWord: false, hinted: false, checking: false, checkError: '',
     }))
     warning.value = data.warning ?? ''
     if (!items.value.length) {
@@ -252,8 +275,7 @@ async function load() {
       return
     }
     idx.value = 0
-    hints.value = 0
-    phase.value = 'write'
+      phase.value = 'write'
     focus('box')
   } catch (e) {
     phase.value = 'error'
@@ -261,21 +283,27 @@ async function load() {
   }
 }
 
-/** One AI request checks every sentence of the round. */
-async function grade() {
-  const payload = items.value
-    .filter((i) => i.answer.trim())
-    .map((i) => ({ example_id: i.example_id, answer: i.answer.trim() }))
+/**
+ * End of the round: wait for the checks still running, then check in one
+ * request the sentences whose check failed (network, AI busy...).
+ */
+async function finish() {
   gradeError.value = ''
-  if (!payload.length) {
+  phase.value = 'grading'
+  await Promise.allSettled([...pending.values()])
+  const missing = items.value.filter((i) => i.answer.trim() && !i.result?.graded)
+  if (!missing.length) {
     phase.value = 'done'
     return
   }
-  phase.value = 'grading'
+  const payload = missing.map((i) => ({ example_id: i.example_id, answer: i.answer.trim(), hinted: i.hinted }))
   try {
     const { data } = await api.post('/practice/write/grade', { items: payload })
     const byId = new Map<number, Result>((data.results ?? []).map((r: Result) => [r.example_id, r]))
-    for (const it of items.value) it.result = byId.get(it.example_id)
+    for (const it of missing) {
+      it.result = byId.get(it.example_id)
+      it.checkError = ''
+    }
   } catch (e) {
     gradeError.value = `Could not check the sentences: ${errorMessage(e)}`
   } finally {
@@ -286,3 +314,7 @@ async function grade() {
 watch(() => props.deckId, load)
 onMounted(load)
 </script>
+
+<style scoped>
+.hint-btn { width: 1.9rem; height: 1.9rem; padding: 0; font-weight: 700; line-height: 1; }
+</style>

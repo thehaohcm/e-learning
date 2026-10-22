@@ -119,8 +119,9 @@ func (h *Handler) WritePrompts(c *gin.Context) {
 
 // WriteGrade: POST /api/practice/write/grade {"items":[{"example_id":1,"answer":"..."}]}
 // One AI request for all answers. A correct sentence with the word counts as a
-// "Good" review for cards that are due (like the quiz); mistakes are not
-// punished: this exercise is about using the word, the schedule is set by Study.
+// "Good" review for cards that are due (like the quiz), unless the learner had
+// to reveal the word ("hinted"). Mistakes are not punished: this exercise is
+// about using the word, the schedule is set by Study.
 func (h *Handler) WriteGrade(c *gin.Context) {
 	if !h.AI.Enabled() {
 		abort(c, http.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
@@ -130,6 +131,7 @@ func (h *Handler) WriteGrade(c *gin.Context) {
 		Items []struct {
 			ExampleID int64  `json:"example_id"`
 			Answer    string `json:"answer"`
+			Hinted    bool   `json:"hinted"` // the word was revealed before writing
 		} `json:"items" binding:"required,min=1"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -172,7 +174,9 @@ func (h *Handler) WriteGrade(c *gin.Context) {
 	results := make([]result, len(req.Items))
 	var items []ai.WrittenItem
 	var slots []int
+	hinted := map[int]bool{}
 	for i, it := range req.Items {
+		hinted[i] = it.Hinted
 		results[i].ExampleID = it.ExampleID
 		ex, ok := exByID[it.ExampleID]
 		answer := strings.TrimSpace(it.Answer)
@@ -217,7 +221,7 @@ func (h *Handler) WriteGrade(c *gin.Context) {
 		}
 		r.WrittenResult = g
 		r.Graded = true
-		if g.Correct {
+		if g.Correct && !hinted[slots[k]] {
 			ar, err := h.Study.ApplyAnswer(study.Answer{UserID: uid, CardID: r.CardID, Rating: srs.Good, At: time.Now(), Source: "write", OnlyIfDue: true})
 			if err == nil {
 				r.Scheduled = ar.Applied
