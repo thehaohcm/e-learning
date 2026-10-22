@@ -4,7 +4,7 @@
       :title="listening ? 'Stop' : result ? 'Listen to it slowly, then say it again (R)' : 'Read the sentence aloud and check your pronunciation (R)'"
       :disabled="playing" @click="toggle">
       <i :class="listening ? 'bi bi-stop-circle-fill' : playing ? 'bi bi-volume-up-fill' : 'bi bi-mic-fill'"></i>
-      {{ listening ? 'Your turn… tap to stop' : playing ? 'Listen first…' : result ? 'Try again' : 'Read it aloud' }}
+      {{ listening ? 'Your turn… tap to stop' : playing ? 'Listen first…' : result ? 'Try again' : (label || 'Read it aloud') }}
     </button>
 
     <div v-if="listening && transcript" class="small text-muted mt-2 fst-italic">{{ transcript }}…</div>
@@ -30,7 +30,11 @@ import { scoreSpeech, useSpeechRecognition } from '../../composables/useSpeechRe
 import { RATE_REPLAY, useSpeechSynthesis } from '../../composables/useSpeechSynthesis'
 import type { SpeechScore } from '../../composables/useSpeechRecognition'
 
-const props = defineProps<{ text: string }>()
+const props = defineProps<{
+  text: string
+  label?: string // text of the first button
+  modelFirst?: boolean // play the sentence before the first attempt too (the learner has not heard it yet)
+}>()
 const emit = defineEmits<{ (e: 'scored', pct: number): void }>()
 const { supported, listening, transcript, error, listen, stop } = useSpeechRecognition()
 const { speakEnglish } = useSpeechSynthesis()
@@ -61,13 +65,13 @@ const textClass = computed(() => {
 })
 
 /**
- * First attempt: listen straight away (the sentence was just read).
+ * First attempt: listen straight away (the sentence was just read), unless modelFirst.
  * "Try again": read the sentence slowly first so it can be imitated, then listen.
  */
 async function start() {
   if (!props.text || listening.value || playing.value) return
   const target = props.text
-  if (result.value) {
+  if (result.value || props.modelFirst) {
     playing.value = true
     try {
       await speakEnglish(target, RATE_REPLAY)

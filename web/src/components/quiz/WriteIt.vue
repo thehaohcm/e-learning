@@ -62,8 +62,16 @@
                     {{ item.result.correct ? '✓ Correct' : '✗ Not quite' }} · {{ item.result.score }}
                   </span>
                   {{ item.result.feedback_vi }}
-                  <div v-if="item.result.corrected && item.result.corrected !== item.answer.trim()" class="mt-1">
-                    <span class="text-muted">Better:</span> <span class="fw-semibold">{{ item.result.corrected }}</span>
+                  <div v-if="item.result.corrected && item.result.corrected !== item.answer.trim()" class="mt-1 d-flex align-items-start gap-2">
+                    <span class="flex-grow-1"><span class="text-muted">Better:</span> <span class="fw-semibold">{{ item.result.corrected }}</span></span>
+                    <button class="btn btn-light btn-sm rounded-circle flex-shrink-0" title="Listen" @click="say(item.result.corrected)">
+                      <i class="bi bi-volume-up-fill"></i>
+                    </button>
+                  </div>
+                  <!-- say the corrected sentence once: optional, Next is always available -->
+                  <div v-if="!item.result.correct && betterText(item)" class="mt-2 d-flex flex-wrap align-items-center gap-2">
+                    <SpeakCheck :text="betterText(item)" model-first label="Read the corrected sentence"
+                      @scored="(p: number) => (item!.readBest = Math.max(item!.readBest, p))" />
                   </div>
                   <div v-if="item.result.scheduled" class="text-muted mt-1"><i class="bi bi-calendar-check"></i> Counted as a review of this word.</div>
                 </div>
@@ -119,6 +127,9 @@
                 {{ it.result.correct ? '✓' : '✗' }} {{ it.result.score }}
               </span>
               <span v-else-if="!it.answer.trim()" class="badge bg-secondary align-self-start">skipped</span>
+              <span v-if="it.readBest" class="badge align-self-start" :class="it.readBest >= 80 ? 'bg-success-subtle text-success' : 'bg-light text-dark border'">
+                <i class="bi bi-mic"></i> {{ it.readBest }}%
+              </span>
             </div>
             <div class="text-muted mt-1">“{{ it.prompt_vi }}”</div>
             <div v-if="it.answer.trim()" class="mt-1"><span class="text-muted">You:</span> {{ it.answer }}</div>
@@ -147,6 +158,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { api, errorMessage } from '../../api'
 import ForgottenWords from '../common/ForgottenWords.vue'
+import SpeakCheck from '../common/SpeakCheck.vue'
 import { RATE_REPLAY, useSpeechSynthesis } from '../../composables/useSpeechSynthesis'
 import { usesWord } from '../../utils/words'
 
@@ -164,6 +176,7 @@ interface Item {
   hinted: boolean // "?" pressed: the English word was shown before writing
   checking: boolean
   checkError: string
+  readBest: number // best score reading the corrected sentence aloud
   result?: Result
 }
 
@@ -193,6 +206,12 @@ const toPractise = computed(() =>
 
 function say(text: string) {
   speakEnglish(text, RATE_REPLAY).catch(() => {})
+}
+
+/** The sentence to read aloud after a mistake: the learner's own sentence corrected, else the sample. */
+function betterText(it: Item): string {
+  const c = it.result?.corrected?.trim()
+  return c && c !== it.answer.trim() ? c : it.reference_en
 }
 
 async function focus(el: 'box' | 'next') {
@@ -266,7 +285,7 @@ async function load() {
   try {
     const { data } = await api.post('/practice/write/prompts', { deck_id: props.deckId, count: 10 })
     items.value = (data.prompts ?? []).map((p: Omit<Item, 'answer' | 'submitted' | 'usedWord'>) => ({
-      ...p, answer: '', submitted: false, usedWord: false, hinted: false, checking: false, checkError: '',
+      ...p, answer: '', submitted: false, usedWord: false, hinted: false, checking: false, checkError: '', readBest: 0,
     }))
     warning.value = data.warning ?? ''
     if (!items.value.length) {

@@ -146,7 +146,8 @@ Trong **Quiz** chọn **Write it**: mỗi lượt 10 câu tiếng Việt (lấy 
 từ nào chưa có câu thì AI viết bù trong 1 request). Bạn viết câu tiếng Anh dùng từ có nghĩa được cho;
 nút **?** hiện từ cần dùng (câu đúng sau khi bấm **?** không được tính là ôn). Nộp từng câu thì app kiểm tra
 ngay câu có dùng từ đó không (kể cả dạng chia), hiện câu mẫu và **AI chấm ngay câu đó** (đúng/sai, điểm,
-góp ý, câu đã sửa; 1 request mỗi câu, chạy nền trong lúc bạn đọc câu mẫu). Cuối lượt chỉ chấm bù các câu bị lỗi mạng. Câu đúng có dùng từ (không bấm ?) = ôn "Good" nếu thẻ đang đến hạn; câu sai không bị phạt.
+góp ý, câu đã sửa; 1 request mỗi câu, chạy nền trong lúc bạn đọc câu mẫu). Câu sai có nút 🎤 **Read the corrected sentence**
+(app đọc câu đã sửa, bạn đọc theo, chấm %; không bắt buộc). Cuối lượt chỉ chấm bù các câu bị lỗi mạng. Câu đúng có dùng từ (không bấm ?) = ôn "Good" nếu thẻ đang đến hạn; câu sai không bị phạt.
 Từ sai/bỏ qua được gợi ý luyện ở Forgotten words.
 
 ## Writing: "Write about this" từ Reading
