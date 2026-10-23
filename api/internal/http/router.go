@@ -2,6 +2,7 @@
 package http
 
 import (
+	"strings"
 	"time"
 
 	"mvp-lang-app/internal/config"
@@ -25,7 +26,12 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 	r.MaxMultipartMemory = 1 << 20
 
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:  cfg.CORSOrigins,
+		AllowOrigins: cfg.CORSOrigins,
+		// the browser extension calls /api/ext from its own origin (chrome-extension://<id>);
+		// it authenticates with its own key, there are no cookies to protect
+		AllowOriginFunc: func(origin string) bool {
+			return strings.HasPrefix(origin, "chrome-extension://") || strings.HasPrefix(origin, "moz-extension://")
+		},
 		AllowMethods:  []string{"GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"},
 		AllowHeaders:  []string{"Origin", "Content-Type", "Accept", "Authorization"},
 		ExposeHeaders: []string{"Content-Length"},
@@ -51,6 +57,14 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		dev.POST("/reviews", h.DeviceReviews)
 	}
 
+	// ---- browser extension. Key: "Authorization: Bearer ext_..." (Settings → Browser extension)
+	ext := api.Group("/ext", handlers.RateLimit(60), h.RequireExtKey)
+	{
+		ext.GET("/me", h.ExtMe)
+		ext.GET("/notes", h.ExtRecentNotes)
+		ext.POST("/notes", h.ExtAddNote)
+	}
+
 	// ---- logged-in user (web)
 	u := api.Group("", h.RequireUser)
 	{
@@ -60,6 +74,10 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.GET("/subjects", h.ListSubjects)
 		u.GET("/cards", h.ListCards)
 		u.GET("/cards/:id", h.GetCard)
+		u.POST("/cards/pronunciations", h.Pronunciations)                          // stored only, no AI
+		u.POST("/cards/:id/pronunciation", practiceLimit, h.GeneratePronunciation) // AI, on request
+		u.GET("/cards/:id/examples", h.CardExamples)
+		u.POST("/cards/:id/examples", practiceLimit, h.GenerateCardExamples)
 
 		u.POST("/study/enroll", h.Enroll)
 		u.GET("/study/queue", h.Queue)
@@ -71,6 +89,18 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/quiz/answer", h.QuizAnswer)
 
 		u.GET("/stats", h.Stats)
+		u.POST("/quiz/stress", h.QuizStress)
+		u.POST("/quiz/sound", h.QuizSound)
+		u.POST("/pron/forgot", h.PronForgot)
+		u.GET("/quiz/pron-status", h.PronStatus)
+		u.POST("/quiz/pron-generate", practiceLimit, h.PronGenerate)
+		u.GET("/extension/keys", h.ListExtKeys)
+		u.POST("/extension/keys", handlers.RateLimit(10), h.CreateExtKey)
+		u.DELETE("/extension/keys/:id", h.DeleteExtKey)
+		u.GET("/push/key", h.PushKey)
+		u.POST("/push/subscribe", h.PushSubscribe)
+		u.POST("/push/unsubscribe", h.PushUnsubscribe)
+		u.POST("/push/test", handlers.RateLimit(10), h.PushTest)
 		u.GET("/settings", h.GetSettings)
 		u.PUT("/settings", h.UpdateSettings)
 
@@ -91,7 +121,18 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/practice/examples", practiceLimit, h.PracticeExamples)
 		u.POST("/practice/grade", practiceLimit, h.PracticeGrade)
 		u.POST("/practice/write/prompts", practiceLimit, h.WritePrompts)
+		u.POST("/practice/cloze", practiceLimit, h.ClozePrompts)
+		u.POST("/practice/ask", practiceLimit, h.PracticeAsk)
+		u.POST("/practice/cloze/forms", practiceLimit, h.ClozeForms)
 		u.POST("/practice/write/grade", practiceLimit, h.WriteGrade)
+
+		// word notes (floating panel) and the personal "My words" deck
+		u.GET("/notes", h.ListNotes)
+		u.POST("/notes", h.CreateNote)
+		u.PATCH("/notes/:id", h.UpdateNote)
+		u.DELETE("/notes/:id", h.DeleteNote)
+		u.POST("/notes/fill", practiceLimit, h.FillNotes)
+		u.POST("/notes/add", practiceLimit, h.AddNotes)
 
 		u.POST("/writing", h.SubmitWriting)
 		u.GET("/writing", h.ListWriting)

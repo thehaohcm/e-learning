@@ -1,0 +1,44 @@
+menu "E-Learn device"
+
+    config ELEARN_SERVER_URL
+        string "Default server address"
+        default "https://elearn.tradesign.io.vn"
+        help
+            Used when the Wi-Fi setup page leaves the server field empty.
+
+    config ELEARN_LANDSCAPE
+        bool "Landscape (320x240) instead of portrait (240x320)"
+        default y
+
+    config ELEARN_LANDSCAPE_FLIP
+        bool "Landscape the other way up (USB port on the other side)"
+        default n
+        depends on ELEARN_LANDSCAPE
+
+    config ELEARN_LCD_INVERT
+        bool "Invert LCD colours (IPS panel)"
+        default y
+
+    config ELEARN_LCD_BGR
+        bool "LCD uses BGR colour order"
+        default y
+
+    config ELEARN_LCD_MIRROR_X
+        bool "Mirror LCD X"
+        default y
+
+    config ELEARN_TOUCH_MIRROR_X
+        bool "Mirror touch X (if taps land on the wrong side)"
+        default n
+
+    config ELEARN_TOUCH_MIRROR_Y
+        bool "Mirror touch Y"
+        default n
+
+    config ELEARN_AMP_ACTIVE_LOW
+        bool "Speaker amplifier is enabled by a LOW level on IO1"
+        default y
+        help
+            The board wiki says IO1 low = audio output on (FM8002E shutdown pin).
+
+endmenu

@@ -90,6 +90,16 @@ func HashDeviceToken(token string) string {
 	return hex.EncodeToString(sum[:])
 }
 
+// NewExtKey returns a browser-extension key ("ext_...") and the hash to store.
+func NewExtKey() (token, hash string, err error) {
+	b := make([]byte, 24)
+	if _, err = rand.Read(b); err != nil {
+		return "", "", err
+	}
+	token = "ext_" + hex.EncodeToString(b)
+	return token, HashDeviceToken(token), nil
+}
+
 // NewPairCode returns a 6-digit code shown on the device screen.
 func NewPairCode() (string, error) {
 	n, err := rand.Int(rand.Reader, big.NewInt(1_000_000))

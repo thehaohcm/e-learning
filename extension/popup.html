@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>E-Learn</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body class="popup">
+  <header>
+    <img src="icons/icon32.png" alt="" width="20" height="20" />
+    <b>E-Learn notes</b>
+    <a id="open" href="#" class="small right">Open E-Learning ↗</a>
+  </header>
+
+  <div id="setup" hidden>
+    <p class="small">Not connected yet.</p>
+    <button id="options">Set up</button>
+  </div>
+
+  <div id="main" hidden>
+    <form id="add" class="row">
+      <input id="word" placeholder="Add a word…" maxlength="60" autocomplete="off" />
+      <button type="submit">Add</button>
+    </form>
+    <div id="msg" class="small"></div>
+    <p class="muted small tip">Tip: select a word on a page, then right-click → <b>Add to E-Learn notes</b>, or <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>N</kbd>.</p>
+    <div class="small muted">Recently saved</div>
+    <ul id="recent"></ul>
+  </div>
+
+  <script src="shared.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

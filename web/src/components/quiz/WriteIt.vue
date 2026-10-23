@@ -15,27 +15,50 @@
 
       <!-- writing -->
       <template v-else-if="phase === 'write' && item">
-        <div class="small text-muted mb-2">Sentence {{ idx + 1 }} / {{ items.length }}</div>
+        <!-- back / forward, and a dot per sentence (jump to any of them) -->
+        <div class="d-flex align-items-center gap-2 mb-2 small text-muted">
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0" :disabled="idx === 0" title="Previous sentence" @click="go(idx - 1)">
+            <i class="bi bi-chevron-left"></i> Back
+          </button>
+          <span>Sentence {{ idx + 1 }} / {{ items.length }}</span>
+          <div class="d-flex flex-wrap gap-1 mx-2">
+            <button v-for="(it, i) in items" :key="it.example_id" type="button" class="dot" :class="[dotClass(it), { active: i === idx }]"
+              :title="`Sentence ${i + 1}: ${dotTitle(it)}`" @click="go(i)"></button>
+          </div>
+          <button type="button" class="btn btn-sm btn-outline-secondary py-0 ms-auto" :disabled="idx >= items.length - 1"
+            title="Skip for now (you can come back)" @click="go(idx + 1)">
+            Skip <i class="bi bi-chevron-right"></i>
+          </button>
+        </div>
 
         <div class="card border-0 shadow-sm">
           <div class="card-body p-4">
             <div class="small text-muted mb-1">Write in English:</div>
             <p class="fs-5 fw-semibold mb-3">“{{ item.prompt_vi }}”</p>
 
-            <div class="mb-3 small">
-              Use the English word for: <strong>{{ item.meaning_vi }}</strong>
-              <template v-if="item.hinted || item.submitted">
-                → <strong class="text-primary">{{ item.word }}</strong>
+            <!-- step 1: recall the English word (checked here, no AI); step 2: write the sentence -->
+            <div class="mb-3 small d-flex flex-wrap align-items-center gap-2">
+              <span>Use the English word for: <strong>{{ item.meaning_vi }}</strong></span>
+              <template v-if="unlocked(item)">
+                → <strong :class="item.hinted ? 'text-primary' : 'text-success'">{{ item.word }}</strong>
+                <i v-if="item.wordOk && !item.hinted" class="bi bi-check-circle-fill text-success" title="You remembered it"></i>
               </template>
-              <button v-else class="btn btn-outline-secondary btn-sm rounded-circle ms-1 hint-btn" title="Show the word to use"
-                @click="item.hinted = true">?</button>
+              <template v-else>
+                <input ref="wordBox" v-model="item.wordInput" class="form-control form-control-sm word-box" :class="{ 'is-invalid': item.wordTries > 0 }"
+                  placeholder="English word…" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="English word"
+                  @keydown.enter.prevent="checkWord" />
+                <button class="btn btn-sm btn-outline-success" :disabled="!item.wordInput.trim()" @click="checkWord">OK</button>
+                <button class="btn btn-outline-secondary btn-sm rounded-circle hint-btn" title="Show the word to use" @click="reveal">?</button>
+                <span v-if="item.wordTries" class="text-danger">Not this word, try again.</span>
+              </template>
             </div>
 
-            <textarea ref="box" v-model="item.answer" class="form-control mb-2" rows="2" :readonly="item.submitted"
-              placeholder="Your English sentence…" @keydown.enter.exact.prevent="item.submitted ? next() : submit()"></textarea>
+            <textarea ref="box" v-model="item.answer" class="form-control mb-2" rows="2" :readonly="item.submitted" :disabled="!unlocked(item)"
+              :placeholder="unlocked(item) ? 'Your English sentence…' : 'Type the English word first…'"
+              @keydown.enter.exact.prevent="item.submitted ? next() : submit()"></textarea>
 
             <div v-if="!item.submitted" class="d-flex align-items-center gap-2">
-              <button class="btn btn-success btn-sm" :disabled="!item.answer.trim()" @click="submit">
+              <button class="btn btn-success btn-sm" :disabled="!item.answer.trim() || !unlocked(item)" @click="submit">
                 Check <small class="opacity-75 d-none d-md-inline">(Enter)</small>
               </button>
               <button class="btn btn-link btn-sm text-muted" @click="giveUp">I don't know</button>
@@ -86,9 +109,18 @@
                   <i class="bi bi-volume-up-fill"></i>
                 </button>
               </div>
+              <AskTutor class="mt-2" :context="{
+                task: item.prompt_vi, word: item.word, learner: item.answer, sample: item.reference_en,
+                corrected: item.result?.corrected, feedback: item.result?.feedback_vi }" />
               <div class="d-flex mt-3">
-                <button ref="nextBtn" class="btn btn-primary ms-auto" @click="next">
-                  {{ idx < items.length - 1 ? 'Next' : 'Finish' }} <i class="bi bi-arrow-right"></i>
+                <button v-if="idx > 0" class="btn btn-outline-secondary me-2" @click="go(idx - 1)"><i class="bi bi-chevron-left"></i> Back</button>
+                <button v-if="nextOpen() !== null" class="btn btn-link text-muted ms-auto" title="Unanswered sentences count as skipped" @click="finish">
+                  Finish now ({{ openCount }} left)
+                </button>
+                <button ref="nextBtn" class="btn btn-primary" :class="{ 'ms-auto': nextOpen() === null }" @click="next">
+                  <template v-if="nextOpen() !== null">{{ nextOpen()! > idx ? 'Next' : `Back to sentence ${nextOpen()! + 1}` }}</template>
+                  <template v-else>Finish</template>
+                  <i class="bi bi-arrow-right"></i>
                 </button>
               </div>
             </template>
@@ -159,8 +191,9 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { api, errorMessage } from '../../api'
 import ForgottenWords from '../common/ForgottenWords.vue'
 import SpeakCheck from '../common/SpeakCheck.vue'
+import AskTutor from '../common/AskTutor.vue'
 import { RATE_REPLAY, useSpeechSynthesis } from '../../composables/useSpeechSynthesis'
-import { usesWord } from '../../utils/words'
+import { usesWord, wordRegex } from '../../utils/words'
 
 interface Result { example_id: number; card_id: number; used_word: boolean; graded: boolean; correct: boolean; score: number; feedback_vi: string; corrected: string; scheduled: boolean }
 interface Item {
@@ -173,14 +206,18 @@ interface Item {
   answer: string
   submitted: boolean
   usedWord: boolean
-  hinted: boolean // "?" pressed: the English word was shown before writing
+  hinted: boolean // "?" pressed (or 2 wrong words): the English word was shown before writing
+  wordInput: string // step 1: the English word typed by the learner
+  wordOk: boolean // step 1 passed by recalling the word
+  wordTries: number
   checking: boolean
   checkError: string
   readBest: number // best score reading the corrected sentence aloud
   result?: Result
 }
 
-const props = defineProps<{ deckId: number }>()
+// deckId: words of a deck; cardIds: exactly these words (the quiz just done)
+const props = defineProps<{ deckId?: number; cardIds?: number[] }>()
 const { speakEnglish } = useSpeechSynthesis()
 
 const phase = ref<'loading' | 'error' | 'write' | 'grading' | 'done'>('loading')
@@ -190,6 +227,7 @@ const error = ref('')
 const warning = ref('')
 const gradeError = ref('')
 const box = ref<HTMLTextAreaElement | null>(null)
+const wordBox = ref<HTMLInputElement | null>(null)
 const nextBtn = ref<HTMLButtonElement | null>(null)
 
 const item = computed(() => items.value[idx.value])
@@ -216,7 +254,42 @@ function betterText(it: Item): string {
 
 async function focus(el: 'box' | 'next') {
   await nextTick()
-  ;(el === 'box' ? box.value : nextBtn.value)?.focus()
+  if (el === 'box' && item.value && !unlocked(item.value)) wordBox.value?.focus() // step 1 first
+  else (el === 'box' ? box.value : nextBtn.value)?.focus()
+}
+
+/** The sentence box opens once the word is recalled (or shown). */
+function unlocked(it: Item) {
+  return it.wordOk || it.hinted || it.submitted
+}
+
+const norm = (s: string) => s.toLowerCase().replace(/[^a-z' -]/g, '').replace(/\s+/g, ' ').trim()
+
+/** Step 1: the dictionary form or any common form of it (substantial, negotiated...). 2 misses show the word. */
+function checkWord() {
+  const it = item.value
+  if (!it || unlocked(it) || !it.wordInput.trim()) return
+  const typed = norm(it.wordInput)
+  const ok = typed === norm(it.word) || new RegExp('^' + wordRegex(it.word).source + '$', 'i').test(typed)
+  if (ok) {
+    it.wordOk = true
+    focus('box')
+    return
+  }
+  it.wordTries++
+  if (it.wordTries >= 2) {
+    reveal()
+    return
+  }
+  wordBox.value?.select()
+}
+
+function reveal() {
+  const it = item.value
+  if (!it) return
+  it.hinted = true
+  say(it.word)
+  focus('box')
 }
 
 function submit() {
@@ -267,13 +340,39 @@ function edit() {
   focus('box')
 }
 
-function next() {
-  if (idx.value < items.value.length - 1) {
-    idx.value++
-    focus('box')
-  } else {
-    finish()
+/** Index of the next sentence not answered yet (after the current one, then from the start), or null. */
+function nextOpen(): number | null {
+  const n = items.value.length
+  for (let k = 1; k < n; k++) {
+    const i = (idx.value + k) % n
+    if (!items.value[i].submitted) return i
   }
+  return null
+}
+const openCount = computed(() => items.value.filter((i) => !i.submitted).length)
+
+/** Next: the next unanswered sentence (skipped ones come back), Finish when all are answered. */
+function next() {
+  const i = nextOpen()
+  if (i === null) finish()
+  else go(i)
+}
+
+/** Show sentence i (answered ones keep their result; unanswered ones can be written). */
+function go(i: number) {
+  if (i < 0 || i >= items.value.length) return
+  idx.value = i
+  focus(items.value[i].submitted ? 'next' : 'box')
+}
+
+function dotClass(it: Item) {
+  if (!it.submitted) return it.answer.trim() ? 'draft' : 'open'
+  if (!it.answer.trim()) return 'skipped'
+  if (it.result?.graded) return it.result.correct ? 'ok' : 'bad'
+  return 'pending'
+}
+function dotTitle(it: Item) {
+  return { open: 'not answered', draft: 'started', skipped: "I don't know", ok: 'correct', bad: 'not quite', pending: 'checking' }[dotClass(it)]
 }
 
 async function load() {
@@ -283,9 +382,11 @@ async function load() {
   warning.value = ''
   gradeError.value = ''
   try {
-    const { data } = await api.post('/practice/write/prompts', { deck_id: props.deckId, count: 10 })
+    const body = props.cardIds?.length ? { card_ids: props.cardIds } : { deck_id: props.deckId, count: 10 }
+    const { data } = await api.post('/practice/write/prompts', body)
     items.value = (data.prompts ?? []).map((p: Omit<Item, 'answer' | 'submitted' | 'usedWord'>) => ({
       ...p, answer: '', submitted: false, usedWord: false, hinted: false, checking: false, checkError: '', readBest: 0,
+      wordInput: '', wordOk: false, wordTries: 0,
     }))
     warning.value = data.warning ?? ''
     if (!items.value.length) {
@@ -336,4 +437,12 @@ onMounted(load)
 
 <style scoped>
 .hint-btn { width: 1.9rem; height: 1.9rem; padding: 0; font-weight: 700; line-height: 1; }
+.word-box { width: 12rem; }
+.dot { width: 0.7rem; height: 0.7rem; border-radius: 50%; border: 1px solid var(--bs-gray-400); background: var(--bs-body-bg); padding: 0; }
+.dot.active { outline: 2px solid var(--bs-primary); outline-offset: 1px; }
+.dot.draft { background: var(--bs-gray-300); }
+.dot.ok { background: var(--bs-success); border-color: var(--bs-success); }
+.dot.bad { background: var(--bs-danger); border-color: var(--bs-danger); }
+.dot.skipped { background: var(--bs-gray-500); border-color: var(--bs-gray-500); }
+.dot.pending { background: var(--bs-warning); border-color: var(--bs-warning); }
 </style>

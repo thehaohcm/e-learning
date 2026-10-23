@@ -18,7 +18,7 @@
         <div v-if="current.example_en" class="border-start border-3 border-primary ps-2 mb-1">
           <em>{{ current.example_en }}</em>
           <button v-if="speakable" class="btn btn-link btn-sm p-0 ms-1" type="button" title="Listen"
-            @click="$emit('speak', current.example_en, current.example_vi)">
+            @click="$emit('speak', current.example_en)">
             <i class="bi bi-volume-up"></i>
           </button>
         </div>
@@ -28,6 +28,15 @@
       <small v-if="card.kind === 'phrasal'" class="text-muted d-block mt-1">
         {{ card.payload.separable ? 'Separable: “give it up” is OK' : 'Inseparable: keep verb and particle together' }}
       </small>
+
+      <!-- more example sentences (AI, different situations): fill the blank, listen, say it -->
+      <div v-if="speakable" class="mt-2">
+        <button type="button" class="btn btn-link btn-sm p-0 text-decoration-none" @click="toggleMore">
+          <i :class="moreOpen ? 'bi bi-chevron-down' : 'bi bi-chevron-right'"></i>
+          <i class="bi bi-journal-text ms-1"></i> More examples
+        </button>
+        <WordExamples v-if="moreOpen" :card-id="card.id" :word="card.front" :exclude-id="current?.example_id" class="mt-1" />
+      </div>
     </template>
 
     <!-- concept -->
@@ -51,14 +60,25 @@
 import { computed, ref, watch } from 'vue'
 import type { Card } from '../types'
 import { LEVELS } from '../types'
+import WordExamples from './WordExamples.vue'
 
 const props = defineProps<{ card: Card; speakable?: boolean }>()
-defineEmits<{ speak: [en: string, vi?: string] }>()
+defineEmits<{ speak: [en: string] }>() // English only: the Vietnamese is shown, not read
 
 const senses = computed(() => [...(props.card.payload.senses ?? [])].sort((a, b) => a.level - b.level))
 const active = ref(1)
 watch(() => props.card.id, () => { active.value = senses.value[0]?.level ?? 1 }, { immediate: true })
 const current = computed(() => senses.value.find((s) => s.level === active.value) ?? senses.value[0])
+
+// "More examples" stays open/closed as the learner left it
+const moreOpen = ref(storageGet('elearn.moreExamples') === 'true')
+function toggleMore() {
+  moreOpen.value = !moreOpen.value
+  try { localStorage.setItem('elearn.moreExamples', String(moreOpen.value)) } catch { /* ignore */ }
+}
+function storageGet(k: string) {
+  try { return localStorage.getItem(k) } catch { return null }
+}
 
 const color = (l: number) => LEVELS.find((x) => x.level === l)?.color ?? '#6c757d'
 const levelLabel = (l: number) => LEVELS.find((x) => x.level === l)?.label ?? `L${l}`

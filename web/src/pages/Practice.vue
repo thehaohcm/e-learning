@@ -157,6 +157,8 @@
               </div>
               <div v-if="e.result?.feedback_vi" :class="e.result.correct ? 'text-success' : 'text-danger'">{{ e.result.feedback_vi }}</div>
               <div class="text-muted"><span>Sample:</span> {{ e.vi }}</div>
+              <AskTutor class="mt-1" :context="{
+                task: `Translate into Vietnamese: ${e.en}`, word: w.word, learner: e.translation, sample: e.vi, feedback: e.result?.feedback_vi }" />
             </div>
           </div>
         </div>
@@ -176,6 +178,7 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, errorMessage } from '../api'
 import SpeakCheck from '../components/common/SpeakCheck.vue'
+import AskTutor from '../components/common/AskTutor.vue'
 import { speechRecognitionSupported } from '../composables/useSpeechRecognition'
 import { RATE_NORMAL, RATE_REPLAY, RATE_SLOW, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 

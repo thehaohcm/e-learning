@@ -15,9 +15,13 @@ type PracticeWord struct {
 
 // PracticeSentence is one example sentence with its Vietnamese translation.
 type PracticeSentence struct {
-	En string `json:"en"`
-	Vi string `json:"vi"`
+	En      string `json:"en"`
+	Vi      string `json:"vi"`
+	Context string `json:"context,omitempty"` // situation: work, daily life, news, study, travel...
 }
+
+// ExampleContexts are the situation labels the model may use.
+var ExampleContexts = []string{"work", "business", "daily life", "news", "study", "travel", "health", "technology"}
 
 const practiceSystem = "You are an experienced TOEIC and IELTS teacher for Vietnamese learners. Reply with a single JSON object only."
 
@@ -30,18 +34,19 @@ func practicePrompt(words []PracticeWord, perWord int) string {
 		}
 		fmt.Fprintf(&list, " = %s\n", w.MeaningVi)
 	}
-	return fmt.Sprintf(`A Vietnamese learner forgot these English words. For EACH word write %d example sentences
-that make the meaning easy to understand from context.
+	return fmt.Sprintf(`A Vietnamese learner is studying these English words (TOEIC/IELTS). For EACH word write %d example
+sentences that make the meaning easy to understand from context and show how the word is really used.
 
 Words (with the meaning to use):
 %s
 Rules:
 - Use the word with the given meaning; any grammatical form is fine (negotiate -> negotiated).
 - 8-20 words per sentence, CEFR B1-B2, natural modern English.
-- The %d sentences of a word are in DIFFERENT situations: work/office, daily life, news/study...
+- The %d sentences of a word are in DIFFERENT situations; set "context" to one of: %s.
+- Together they show the most common collocations and grammar patterns (e.g. negotiate a contract / negotiate with someone).
 - Each sentence has a natural Vietnamese translation in "vi" (how a Vietnamese person would say it, not word by word).
 Return JSON:
-{"items":[{"word":"<the word exactly as given>","sentences":[{"en":"...","vi":"..."}]}]}`, perWord, list.String(), perWord)
+{"items":[{"word":"<the word exactly as given>","sentences":[{"en":"...","vi":"...","context":"work"}]}]}`, perWord, list.String(), perWord, strings.Join(ExampleContexts, ", "))
 }
 
 // GeneratePracticeSentences writes perWord sentences for every word in ONE
@@ -87,6 +92,10 @@ func CleanSentences(word string, in []PracticeSentence) []PracticeSentence {
 	seen := map[string]bool{}
 	for _, s := range in {
 		s.En, s.Vi = strings.TrimSpace(s.En), strings.TrimSpace(s.Vi)
+		s.Context = strings.ToLower(strings.TrimSpace(s.Context))
+		if len(s.Context) > 20 {
+			s.Context = ""
+		}
 		n := len(strings.Fields(s.En))
 		key := strings.ToLower(s.En)
 		if s.Vi == "" || n < 4 || n > 40 || seen[key] || !ContainsWord(s.En, word) {

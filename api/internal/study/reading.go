@@ -44,7 +44,7 @@ func (s *Service) ReadingWords(userID int64, learned, upcoming int) ([]ReadingWo
 			var more []models.Card
 			if err := s.DB.Table("cards c").Select("c.*").
 				Joins("JOIN decks d ON d.id = c.deck_id JOIN subjects sub ON sub.id = d.subject_id").
-				Where("sub.slug = 'english' AND c.kind IN ?", englishKinds).
+				Where("sub.slug = 'english' AND c.kind IN ? AND (d.owner_id IS NULL OR d.owner_id = ?)", englishKinds, userID).
 				Where("NOT EXISTS (SELECT 1 FROM user_cards uc WHERE uc.user_id = ? AND uc.card_id = c.id)", userID).
 				Order("c.id").Limit(missing).Scan(&more).Error; err != nil {
 				return nil, err

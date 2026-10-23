@@ -20,7 +20,7 @@ func (h *Handler) Enroll(c *gin.Context) {
 	}
 	// only enroll ids that exist
 	var ids []int64
-	h.DB.Model(&models.Card{}).Where("id IN ?", req.CardIDs).Pluck("id", &ids)
+	h.DB.Model(&models.Card{}).Where("id IN ? AND deck_id IN ("+study.VisibleDecksSQL+")", req.CardIDs, userID(c)).Pluck("id", &ids)
 	n, err := h.Study.Enroll(userID(c), ids, time.Now().UTC())
 	if err != nil {
 		internal(c, err)

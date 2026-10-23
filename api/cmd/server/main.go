@@ -13,6 +13,7 @@ import (
 	"mvp-lang-app/internal/config"
 	"mvp-lang-app/internal/db"
 	apihttp "mvp-lang-app/internal/http"
+	"mvp-lang-app/internal/push"
 	"mvp-lang-app/internal/worker"
 	"mvp-lang-app/migrations"
 )
@@ -37,6 +38,11 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	go worker.Start(ctx, conn)
+	if store, err := push.NewStore(conn, cfg.VAPIDSubject, cfg.PushAnyHost); err != nil {
+		log.Printf("push notifications disabled: %v", err)
+	} else {
+		go worker.StartReminders(ctx, conn, store)
+	}
 
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,

@@ -17,6 +17,7 @@ const router = createRouter({
     // search is part of Browse now ("All decks")
     { path: '/search', redirect: (to) => ({ path: '/learn', query: { deck_id: 'all', q: to.query.q } }) },
     { path: '/devices', component: () => import('./pages/Devices.vue') },
+    { path: '/share', component: () => import('./pages/Share.vue') }, // PWA share target (Android): ?text=&title=&url=
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

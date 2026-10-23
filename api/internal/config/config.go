@@ -21,6 +21,12 @@ type Config struct {
 	OpenSignup  bool
 	DefaultTZ   string
 
+	// Web Push: contact for push services ("mailto:you@x.com" or "https://site").
+	VAPIDSubject string
+	// Testing only: accept push endpoints on any host (normally only the
+	// browsers' push services are allowed).
+	PushAnyHost bool
+
 	DeepSeekAPIKey  string
 	DeepSeekBaseURL string
 	DeepSeekModel   string
@@ -46,6 +52,20 @@ func Load() Config {
 		DeepSeekAPIKey:  getEnv("DEEPSEEK_API_KEY", ""),
 		DeepSeekBaseURL: getEnv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
 		DeepSeekModel:   getEnv("DEEPSEEK_MODEL", "deepseek-chat"),
+	}
+
+	cfg.PushAnyHost = getEnv("PUSH_ALLOW_ANY_HOST", "false") == "true"
+	cfg.VAPIDSubject = getEnv("VAPID_SUBJECT", "")
+	if cfg.VAPIDSubject == "" {
+		domain := getEnv("APP_DOMAIN", "")
+		switch {
+		case domain != "" && !strings.Contains(domain, "example."):
+			cfg.VAPIDSubject = "https://" + strings.TrimPrefix(strings.TrimPrefix(domain, "https://"), "http://")
+		case len(cfg.AdminEmails) > 0:
+			cfg.VAPIDSubject = "mailto:" + cfg.AdminEmails[0]
+		default:
+			cfg.VAPIDSubject = "mailto:admin@elearn.local"
+		}
 	}
 
 	if strings.Contains(cfg.JWTSecret, "change-this") {

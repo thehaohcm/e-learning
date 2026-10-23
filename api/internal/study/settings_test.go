@@ -41,3 +41,19 @@ func TestNewLimitExtraOnlyToday(t *testing.T) {
 		t.Fatalf("not capped: %d", s.ExtraNew)
 	}
 }
+
+func TestPushTimesCleaned(t *testing.T) {
+	s := ParseSettings([]byte(`{"push_times": ["20:30", "08:00", "25:00", "20:30", "7:00", "06:00", "09:00", "10:00", "11:00", "12:00"]}`))
+	want := []string{"06:00", "08:00", "09:00", "10:00", "11:00", "12:00"}
+	if len(s.PushTimes) != len(want) {
+		t.Fatalf("got %v", s.PushTimes)
+	}
+	for i := range want {
+		if s.PushTimes[i] != want[i] {
+			t.Fatalf("got %v", s.PushTimes)
+		}
+	}
+	if d := ParseSettings(nil); d.PushTimes == nil || len(d.PushTimes) != 0 {
+		t.Fatalf("default push_times should be []: %v", d.PushTimes)
+	}
+}

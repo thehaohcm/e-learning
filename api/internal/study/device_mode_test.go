@@ -21,8 +21,10 @@ func TestDeviceCardMode(t *testing.T) {
 		{"listening on a concept -> quiz", DeviceModeListening, DeviceCard{Kind: "concept", HasOptions: true, HasAudio: true}, 0, DeviceModeQuiz},
 		{"mix 0", DeviceModeMix, withAudio, 0, DeviceModeFlashcard},
 		{"mix 1", DeviceModeMix, withAudio, 1, DeviceModeQuiz},
-		{"mix 2", DeviceModeMix, withAudio, 2, DeviceModeListening},
-		{"mix 2 without audio", DeviceModeMix, seen, 2, DeviceModeQuiz},
+		{"mix 2 cloze", DeviceModeMix, DeviceCard{Kind: "vocab", HasOptions: true, HasCloze: true}, 2, DeviceModeCloze},
+		{"mix 2 without cloze sentence", DeviceModeMix, withAudio, 2, DeviceModeQuiz},
+		{"mix 3", DeviceModeMix, withAudio, 3, DeviceModeListening},
+		{"mix 3 without audio", DeviceModeMix, seen, 3, DeviceModeQuiz},
 	}
 	for _, c := range cases {
 		if got := DeviceCardMode(c.setting, c.card, c.nth); got != c.want {

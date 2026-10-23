@@ -3,6 +3,7 @@ package study
 import (
 	"encoding/json"
 	"regexp"
+	"sort"
 )
 
 // Settings are per-user study preferences stored in users.settings (JSONB).
@@ -26,7 +27,13 @@ type Settings struct {
 	ExtraNew     int    `json:"extra_new,omitempty"`
 	// Text-to-speech speed for the web app.
 	TTSSpeed float64 `json:"tts_speed"`
+	// Study reminders sent as push notifications to the user's phones and
+	// browsers, at these local times ("08:00", "20:30"). Empty = none.
+	PushTimes []string `json:"push_times"`
 }
+
+// MaxPushTimes caps the number of daily reminder times.
+const MaxPushTimes = 6
 
 func DefaultSettings() Settings {
 	return Settings{
@@ -80,7 +87,7 @@ func (s Settings) sanitized() Settings {
 		s.TTSSpeed = d.TTSSpeed
 	}
 	switch s.DeviceMode {
-	case DeviceModeFlashcard, DeviceModeQuiz, DeviceModeListening, DeviceModeMix:
+	case DeviceModeFlashcard, DeviceModeQuiz, DeviceModeListening, DeviceModeCloze, DeviceModeMix:
 	default:
 		s.DeviceMode = d.DeviceMode
 	}
@@ -90,6 +97,7 @@ func (s Settings) sanitized() Settings {
 	if s.ActiveDeckIDs == nil {
 		s.ActiveDeckIDs = []int64{}
 	}
+	s.PushTimes = cleanTimes(s.PushTimes)
 	return s
 }
 
@@ -99,4 +107,21 @@ func (s Settings) Merge(patch []byte) (Settings, error) {
 		return s, err
 	}
 	return s.sanitized(), nil
+}
+
+// cleanTimes keeps valid, distinct HH:MM times, sorted, at most MaxPushTimes.
+func cleanTimes(in []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, t := range in {
+		if hhmm.MatchString(t) && !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	sort.Strings(out)
+	if len(out) > MaxPushTimes {
+		out = out[:MaxPushTimes]
+	}
+	return out
 }

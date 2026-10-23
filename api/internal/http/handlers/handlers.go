@@ -16,6 +16,7 @@ import (
 	"mvp-lang-app/internal/auth"
 	"mvp-lang-app/internal/config"
 	"mvp-lang-app/internal/models"
+	"mvp-lang-app/internal/push"
 	"mvp-lang-app/internal/study"
 
 	"github.com/gin-gonic/gin"
@@ -28,16 +29,23 @@ type Handler struct {
 	AI     *ai.Client
 	Tokens *auth.Issuer
 	Study  *study.Service
+	Push   *push.Store // nil if the VAPID key could not be loaded
 }
 
 func New(db *gorm.DB, cfg config.Config) *Handler {
-	return &Handler{
+	h := &Handler{
 		DB:     db,
 		Cfg:    cfg,
 		AI:     ai.NewClient(cfg.DeepSeekAPIKey, cfg.DeepSeekBaseURL, cfg.DeepSeekModel),
 		Tokens: auth.NewIssuer(cfg.JWTSecret),
 		Study:  &study.Service{DB: db},
 	}
+	if store, err := push.NewStore(db, cfg.VAPIDSubject, cfg.PushAnyHost); err != nil {
+		log.Printf("push notifications disabled: %v", err)
+	} else {
+		h.Push = store
+	}
+	return h
 }
 
 func (h *Handler) Health(c *gin.Context) {
@@ -72,7 +80,7 @@ func bearer(c *gin.Context) string {
 // RequireUser accepts a web JWT.
 func (h *Handler) RequireUser(c *gin.Context) {
 	tok := bearer(c)
-	if tok == "" || strings.HasPrefix(tok, "dev_") {
+	if tok == "" || strings.HasPrefix(tok, "dev_") || strings.HasPrefix(tok, "ext_") {
 		abort(c, http.StatusUnauthorized, "login required")
 		return
 	}

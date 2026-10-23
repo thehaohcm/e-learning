@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"encoding/json"
+	"fmt"
+	"math/rand/v2"
 	"net/http"
 	"strings"
 	"time"
@@ -112,6 +114,19 @@ type deviceCard struct {
 	// How to show the card: "flashcard", "quiz" (options, or choices for mcq)
 	// or "listening" (play audio_url, then the options). From settings.device_mode.
 	Mode string `json:"mode"`
+	// Cloze (mode "cloze"): the card's example sentence with the word replaced
+	// by "____" and 4 words to pick from (correct one has id == card id).
+	// The device never types, it only picks.
+	Cloze *deviceCloze `json:"cloze,omitempty"`
+}
+
+type deviceCloze struct {
+	// Kind: "word" (pick the word: 4 different words) or "form" (TOEIC Part 5:
+	// 4 forms of the same word family, e.g. fluctuate / fluctuated / fluctuation).
+	Kind          string         `json:"kind"`
+	Sentence      string         `json:"sentence"`
+	TranslationVi string         `json:"translation_vi,omitempty"` // shown after answering
+	Options       []study.Choice `json:"options"`
 }
 
 // DeviceSync returns everything the device needs to work offline for a while:
@@ -136,17 +151,24 @@ func (h *Handler) DeviceSync(c *gin.Context) {
 	h.DB.Select("id, settings, timezone").First(&u, uid)
 	settings := study.ParseSettings(u.Settings)
 
+	clozeWords := h.clozeWords(items, settings.DeviceMode)
+	clozeForms := h.clozeFormsFor(items, settings.DeviceMode)
 	cards := make([]deviceCard, 0, len(items))
 	nth := 0 // cards that can be quizzed, for "mix"
 	for _, it := range items {
 		cc := content.ToCompact(it.Card)
+		cloze := buildCloze(it, cc, clozeWords, clozeForms)
 		mode := study.DeviceCardMode(settings.DeviceMode, study.DeviceCard{
-			Kind: it.Card.Kind, IsNew: it.IsNew, HasOptions: len(it.Choices) >= 2, HasAudio: cc.AudioURL != "",
+			Kind: it.Card.Kind, IsNew: it.IsNew, HasOptions: len(it.Choices) >= 2, HasAudio: cc.AudioURL != "", HasCloze: cloze != nil,
 		}, nth)
 		if !it.IsNew {
 			nth++
 		}
-		cards = append(cards, deviceCard{Compact: cc, IsNew: it.IsNew, State: it.Progress.State, Due: it.Progress.Due, Options: it.Choices, Mode: mode})
+		dc := deviceCard{Compact: cc, IsNew: it.IsNew, State: it.Progress.State, Due: it.Progress.Due, Options: it.Choices, Mode: mode}
+		if mode == study.DeviceModeCloze {
+			dc.Cloze = cloze
+		}
+		cards = append(cards, dc)
 	}
 	stats, err := h.Study.Stats(uid, now)
 	if err != nil {
@@ -291,4 +313,103 @@ func (h *Handler) UnpairDevice(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true})
+}
+
+// clozeWords loads the English words of the distractor cards (the cards behind
+// each item's meaning options), used as the wrong words of cloze questions.
+func (h *Handler) clozeWords(items []study.QueueItem, mode string) map[int64]string {
+	out := map[int64]string{}
+	if mode != study.DeviceModeCloze && mode != study.DeviceModeMix {
+		return out
+	}
+	var ids []int64
+	for _, it := range items {
+		for _, ch := range it.Choices {
+			if ch.ID != it.Card.ID {
+				ids = append(ids, ch.ID)
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return out
+	}
+	var rows []struct {
+		ID    int64
+		Front string
+	}
+	h.DB.Raw(`SELECT id, front FROM cards WHERE id IN ?`, ids).Scan(&rows)
+	for _, r := range rows {
+		out[r.ID] = r.Front
+	}
+	return out
+}
+
+// buildCloze: the example sentence with the word blanked and 4 shuffled words
+// (the card's own + the words of its 3 meaning distractors). nil if not possible.
+func buildCloze(it study.QueueItem, cc content.Compact, words map[int64]string, forms map[string][]string) *deviceCloze {
+	if it.IsNew || (it.Card.Kind != models.KindVocab && it.Card.Kind != models.KindPhrasal) || cc.ExampleEn == "" {
+		return nil
+	}
+	sentence, ok := study.BlankWord(cc.ExampleEn, it.Card.Front)
+	if !ok {
+		return nil
+	}
+	// half of the time, when prepared: which FORM of the word fits (TOEIC Part 5)
+	if f := forms[formKey(it.Card.ID, cc.ExampleEn)]; len(f) == 3 && rand.IntN(2) == 0 {
+		if answer, ok := study.FindWord(cc.ExampleEn, it.Card.Front); ok {
+			opts := []study.Choice{{ID: it.Card.ID, Text: answer}, {ID: -1, Text: f[0]}, {ID: -2, Text: f[1]}, {ID: -3, Text: f[2]}}
+			rand.Shuffle(len(opts), func(i, j int) { opts[i], opts[j] = opts[j], opts[i] })
+			return &deviceCloze{Kind: "form", Sentence: sentence, TranslationVi: cc.ExampleVi, Options: opts}
+		}
+	}
+	opts := []study.Choice{{ID: it.Card.ID, Text: it.Card.Front}}
+	seen := map[string]bool{strings.ToLower(it.Card.Front): true}
+	for _, ch := range it.Choices {
+		w := words[ch.ID]
+		if ch.ID == it.Card.ID || w == "" || seen[strings.ToLower(w)] {
+			continue
+		}
+		seen[strings.ToLower(w)] = true
+		opts = append(opts, study.Choice{ID: ch.ID, Text: w})
+	}
+	if len(opts) < 4 {
+		return nil
+	}
+	opts = opts[:4]
+	rand.Shuffle(len(opts), func(i, j int) { opts[i], opts[j] = opts[j], opts[i] })
+	return &deviceCloze{Kind: "word", Sentence: sentence, TranslationVi: cc.ExampleVi, Options: opts}
+}
+
+func formKey(cardID int64, sentence string) string {
+	return fmt.Sprintf("%d|%s", cardID, strings.ToLower(strings.TrimSpace(sentence)))
+}
+
+// clozeFormsFor: "Which form?" options already prepared (on the web) for the
+// sentences of these cards, keyed by formKey. No AI call here.
+func (h *Handler) clozeFormsFor(items []study.QueueItem, mode string) map[string][]string {
+	out := map[string][]string{}
+	if mode != study.DeviceModeCloze && mode != study.DeviceModeMix {
+		return out
+	}
+	var ids []int64
+	for _, it := range items {
+		ids = append(ids, it.Card.ID)
+	}
+	if len(ids) == 0 {
+		return out
+	}
+	var rows []struct {
+		CardID      int64
+		SentenceEn  string
+		FormOptions []byte
+	}
+	h.DB.Raw(`SELECT card_id, sentence_en, form_options FROM card_examples
+	          WHERE card_id IN ? AND form_options IS NOT NULL AND jsonb_array_length(form_options) = 3`, ids).Scan(&rows)
+	for _, r := range rows {
+		var f []string
+		if json.Unmarshal(r.FormOptions, &f) == nil && len(f) == 3 {
+			out[formKey(r.CardID, r.SentenceEn)] = f
+		}
+	}
+	return out
 }

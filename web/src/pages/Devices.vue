@@ -33,6 +33,8 @@
 
     <div class="col-lg-6">
       <h2 class="fw-bold mb-3"><i class="bi bi-sliders"></i> Study settings</h2>
+      <AppNotifications v-if="settings" v-model:times="settings.push_times" :timezone="timezone" />
+      <ExtensionKeys />
       <div v-if="settings" class="card border-0 shadow-sm">
         <div class="card-body">
           <div class="mb-3">
@@ -90,15 +92,18 @@
 import { onMounted, ref } from 'vue'
 import { api, errorMessage } from '../api'
 import type { Subject } from '../types'
+import AppNotifications from '../components/settings/AppNotifications.vue'
+import ExtensionKeys from '../components/settings/ExtensionKeys.vue'
 
 interface Device { id: number; name: string; firmware: string; last_seen_at: string | null }
-interface Settings { daily_new: number; active_deck_ids: number[]; reminder_every_min: number; active_from: string; active_to: string; tts_speed: number; device_mode: string }
+interface Settings { daily_new: number; active_deck_ids: number[]; reminder_every_min: number; active_from: string; active_to: string; tts_speed: number; device_mode: string; push_times: string[] }
 
 const DEVICE_MODES = [
   { value: 'flashcard', label: 'Flashcard', help: 'The word, tap to see the meaning, then rate how well you knew it.' },
   { value: 'quiz', label: 'Quiz (4 options)', help: 'The word with 4 meanings: tap the right one.' },
   { value: 'listening', label: 'Listening', help: 'The device plays the word/sentence, you pick the meaning. Needs audio files on the server (coming soon): until then these cards are shown as a quiz.' },
-  { value: 'mix', label: 'Mix (flashcard · quiz · listening)', help: 'Rotates the three modes.' },
+  { value: 'cloze', label: 'Fill in the blank (pick the word)', help: 'An example sentence with the word missing: tap the right word out of 4, or the right form of the word (TOEIC Part 5) when it was prepared on the web. No typing on the device. Words without a suitable sentence are shown as a quiz.' },
+  { value: 'mix', label: 'Mix (flashcard · quiz · fill in the blank · listening)', help: 'Rotates the modes.' },
 ]
 
 const devices = ref<Device[]>([])
@@ -162,7 +167,7 @@ async function save() {
 
 onMounted(async () => {
   const [s, subs] = await Promise.all([api.get('/settings'), api.get('/subjects'), loadDevices()])
-  settings.value = s.data.settings
+  settings.value = { ...s.data.settings, push_times: s.data.settings.push_times ?? [] }
   timezone.value = s.data.timezone
   subjects.value = subs.data
 })

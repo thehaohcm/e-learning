@@ -64,6 +64,10 @@ func startOfDay(t time.Time, loc *time.Location) time.Time {
 	return time.Date(l.Year(), l.Month(), l.Day(), 0, 0, 0, 0, loc)
 }
 
+// VisibleDecksSQL selects the decks a user may see: shared decks and the user's
+// own personal decks. Use as "deck_id IN (" + VisibleDecksSQL + ")" with the user id.
+const VisibleDecksSQL = "SELECT id FROM decks WHERE owner_id IS NULL OR owner_id = ?"
+
 // scope adds the subject/deck filter to a query that has `cards c` joined.
 func scope(q *gorm.DB, f Filter) *gorm.DB {
 	if f.DeckID > 0 {
@@ -193,6 +197,7 @@ func (s *Service) Queue(userID int64, f Filter, limit int, now time.Time) ([]Que
 		}
 		items[i].Choices = ch
 	}
+	s.RotateExamples(items) // a new sentence each time the word comes back
 	return items, nil
 }
 
@@ -209,6 +214,7 @@ func (s *Service) autoIntroduce(userID int64, settings Settings, f Filter, n int
 	default:
 		q = q.Where("c.deck_id IN (SELECT d.id FROM decks d JOIN subjects s ON s.id = d.subject_id WHERE s.slug = 'english' AND d.slug = 'core-vocab')")
 	}
+	q = q.Where("c.deck_id IN ("+VisibleDecksSQL+")", userID) // never another user's personal words
 	var ids []int64
 	if err := q.Order("c.id ASC").Limit(n).Pluck("c.id", &ids).Error; err != nil {
 		return 0, err

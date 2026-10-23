@@ -53,7 +53,8 @@ func (h *Handler) PracticeExamples(c *gin.Context) {
 	}
 	ids := uniqueIDs(req.CardIDs, practiceMaxWords)
 	var cards []models.Card
-	if err := h.DB.Where("id IN ? AND kind IN ?", ids, []string{models.KindVocab, models.KindPhrasal}).Find(&cards).Error; err != nil {
+	if err := h.DB.Where("id IN ? AND kind IN ? AND deck_id IN ("+study.VisibleDecksSQL+")", ids,
+		[]string{models.KindVocab, models.KindPhrasal}, userID(c)).Find(&cards).Error; err != nil {
 		internal(c, err)
 		return
 	}
@@ -191,7 +192,12 @@ func pickRound(pool []models.CardExample, round int) []models.CardExample {
 	return ai[start:end]
 }
 
+// generateExamples asks AI (one request) for practicePerRound new sentences per card.
 func (h *Handler) generateExamples(ctx context.Context, cards []models.Card) error {
+	return h.generateExamplesN(ctx, cards, practicePerRound)
+}
+
+func (h *Handler) generateExamplesN(ctx context.Context, cards []models.Card, perWord int) error {
 	ctx, cancel := context.WithTimeout(ctx, 150*time.Second)
 	defer cancel()
 	words := make([]ai.PracticeWord, len(cards))
@@ -203,13 +209,13 @@ func (h *Handler) generateExamples(ctx context.Context, cards []models.Card) err
 		}
 		words[i] = ai.PracticeWord{Word: cd.Front, MeaningVi: meaning, POS: cc.POS}
 	}
-	res, err := h.AI.GeneratePracticeSentences(ctx, words, practicePerRound)
+	res, err := h.AI.GeneratePracticeSentences(ctx, words, perWord)
 	if err != nil {
 		return err
 	}
 	for _, cd := range cards {
 		for _, s := range res[strings.ToLower(cd.Front)] {
-			ex := models.CardExample{CardID: cd.ID, SentenceEn: s.En, TranslationVi: s.Vi, Source: "ai"}
+			ex := models.CardExample{CardID: cd.ID, SentenceEn: s.En, TranslationVi: s.Vi, Source: "ai", Context: s.Context}
 			if err := h.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&ex).Error; err != nil {
 				return err
 			}
@@ -356,4 +362,51 @@ func uniqueIDs(in []int64, limit int) []int64 {
 		}
 	}
 	return out
+}
+
+// PracticeAsk: POST /api/practice/ask — "Ask about this" under an AI verdict.
+// Body: context {task, word, learner, corrected, feedback, sample}, history
+// [{q, a}] (last 4 turns), question "analyze và analyst khác gì?".
+// ONE AI request per question (sent by the learner). Nothing is stored.
+func (h *Handler) PracticeAsk(c *gin.Context) {
+	var req struct {
+		Context struct {
+			Task      string `json:"task"`
+			Word      string `json:"word"`
+			Learner   string `json:"learner"`
+			Corrected string `json:"corrected"`
+			Feedback  string `json:"feedback"`
+			Sample    string `json:"sample"`
+		} `json:"context"`
+		History  []ai.TutorTurn `json:"history"`
+		Question string         `json:"question" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		bad(c, err)
+		return
+	}
+	q := strings.TrimSpace(req.Question)
+	if q == "" || len([]rune(q)) > 300 {
+		abort(c, http.StatusBadRequest, "the question must be 1-300 characters")
+		return
+	}
+	if !h.AI.Enabled() {
+		abort(c, http.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
+		return
+	}
+	if len(req.History) > 4 {
+		req.History = req.History[len(req.History)-4:] // the last turns are enough context
+	}
+	x := req.Context
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+	ans, err := h.AI.AskTutor(ctx, ai.TutorContext{
+		Task: x.Task, Word: x.Word, Learner: x.Learner, Corrected: x.Corrected, Feedback: x.Feedback, Sample: x.Sample,
+	}, req.History, q)
+	if err != nil {
+		log.Printf("[ai] ask: %v", err)
+		abort(c, http.StatusBadGateway, "AI could not answer right now, please try again")
+		return
+	}
+	c.JSON(http.StatusOK, ans)
 }

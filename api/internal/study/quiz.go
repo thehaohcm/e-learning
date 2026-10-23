@@ -22,15 +22,24 @@ const (
 type Choice struct {
 	ID   int64  `json:"id"`
 	Text string `json:"text"`
+	// Hint: the Vietnamese meaning, shown only when the learner asks for it
+	// (the "?" next to the option). Quiz options themselves are English.
+	Hint string `json:"hint,omitempty"`
 }
 
 type Question struct {
-	CardID  int64    `json:"card_id"`
-	Kind    string   `json:"kind"`
-	Mode    string   `json:"mode"`
-	Prompt  string   `json:"prompt"`
-	Speak   string   `json:"speak,omitempty"` // text the client can read aloud (listening practice)
-	Choices []Choice `json:"choices"`
+	CardID int64  `json:"card_id"`
+	Kind   string `json:"kind"`
+	Mode   string `json:"mode"`
+	Prompt string `json:"prompt"`
+	// PromptHint: Vietnamese of the meaning in a "Which one means: …" prompt.
+	PromptHint string   `json:"prompt_hint,omitempty"`
+	Speak      string   `json:"speak,omitempty"` // text the client can read aloud (listening practice)
+	Choices    []Choice `json:"choices"`
+	// Syllables of the word, for pronunciation questions (modes "stress", "sound").
+	Syllables []string `json:"syllables,omitempty"`
+	// Focus: the letters a "sound" question is about.
+	Focus *SoundFocus `json:"focus,omitempty"`
 }
 
 type QuizResult struct {
@@ -49,7 +58,8 @@ func (s *Service) BuildQuiz(userID int64, f Filter, count int) ([]Question, erro
 	}
 	var cards []models.Card
 	q := s.DB.Table("cards c").Select("c.*").
-		Joins("LEFT JOIN user_cards uc ON uc.card_id = c.id AND uc.user_id = ?", userID)
+		Joins("LEFT JOIN user_cards uc ON uc.card_id = c.id AND uc.user_id = ?", userID).
+		Where("c.deck_id IN ("+VisibleDecksSQL+")", userID)
 	if err := scope(q, f).
 		Order("(uc.card_id IS NULL), (uc.state = 0), random()").
 		Limit(count).Scan(&cards).Error; err != nil {
@@ -66,7 +76,8 @@ func (s *Service) BuildQuiz(userID int64, f Filter, count int) ([]Question, erro
 			out = append(out, *qq)
 		}
 	}
-	return out, nil
+	// some questions ask where the stress is (pronunciation has its own schedule)
+	return s.addStressQuestions(userID, f, cards, out, time.Now())
 }
 
 func (s *Service) question(c models.Card) (*Question, error) {
@@ -83,9 +94,8 @@ func (s *Service) question(c models.Card) (*Question, error) {
 		return &Question{CardID: c.ID, Kind: c.Kind, Mode: ModeMCQ, Prompt: c.Front, Choices: choices}, nil
 	}
 
-	var others []models.Card
-	if err := s.DB.Where("deck_id = ? AND kind = ? AND id <> ?", c.DeckID, c.Kind, c.ID).
-		Order("random()").Limit(3).Find(&others).Error; err != nil {
+	others, err := s.distractors(c, 3)
+	if err != nil {
 		return nil, err
 	}
 	if len(others) < 3 {
@@ -94,18 +104,19 @@ func (s *Service) question(c models.Card) (*Question, error) {
 
 	me := content.ToCompact(c)
 	mode := ModeMeaning
-	if rand.IntN(3) == 0 && content.QuizAnswerText(me) != "" {
+	if rand.IntN(3) == 0 && content.QuizAnswerText(me) != "" && me.MeaningEn != "" {
 		mode = ModeTerm
 	}
 	qq := &Question{CardID: c.ID, Kind: c.Kind, Mode: mode}
 	all := append([]models.Card{c}, others...)
 	for _, o := range all {
 		oc := content.ToCompact(o)
-		text := content.QuizAnswerText(oc)
+		text, hint := content.QuizEnglishText(oc)
 		if mode == ModeTerm {
-			text = o.Front
+			// options are the English words: their Vietnamese would give the answer away
+			text, hint = o.Front, ""
 		}
-		qq.Choices = append(qq.Choices, Choice{ID: o.ID, Text: text})
+		qq.Choices = append(qq.Choices, Choice{ID: o.ID, Text: text, Hint: hint})
 	}
 	rand.Shuffle(len(qq.Choices), func(i, j int) { qq.Choices[i], qq.Choices[j] = qq.Choices[j], qq.Choices[i] })
 
@@ -113,7 +124,9 @@ func (s *Service) question(c models.Card) (*Question, error) {
 		qq.Prompt = fmt.Sprintf("What does “%s” mean?", c.Front)
 		qq.Speak = c.Front
 	} else {
-		qq.Prompt = fmt.Sprintf("Which one means: %s", content.QuizAnswerText(me))
+		en, vi := content.QuizEnglishText(me)
+		qq.Prompt = fmt.Sprintf("Which one means: %s", en)
+		qq.PromptHint = vi
 	}
 	return qq, nil
 }
@@ -122,7 +135,7 @@ func (s *Service) question(c models.Card) (*Question, error) {
 // due, the result also counts as a review (correct = Good, wrong = Again).
 func (s *Service) CheckQuizAnswer(userID, cardID, choiceID int64) (QuizResult, error) {
 	var c models.Card
-	if err := s.DB.First(&c, cardID).Error; err != nil {
+	if err := s.DB.Where("deck_id IN ("+VisibleDecksSQL+")", userID).First(&c, cardID).Error; err != nil {
 		return QuizResult{}, ErrCardNotFound
 	}
 	res := QuizResult{Card: content.ToCompact(c)}
@@ -156,9 +169,8 @@ func (s *Service) MeaningChoices(c models.Card) ([]Choice, error) {
 	if own == "" {
 		return nil, nil
 	}
-	var others []models.Card
-	if err := s.DB.Where("deck_id = ? AND kind = ? AND id <> ?", c.DeckID, c.Kind, c.ID).
-		Order("random()").Limit(8).Find(&others).Error; err != nil {
+	others, err := s.distractors(c, 8)
+	if err != nil {
 		return nil, err
 	}
 	seen := map[string]bool{strings.ToLower(own): true}
@@ -179,4 +191,26 @@ func (s *Service) MeaningChoices(c models.Card) ([]Choice, error) {
 	}
 	rand.Shuffle(len(choices), func(i, j int) { choices[i], choices[j] = choices[j], choices[i] })
 	return choices, nil
+}
+
+// distractors returns up to n other cards of the same kind for wrong choices:
+// from the same deck first, then (small decks, e.g. "My words") from the shared
+// decks of the same subject. Never from another user's personal deck.
+func (s *Service) distractors(c models.Card, n int) ([]models.Card, error) {
+	var out []models.Card
+	if err := s.DB.Where("deck_id = ? AND kind = ? AND id <> ?", c.DeckID, c.Kind, c.ID).
+		Order("random()").Limit(n).Find(&out).Error; err != nil {
+		return nil, err
+	}
+	if missing := n - len(out); missing > 0 {
+		var more []models.Card
+		if err := s.DB.Where(`kind = ? AND id <> ? AND deck_id <> ? AND deck_id IN (
+				SELECT d.id FROM decks d WHERE d.owner_id IS NULL
+				  AND d.subject_id = (SELECT subject_id FROM decks WHERE id = ?))`, c.Kind, c.ID, c.DeckID, c.DeckID).
+			Order("random()").Limit(missing).Find(&more).Error; err != nil {
+			return nil, err
+		}
+		out = append(out, more...)
+	}
+	return out, nil
 }

@@ -26,7 +26,14 @@
 
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
 
-    <div v-if="item" class="row justify-content-center">
+    <!-- end of a round: fill in the blanks with the words just studied -->
+    <div v-if="showCloze" class="row justify-content-center">
+      <div class="col-lg-8">
+        <ClozeRound :words="roundWords.slice(-10)" @done="afterCloze" />
+      </div>
+    </div>
+
+    <div v-else-if="item" class="row justify-content-center">
       <div class="col-lg-8">
         <ForgottenWords :words="forgotten" compact class="mb-3" />
         <div class="progress mb-3" style="height: 6px">
@@ -60,6 +67,7 @@
                 {{ item.card.payload.ipa }}
                 <span v-if="item.card.payload.pos" class="ms-1 fst-italic">{{ item.card.payload.pos }}</span>
               </div>
+              <Pronunciation v-if="isEnglish" :card-id="item.card.id" :word="item.card.front" class="small mt-1" />
             </div>
 
             <!-- example sentence in English only (Vietnamese is shown after answering) -->
@@ -118,7 +126,7 @@
               </div>
 
               <CardDetails v-if="item.card.kind !== 'mcq'" :card="item.card" :speakable="isEnglish" class="text-start"
-                @speak="(en: string, vi?: string) => vi ? speakBilingual(en, vi, RATE_REPLAY) : speakEnglish(en, RATE_REPLAY)" />
+                @speak="(en: string) => speakEnglish(en, RATE_REPLAY)" />
               <div v-else-if="item.card.payload.explanation" class="small text-muted">{{ item.card.payload.explanation }}</div>
               <div v-if="exampleText" class="text-center mt-3 pt-3 border-top">
                 <div class="small text-muted mb-2">Practise saying: <em>“{{ exampleText }}”</em></div>
@@ -203,8 +211,10 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, errorMessage } from '../api'
 import CardDetails from '../components/CardDetails.vue'
+import Pronunciation from '../components/Pronunciation.vue'
 import SpeakCheck from '../components/common/SpeakCheck.vue'
 import ForgottenWords from '../components/common/ForgottenWords.vue'
+import ClozeRound from '../components/common/ClozeRound.vue'
 import { RATE_REPLAY, RATE_SLOW, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import { RATINGS, stateLabel } from '../types'
 import type { QueueItem } from '../types'
@@ -212,7 +222,7 @@ import type { QueueItem } from '../types'
 type Mode = 'choose' | 'self'
 
 const route = useRoute()
-const { speakEnglish, speakBilingual } = useSpeechSynthesis()
+const { speakEnglish } = useSpeechSynthesis()
 
 const queue = ref<QueueItem[]>([])
 const idx = ref(0)
@@ -228,6 +238,15 @@ const mode = ref<Mode>(storageGet('elearn.reviewmode') === 'self' ? 'self' : 'ch
 let shownAt = Date.now()
 // English cards graded "Again" in this session: offered for practice
 const forgotten = ref<{ id: number; front: string }[]>([])
+// English words studied in the current round (one queue batch): checked with
+// a fill-in-the-blank exercise when the round ends
+const roundWords = ref<{ id: number; front: string }[]>([])
+const showCloze = ref(false)
+async function afterCloze() {
+  showCloze.value = false
+  roundWords.value = []
+  await load()
+}
 
 const item = computed(() => queue.value[idx.value] ?? null)
 const isEnglish = computed(() => item.value?.card.kind === 'vocab' || item.value?.card.kind === 'phrasal')
@@ -422,8 +441,12 @@ async function rate(rating: number) {
     if (rating === 1 && isEnglish.value && !forgotten.value.some((w) => w.id === it.card.id)) {
       forgotten.value.push({ id: it.card.id, front: it.card.front })
     }
+    if (isEnglish.value && !roundWords.value.some((w) => w.id === it.card.id)) {
+      roundWords.value.push({ id: it.card.id, front: it.card.front })
+    }
     done.value++
     if (idx.value < queue.value.length - 1) idx.value++
+    else if (roundWords.value.length >= 3) showCloze.value = true // round finished: check the words in new sentences
     else await load() // learning steps come back within minutes
   } catch (e) {
     error.value = errorMessage(e)
@@ -434,7 +457,7 @@ async function rate(rating: number) {
 
 function onKey(e: KeyboardEvent) {
   const it = item.value
-  if (!it || sending.value || (e.target as HTMLElement)?.tagName === 'INPUT') return
+  if (!it || sending.value || showCloze.value || (e.target as HTMLElement)?.tagName === 'INPUT') return
   if (e.key === 'p' || e.key === 'P') {
     speakCard(it, RATE_REPLAY)
     return

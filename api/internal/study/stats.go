@@ -53,11 +53,11 @@ func (s *Service) Stats(userID int64, now time.Time) (Stats, error) {
 		       COUNT(uc.card_id) FILTER (WHERE NOT uc.suspended AND uc.state <> 0 AND uc.due <= ?) AS due,
 		       COUNT(uc.card_id) FILTER (WHERE NOT uc.suspended AND uc.stability >= ?) AS mastered
 		FROM subjects sub
-		JOIN decks d ON d.subject_id = sub.id
+		JOIN decks d ON d.subject_id = sub.id AND (d.owner_id IS NULL OR d.owner_id = ?)
 		LEFT JOIN cards c ON c.deck_id = d.id
 		LEFT JOIN user_cards uc ON uc.card_id = c.id AND uc.user_id = ?
 		GROUP BY sub.id ORDER BY sub.sort_order, sub.id`,
-		now, srs.MasteredStabilityDays, userID).Scan(&st.Subjects).Error; err != nil {
+		now, srs.MasteredStabilityDays, userID, userID).Scan(&st.Subjects).Error; err != nil {
 		return st, err
 	}
 	for _, x := range st.Subjects {

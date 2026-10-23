@@ -51,7 +51,7 @@
       <div v-for="c in cards" :key="c.id" class="col-md-6 col-lg-4">
         <FlashCard :card="c" :can-delete="auth.isAdmin"
           @speak="(t: string) => speakEnglish(t, RATE_REPLAY)"
-          @speak-sentence="(en: string, vi?: string) => vi ? speakBilingual(en, vi, RATE_REPLAY) : speakEnglish(en, RATE_REPLAY)"
+          @speak-sentence="(en: string) => speakEnglish(en, RATE_REPLAY)"
           @add="enroll([c.id])" @remove="remove(c)" />
       </div>
     </div>
@@ -82,7 +82,7 @@ import type { CardWithProgress, Subject } from '../types'
 
 const route = useRoute()
 const router = useRouter()
-const { speakEnglish, speakBilingual } = useSpeechSynthesis()
+const { speakEnglish } = useSpeechSynthesis()
 
 const subjects = ref<Subject[]>([])
 const ALL = -1 // "All decks": search everything (the old Search page)

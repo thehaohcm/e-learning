@@ -56,6 +56,9 @@
       </router-view>
     </main>
 
+    <!-- floating word notes (every page, logged in) -->
+    <NotesWidget v-if="auth.token" />
+
     <footer class="modern-footer">
       <div class="container text-center">
         <div class="d-flex justify-content-center align-items-center gap-2 mb-2">
@@ -74,6 +77,8 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth, logout } from './auth'
+import NotesWidget from './components/NotesWidget.vue'
+import { disablePush, syncPush } from './composables/usePwa'
 
 const router = useRouter()
 const route = useRoute()
@@ -109,10 +114,16 @@ function closeMenu() { practiceOpen.value = false }
 onMounted(() => document.addEventListener('click', closeMenu))
 onUnmounted(() => document.removeEventListener('click', closeMenu))
 
-function signOut() {
+async function signOut() {
+  // no study reminders for this account on this device after signing out
+  await Promise.race([disablePush().catch(() => {}), new Promise((r) => setTimeout(r, 2000))])
   logout()
   router.push('/login')
 }
+
+// keep this device's reminder subscription fresh (browsers renew it now and then)
+onMounted(() => { if (auth.token) syncPush() })
+watch(() => auth.token, (t) => { if (t) syncPush() })
 </script>
 
 <style>

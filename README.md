@@ -101,12 +101,34 @@ Thiết bị gọi qua cùng cổng với web (nginx proxy `/api`), ví dụ `ht
    `flashcard` (hiện từ → chạm xem nghĩa → tự chấm), `quiz` (4 `options`, hoặc `choices` với thẻ mcq),
    `listening` (phát `audio_url` rồi chọn nghĩa). Thẻ mới luôn là `flashcard`; thẻ không có audio thì
    `listening` thành `quiz`. Thiết bị chỉ cần làm theo `mode`.
+   Thiết bị **không** có các tính năng cần gõ/viết (Write it, Writing, điền từ trong More examples /
+   Round check, dịch câu ở Forgotten words) và Reading/Shadowing/Role-play: những phần này chỉ có trên web.
    Lưu vào thẻ SD để học offline.
 4. **Gửi kết quả** (có thể gửi dồn sau khi mất mạng):
    `POST /api/device/reviews` với
    `{"reviews":[{"client_review_id":"<uuid>","card_id":12,"rating":3,"reviewed_at":"2026-10-22T08:00:00Z","duration_ms":4000}]}`.
    `rating`: 1 = quên, 2 = khó, 3 = nhớ, 4 = dễ. Gửi lại cùng `client_review_id` sẽ không bị tính hai lần.
    Thiết bị nên lấy giờ qua NTP. Nếu giờ sai (ở tương lai), server dùng giờ của server.
+
+### Chế độ "cloze" trên thiết bị (điền từ, chỉ chọn)
+
+`settings.device_mode = "cloze"` (hoặc nằm trong vòng `mix`): thẻ đã học có `mode: "cloze"` và
+`cloze: {sentence: "Vegetable prices ____ wildly…", translation_vi, options: [{id, text} ×4]}`.
+Đáp án đúng có `id == card id`. Thiết bị **không gõ chữ**, chỉ chọn 1 trong 4 từ; gửi kết quả như quiz
+(đúng → rating 3, sai → 1) qua `POST /api/device/reviews`. Câu lấy từ câu ví dụ của thẻ (có xoay vòng câu AI đã lưu),
+từ sai lấy từ các nghĩa nhiễu của thẻ. Thẻ không có câu phù hợp → quiz.
+
+`cloze.kind`: `"word"` (4 từ khác nhau) hoặc `"form"` (4 dạng cùng họ từ kiểu TOEIC Part 5, đáp án sai có id âm),
+dạng "form" chỉ có khi câu đó đã được chuẩn bị trên web.
+
+**Round check trên web** có 3 cách làm:
+- **Type**: gõ từ (đúng dạng trong câu hoặc dạng gốc).
+- **Say**: đọc to **cả câu**, tự nói từ còn thiếu; chỉ kiểm tra từ đó có trong câu nghe được (có ngữ cảnh nên nhận
+  diện tốt hơn đọc 1 từ). Chỉ để luyện, không đổi lịch ôn.
+- **A B C D** (mặc định trên điện thoại): xen kẽ **Which word?** (4 từ cùng loại từ: danh/động/tính/trạng, lấy trong
+  vòng học rồi trong deck, nên không đoán được bằng ngữ pháp) và **Which form?** (TOEIC Part 5:
+  `fluctuated / fluctuation / fluctuating / fluctuant`). Dạng từ do AI viết **1 request cho cả vòng** khi bạn dùng
+  A B C D, lưu ở `card_examples.form_options` (dùng chung, cả cho thiết bị). Phím 1–4 hoặc A–D.
 
 ## Reading (bài đọc / hội thoại do AI viết)
 
@@ -140,6 +162,35 @@ Home · **Study** (ôn thẻ đến hạn + từ mới) · **Practice** (Overvie
 Forgotten words) · **Browse** (duyệt bộ từ; chọn "All decks" để tìm trong mọi bộ, thay cho trang Search cũ) · **Settings**.
 Practice chỉ có trên web; thiết bị ESP32 chỉ làm phần Study (flashcard / quiz / listening).
 
+## More examples (câu ví dụ theo ngữ cảnh)
+
+Trong phần nghĩa của thẻ (Study khi lật thẻ, Browse) có **More examples**: tối đa 6 câu AI viết cho mỗi từ,
+mỗi câu một ngữ cảnh (work, daily life, news, study…) và cùng thể hiện các cách kết hợp từ thường gặp.
+Câu được tạo khi bấm "Get examples with AI" (1 request, lưu trong `card_examples`, dùng chung cho mọi người và
+cho Forgotten words / Write it). Mặc định **Fill in the blanks**: từ đang học bị che, gõ đúng dạng trong câu
+(gõ từ gốc cũng được, app chỉ ra dạng đúng) → app đọc câu → 🎤 đọc theo và chấm %. Có 🔊/🐢 (nghe để điền),
+bấm vào câu để xem nghĩa tiếng Việt, công tắc tắt chế độ điền từ.
+Phím (More examples và Round check): **Enter** chấm ô trống (sai thì chữ được bôi đen để gõ lại; đúng thì đọc
+câu tiếng Anh và hiện nghĩa tiếng Việt) · **S** nói câu vừa điền và chấm % (≥ 80% tự sang ô tiếp theo) ·
+**N** ô tiếp theo · **P** câu trước. S/N/P không chạy khi đang gõ trong ô.
+
+## Phát âm (cho người Việt)
+
+Dưới IPA của từ (Study, Browse) có **âm tiết + trọng âm**: `hy·POTH·e·sis` (âm nhấn viết hoa, tô màu),
+nút 🐢 đọc chậm từng âm tiết rồi đọc cả từ, và 1–3 **mẹo bằng tiếng Việt** cho âm khó của chính từ đó
+(th /θ/, âm cuối -s/-ts, nguyên âm yếu /ə/...). Không phiên âm bằng chữ tiếng Việt (dễ học sai âm và trọng âm).
+Hiện thẻ chỉ **đọc phần đã lưu** (`POST /api/cards/pronunciations`, gom nhiều thẻ, không gọi AI); từ chưa có
+thì hiện nút **How to say it** → `POST /api/cards/:id/pronunciation` = 1 request AI cho đúng từ đó.
+Kết quả được kiểm tra (âm tiết ghép lại đúng chính tả) và lưu trong `card_pronunciations`, dùng chung.
+
+## Round check (điền từ cuối round)
+
+Cuối mỗi lượt **Study** (khi hết một lô thẻ, nếu có ≥ 3 từ tiếng Anh) và ở màn hình điểm của **Quiz**
+có thẻ **Round check: fill in the blanks**: bấm Start → `/api/practice/cloze` lấy mỗi từ một câu mới
+(câu AI trong `card_examples`, thiếu thì AI viết bù trong 1 request), trộn thứ tự. Có danh sách từ
+(gạch đi khi điền đúng); gõ từ vào ô trống, Enter chấm ngay (đúng dạng hoặc từ gốc; sai 2 lần thì hiện đáp án);
+điền xong thì nghe 🔊 / đọc theo 🎤, bấm "Vietnamese" để xem nghĩa câu. Có nút Skip.
+
 ## Quiz: Write it
 
 Trong **Quiz** chọn **Write it**: mỗi lượt 10 câu tiếng Việt (lấy từ `card_examples`, câu tiếng Anh là đáp án mẫu;
@@ -159,6 +210,17 @@ soạn đề theo bài (trả lời email/thông báo, tin nhắn sau hội tho�
 Trang Writing hiện đề, đếm từ, từ bắt buộc chuyển xanh khi đã dùng; gợi ý mở dần: Outline → Useful phrases
 (bấm để chèn vào bài) → Sample answer. Chấm điểm như Writing thường.
 
+## My notes (ghi chú từ lạ)
+
+Nút 📝 ở góc dưới bên phải (mọi trang, **Alt+N**) mở khung ghi chú: gõ từ/cụm từ + ghi chú riêng.
+**Bôi đen một từ** ở bất kỳ đâu (bài Reading, câu ví dụ, câu hỏi...) → nút **Note** → lưu từ kèm **câu chứa nó**
+và trang đang học. Chỉ nhận từ tiếng Anh (chữ có dấu/khác hệ chữ bị từ chối); khi giải nghĩa, từ AI nói
+không phải tiếng Anh (gõ sai, từ bịa) bị xóa và được báo lại. Từ đã có trong kho thì hiện nghĩa ngay; **Explain** = 1 request AI giải nghĩa mọi từ mới
+(dạng gốc, IPA, nghĩa theo đúng ngữ cảnh, ví dụ = câu bạn gặp); **+ Study / Add to Study** = vào lịch ôn:
+dùng thẻ có sẵn (kể cả khi bạn ghi dạng chia: "negotiated" → "negotiate"), hoặc tạo thẻ trong bộ riêng
+**My words** (chỉ bạn thấy; dùng được với Study, Quiz, More examples, Write it, thiết bị ESP32).
+Bộ từ có `owner_id` là bộ cá nhân; mọi truy vấn thẻ/bộ đều lọc theo `study.VisibleDecksSQL`.
+
 ## Luyện từ đã quên
 
 Trong **Review** (thẻ bị chấm Again: chọn sai, "I don't remember", hoặc Again) và **Quiz** (chọn sai lần đầu),
@@ -172,8 +234,65 @@ app gom các từ tiếng Anh đã quên. Màn hình cuối (và thanh trên cù
 
 Không có AI: dùng câu ví dụ có sẵn của thẻ và bỏ bước chấm. Lịch ôn FSRS không bị thay đổi bởi phần luyện này.
 
+## Phát âm có lịch ôn riêng (trọng âm)
+
+Nghĩa và cách đọc được ôn **tách nhau**: `user_cards` là lịch ôn nghĩa, `user_pron` là lịch ôn phát âm
+(FSRS riêng, log trong `pron_logs`). Quên cách đọc không làm reset lịch ôn nghĩa.
+
+- **Câu hỏi trọng âm trong Quiz** (tối đa 3/10 câu): "Which syllable is stressed?", chạm âm tiết (hoặc phím 1–9).
+  Chấm chính xác theo dữ liệu đã lưu (`card_pronunciations`), không dùng micro. Sai → hỏi lại sớm; đúng → giãn ra.
+  Ưu tiên từ có lịch phát âm đến hạn, rồi đến từ chưa từng hỏi trọng âm. Chỉ từ đơn có ≥ 2 âm tiết.
+- **Câu hỏi "Which sound?"** (chung suất với câu trọng âm, cùng lịch ôn phát âm): *How do you say the “u” in FLUC?*
+  → chọn `/ʌ/ as in “cut”` (nút **?** hiện âm gần giống tiếng Việt: "gần “â”"). Sau khi trả lời: quy tắc chính tả
+  bằng tiếng Việt + vài từ cùng âm (bấm để nghe). Dữ liệu (`card_pronunciations.sound`) do AI ghi cùng lúc với âm tiết;
+  từ đã có âm tiết từ trước được bổ sung khi bấm **Prepare** (NULL = chưa chuẩn bị, `{}` = từ không có âm dễ đọc sai).
+- **Say it first** (bật/tắt ở Quiz): trước khi chọn nghĩa, đọc to từ. 🎤 chỉ để luyện (máy nghe chỉ là tham khảo,
+  không đổi lịch ôn). **I forgot how to say it (F)** → nghe mẫu chậm + trọng âm ngay, và từ vào lịch ôn phát âm
+  (`POST /api/pron/forgot`). Trình duyệt không có micro: nút "I said it".
+- Sau mỗi câu trả lời, từ luôn hiện kèm trọng âm (hy·POTH·e·sis).
+- Từ chưa có dữ liệu âm tiết: Quiz hiện nút **Prepare 25 more words (AI)** → 1 request AI cho 25 từ của deck,
+  lưu dùng chung (`POST /api/quiz/pron-generate`, `GET /api/quiz/pron-status`).
+
+## Cài lên điện thoại (PWA) + nhắc giờ học
+
+Web là PWA: `web/public/manifest.webmanifest`, icon trong `web/public/icons/`, service worker `web/public/sw.js`
+(viết tay, không qua plugin). Service worker cache khung app để mở nhanh; `/api` luôn lấy từ mạng.
+
+- **Cài app:** Settings → *Phone app & study reminders* → **Install app** (Chrome/Edge/Android).
+  iPhone/iPad: mở bằng Safari → Share → **Add to Home Screen**.
+- **Nhắc giờ học:** bật *Study reminders on this device*, chọn giờ (tối đa 6 mốc, theo time zone của tài khoản).
+  Đến giờ server gửi Web Push: "12 cards to review · 5 new words left today". Không có gì để học thì không gửi.
+  Bấm thông báo → mở trang Study. *Send a test now* để thử ngay.
+- iOS chỉ nhận thông báo khi app đã được thêm vào Home Screen (iOS 16.4+). Cần HTTPS (đã có qua Cloudflare).
+- Khóa VAPID tự sinh lần đầu và lưu trong bảng `app_secrets` (không cần cấu hình). `VAPID_SUBJECT` trong `.env`
+  là tùy chọn (mặc định `https://APP_DOMAIN` hoặc `mailto:` admin đầu tiên).
+- Server chỉ gửi tới push service của trình duyệt (FCM, Mozilla, Apple, Windows), không gửi tới URL tùy ý.
+- API: `GET /api/push/key`, `POST /api/push/subscribe`, `POST /api/push/unsubscribe`, `POST /api/push/test`;
+  giờ nhắc lưu trong `settings.push_times`. Worker kiểm tra mỗi phút (`internal/worker/reminders.go`),
+  bảng `push_reminders_sent` chống gửi trùng.
+
+## Ask about this (hỏi thêm AI sau khi chấm)
+
+Dưới mỗi kết quả AI chấm (Write it, Writing, luyện từ đã quên) có **Ask about this**: gõ câu hỏi
+("analyze và analyst khác gì?"), AI trả lời ngắn bằng tiếng Việt, biết sẵn đề, câu bạn viết, câu sửa và nhận xét.
+Hỏi tiếp được (gửi kèm 4 lượt gần nhất). **1 request AI mỗi câu hỏi**, không lưu lại.
+Các từ được nhắc tới hiện thành nút **+ từ** để lưu vào My notes. API: `POST /api/practice/ask`.
+
+## Lưu từ khi lướt web (extension) và từ điện thoại (Share)
+
+- **Extension** (thư mục `extension/`, xem `extension/README.md`): bôi đen từ → chuột phải → *Add to E-Learn notes*
+  hoặc **Alt+Shift+N** → lưu vào My notes kèm câu chứa từ. Đăng nhập bằng **khoá riêng** tạo ở Settings →
+  Browser extension (`ext_…`, chỉ lưu hash; chỉ được thêm/đọc notes; xoá là hết hiệu lực). API `/api/ext/*`.
+- **Android**: app đã cài (PWA) xuất hiện trong menu **Share**: bôi đen từ ở bất kỳ app nào → Share → E-Learn →
+  trang `/share` (văn bản dài thì chạm chọn từ, câu chứa từ được giữ làm ngữ cảnh). iPhone không hỗ trợ share target.
+
+## Firmware thiết bị ES3C28P
+
+Thư mục `firmware/` (ESP-IDF 5.4 + LVGL 9). Cách nạp, cài Wi-Fi, ghép nối và chỉnh màn hình: xem `firmware/README.md`.
+File nạp sẵn: `firmware/prebuilt/elearn-device-1.0.0.bin` (địa chỉ 0x0).
+
 ## Còn thiếu / bước tiếp theo
 
-- Firmware ESP32 (LVGL, WiFiManager captive portal, lưu cache trên SD).
-- Audio MP3 cho thiết bị (server sinh bằng edge-tts, trường `audio_url` đã có sẵn).
+- Audio cho thiết bị: firmware phát WAV 16-bit từ `audio_url`; server chưa sinh file audio.
+- Dùng mic trên thiết bị (cần speech-to-text phía server).
 - Chấm phát âm (luyện nói) qua dịch vụ speech-to-text.

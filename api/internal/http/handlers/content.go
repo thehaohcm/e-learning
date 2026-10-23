@@ -11,6 +11,7 @@ import (
 	"mvp-lang-app/internal/content"
 	"mvp-lang-app/internal/http/dto"
 	"mvp-lang-app/internal/models"
+	"mvp-lang-app/internal/study"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -41,7 +42,8 @@ func (h *Handler) ListSubjects(c *gin.Context) {
 		       (SELECT COUNT(*) FROM cards c WHERE c.deck_id = d.id) AS card_count,
 		       (SELECT COUNT(*) FROM user_cards uc JOIN cards c ON c.id = uc.card_id
 		         WHERE c.deck_id = d.id AND uc.user_id = ? AND NOT uc.suspended) AS learning_count
-		FROM decks d ORDER BY d.sort_order, d.id`, userID(c)).Scan(&decks).Error; err != nil {
+		FROM decks d WHERE d.owner_id IS NULL OR d.owner_id = ?
+		ORDER BY d.sort_order, d.id`, userID(c), userID(c)).Scan(&decks).Error; err != nil {
 		internal(c, err)
 		return
 	}
@@ -73,7 +75,7 @@ func (h *Handler) ListCards(c *gin.Context) {
 	}
 	search := strings.TrimSpace(c.Query("q"))
 	build := func() *gorm.DB {
-		q := h.DB.Table("cards c")
+		q := h.DB.Table("cards c").Where("c.deck_id IN ("+study.VisibleDecksSQL+")", userID(c))
 		if f.DeckID > 0 {
 			q = q.Where("c.deck_id = ?", f.DeckID)
 		}
@@ -137,7 +139,7 @@ func (h *Handler) GetCard(c *gin.Context) {
 		return
 	}
 	var card models.Card
-	if err := h.DB.First(&card, id).Error; err != nil {
+	if err := h.DB.Where("deck_id IN ("+study.VisibleDecksSQL+")", userID(c)).First(&card, id).Error; err != nil {
 		notFoundOr500(c, err, "card")
 		return
 	}

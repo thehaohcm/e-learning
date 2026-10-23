@@ -6,6 +6,7 @@ export interface Sense {
   meaning_vi?: string
   example_en?: string
   example_vi?: string
+  example_id?: number // set when the example is one of the stored AI examples (Study rotates them)
   usage_note?: string
   grammar_note?: string
 }

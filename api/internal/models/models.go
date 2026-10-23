@@ -90,6 +90,7 @@ type Deck struct {
 	Description string    `json:"description"`
 	DefaultKind string    `json:"default_kind"`
 	SortOrder   int       `json:"sort_order"`
+	OwnerID     *int64    `json:"owner_id,omitempty"` // personal deck ("My words"); nil = shared
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -206,7 +207,36 @@ type CardExample struct {
 	SentenceEn    string    `json:"sentence_en"`
 	TranslationVi string    `json:"translation_vi"`
 	Source        string    `json:"source"`
+	Context       string    `json:"context"` // situation label (work, daily life, news...)
 	CreatedAt     time.Time `json:"created_at"`
 }
 
 func (CardExample) TableName() string { return "card_examples" }
+
+// WordNote is a word the user noted while studying (floating notes panel).
+type WordNote struct {
+	ID        int64     `gorm:"primaryKey" json:"id"`
+	UserID    int64     `json:"-"`
+	Text      string    `json:"text"`
+	Note      string    `json:"note"`
+	Context   string    `json:"context"`
+	Source    string    `json:"source"`
+	CardID    *int64    `json:"card_id"`
+	Status    string    `json:"status"` // new | ready | added
+	Info      JSON      `gorm:"type:jsonb" json:"info"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (WordNote) TableName() string { return "word_notes" }
+
+// CardPronunciation: syllables, stress and tips for Vietnamese learners (migration 0010).
+type CardPronunciation struct {
+	CardID    int64     `gorm:"primaryKey;autoIncrement:false" json:"card_id"`
+	Syllables JSON      `gorm:"type:jsonb" json:"syllables"`
+	Stress    int       `json:"stress"`
+	TipsVi    JSON      `gorm:"column:tips_vi;type:jsonb" json:"tips_vi"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+func (CardPronunciation) TableName() string { return "card_pronunciations" }

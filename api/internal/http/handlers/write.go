@@ -34,10 +34,12 @@ type writePrompt struct {
 
 // WritePrompts: POST /api/practice/write/prompts {"deck_id":2,"count":10}
 // Words the user is learning come first (soonest due), then other words of the deck.
+// Or {"card_ids":[...]}: exactly these words (e.g. the words of the quiz just done).
 func (h *Handler) WritePrompts(c *gin.Context) {
 	var req struct {
-		DeckID int64 `json:"deck_id" binding:"required"`
-		Count  int   `json:"count"`
+		DeckID  int64   `json:"deck_id"`
+		CardIDs []int64 `json:"card_ids"`
+		Count   int     `json:"count"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		bad(c, err)
@@ -48,12 +50,22 @@ func (h *Handler) WritePrompts(c *gin.Context) {
 	}
 	uid := userID(c)
 	var cards []models.Card
-	err := h.DB.Raw(`
+	var err error
+	switch {
+	case len(req.CardIDs) > 0:
+		err = h.DB.Where("id IN ? AND kind IN ? AND deck_id IN ("+study.VisibleDecksSQL+")",
+			uniqueIDs(req.CardIDs, practiceMaxWords), []string{models.KindVocab, models.KindPhrasal}, uid).Find(&cards).Error
+	case req.DeckID > 0:
+		err = h.DB.Raw(`
 		SELECT c.* FROM cards c
 		LEFT JOIN user_cards uc ON uc.card_id = c.id AND uc.user_id = ?
-		WHERE c.deck_id = ? AND c.kind IN ?
+		WHERE c.deck_id = ? AND c.kind IN ? AND c.deck_id IN (`+study.VisibleDecksSQL+`)
 		ORDER BY (uc.card_id IS NOT NULL AND uc.state <> 0 AND NOT uc.suspended) DESC, uc.due ASC NULLS LAST, random()
-		LIMIT ?`, uid, req.DeckID, []string{models.KindVocab, models.KindPhrasal}, req.Count).Scan(&cards).Error
+		LIMIT ?`, uid, req.DeckID, []string{models.KindVocab, models.KindPhrasal}, uid, req.Count).Scan(&cards).Error
+	default:
+		abort(c, http.StatusBadRequest, "deck_id or card_ids is required")
+		return
+	}
 	if err != nil {
 		internal(c, err)
 		return
@@ -63,55 +75,10 @@ func (h *Handler) WritePrompts(c *gin.Context) {
 		return
 	}
 
-	pools, err := h.examplePools(cards)
+	out, warning, err := h.examplePrompts(c.Request.Context(), cards)
 	if err != nil {
 		internal(c, err)
 		return
-	}
-	warning := ""
-	var need []models.Card
-	for _, cd := range cards {
-		if countAI(pools[cd.ID]) == 0 {
-			need = append(need, cd)
-		}
-	}
-	if len(need) > 0 {
-		if !h.AI.Enabled() {
-			warning = "AI is not configured: only words with an example sentence are used."
-		} else if err := h.generateExamples(c.Request.Context(), need); err != nil {
-			log.Printf("[ai] write prompts: %v", err)
-			warning = "AI could not write new sentences right now: some words were left out."
-		}
-		if pools, err = h.examplePools(cards); err != nil {
-			internal(c, err)
-			return
-		}
-	}
-
-	out := []writePrompt{}
-	for _, cd := range cards {
-		var usable []models.CardExample
-		for _, ex := range pools[cd.ID] {
-			if ex.TranslationVi != "" {
-				usable = append(usable, ex)
-			}
-		}
-		if len(usable) == 0 {
-			// the card's own example, if it has a Vietnamese translation
-			cc := content.ToCompact(cd)
-			if cc.ExampleEn == "" || cc.ExampleVi == "" {
-				continue
-			}
-			ex := models.CardExample{CardID: cd.ID, SentenceEn: cc.ExampleEn, TranslationVi: cc.ExampleVi, Source: "card"}
-			h.DB.Where("card_id = ? AND lower(sentence_en) = lower(?)", cd.ID, cc.ExampleEn).FirstOrCreate(&ex)
-			usable = []models.CardExample{ex}
-		}
-		ex := usable[rand.Intn(len(usable))]
-		cc := content.ToCompact(cd)
-		out = append(out, writePrompt{
-			CardID: cd.ID, Word: cd.Front, IPA: cc.IPA, MeaningVi: cc.MeaningVi,
-			ExampleID: ex.ID, PromptVi: ex.TranslationVi, ReferenceEn: ex.SentenceEn,
-		})
 	}
 	rand.Shuffle(len(out), func(i, j int) { out[i], out[j] = out[j], out[i] })
 	c.JSON(http.StatusOK, gin.H{"prompts": out, "warning": warning})
@@ -229,4 +196,67 @@ func (h *Handler) WriteGrade(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"results": results})
+}
+
+// examplePrompts picks one stored example sentence (with its Vietnamese
+// translation) per card, after asking AI in ONE request for sentences for the
+// cards that have none. Used by Write it and the fill-in-the-blank round.
+func (h *Handler) examplePrompts(ctx context.Context, cards []models.Card) ([]writePrompt, string, error) {
+	pools, err := h.examplePools(cards)
+	if err != nil {
+		return nil, "", err
+	}
+	warning := ""
+	var need []models.Card
+	for _, cd := range cards {
+		if countAI(pools[cd.ID]) == 0 {
+			need = append(need, cd)
+		}
+	}
+	if len(need) > 0 {
+		if !h.AI.Enabled() {
+			warning = "AI is not configured: only words with an example sentence are used."
+		} else if err := h.generateExamples(ctx, need); err != nil {
+			log.Printf("[ai] example prompts: %v", err)
+			warning = "AI could not write new sentences right now: some words were left out."
+		}
+		if pools, err = h.examplePools(cards); err != nil {
+			return nil, "", err
+		}
+	}
+
+	out := []writePrompt{}
+	for _, cd := range cards {
+		// prefer AI sentences: the card's own example is already printed on the card
+		var usable, own []models.CardExample
+		for _, ex := range pools[cd.ID] {
+			switch {
+			case ex.TranslationVi == "":
+			case ex.Source == "ai":
+				usable = append(usable, ex)
+			default:
+				own = append(own, ex)
+			}
+		}
+		if len(usable) == 0 {
+			usable = own
+		}
+		if len(usable) == 0 {
+			// the card's own example, if it has a Vietnamese translation
+			cc := content.ToCompact(cd)
+			if cc.ExampleEn == "" || cc.ExampleVi == "" {
+				continue
+			}
+			ex := models.CardExample{CardID: cd.ID, SentenceEn: cc.ExampleEn, TranslationVi: cc.ExampleVi, Source: "card"}
+			h.DB.Where("card_id = ? AND lower(sentence_en) = lower(?)", cd.ID, cc.ExampleEn).FirstOrCreate(&ex)
+			usable = []models.CardExample{ex}
+		}
+		ex := usable[rand.Intn(len(usable))]
+		cc := content.ToCompact(cd)
+		out = append(out, writePrompt{
+			CardID: cd.ID, Word: cd.Front, IPA: cc.IPA, MeaningVi: cc.MeaningVi,
+			ExampleID: ex.ID, PromptVi: ex.TranslationVi, ReferenceEn: ex.SentenceEn,
+		})
+	}
+	return out, warning, nil
 }

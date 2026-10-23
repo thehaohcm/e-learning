@@ -219,6 +219,16 @@ func QuizAnswerText(c Compact) string {
 	}
 }
 
+// QuizEnglishText is a quiz option in English plus its Vietnamese meaning as a
+// separate hint (shown only on request). Cards without an English meaning fall
+// back to QuizAnswerText with no hint.
+func QuizEnglishText(c Compact) (text, hintVi string) {
+	if c.MeaningEn != "" {
+		return c.MeaningEn, c.MeaningVi
+	}
+	return QuizAnswerText(c), ""
+}
+
 // ChoiceText is the short answer shown in review multiple-choice questions:
 // the Vietnamese meaning when available (clear for Vietnamese learners and
 // short enough for the device screen), otherwise the English meaning/back.

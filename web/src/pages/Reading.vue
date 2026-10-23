@@ -83,7 +83,7 @@
             <div class="d-flex flex-wrap gap-2 align-items-center my-3">
               <button class="btn btn-primary btn-sm" :disabled="!!practice" @click="playAll(1)"><i class="bi bi-play-fill"></i> Listen</button>
               <button class="btn btn-outline-primary btn-sm" :disabled="!!practice" @click="playAll(0.75)">🐢 Slow</button>
-              <button class="btn btn-outline-secondary btn-sm" :disabled="playing < 0 && playingQ < 0" @click="stopAll"><i class="bi bi-stop-fill"></i> Stop</button>
+              <button class="btn btn-outline-secondary btn-sm" :disabled="playing < 0 && playingQ < 0 && viPlaying === null" @click="stopAll"><i class="bi bi-stop-fill"></i> Stop</button>
               <span class="vr mx-1"></span>
               <button class="btn btn-outline-danger btn-sm" :disabled="!canSpeak || !!practice"
                 :title="canSpeak ? 'Listen to each sentence and repeat it' : 'Needs Chrome/Edge and HTTPS'" @click="startPractice('shadow')">
@@ -162,6 +162,13 @@
                 </span>
               </p>
               <div v-if="showVi && !textHidden && doc.translation_vi" class="translation">{{ doc.translation_vi }}</div>
+              <div v-if="showVi && !textHidden && doc.translation_vi" class="mt-2 d-flex flex-wrap align-items-center gap-2">
+                <button class="btn btn-outline-warning btn-sm" :disabled="!!practice" @click="toggleVi(splitVi(doc.translation_vi), -1)">
+                  <i class="bi" :class="viPlaying === -1 ? 'bi-stop-fill' : 'bi-volume-up-fill'"></i>
+                  {{ viPlaying === -1 ? 'Stop' : 'Listen in Vietnamese' }}
+                </button>
+                <span v-if="noViVoice" class="small text-muted">{{ NO_VI_VOICE }}</span>
+              </div>
             </div>
 
             <!-- conversation -->
@@ -183,8 +190,22 @@
                         @click="selectWord(seg.word)">{{ seg.text }}</mark><template v-else>{{ seg.text }}</template>
                     </template>
                   </div>
-                  <div v-if="showVi && !textHidden && line.vi" class="small text-muted mt-1">{{ line.vi }}</div>
+                  <div v-if="showVi && !textHidden && line.vi" class="small text-muted mt-1">
+                    {{ line.vi }}
+                    <button class="btn btn-link btn-sm p-0 ms-1 align-baseline" :class="viPlaying === i ? 'text-danger' : 'text-warning'"
+                      :disabled="!!practice" :title="viPlaying === i ? 'Stop' : 'Listen in Vietnamese'" @click="toggleVi([line.vi], i)">
+                      <i class="bi" :class="viPlaying === i ? 'bi-stop-fill' : 'bi-volume-up'"></i>
+                    </button>
+                  </div>
                 </div>
+              </div>
+              <div v-if="showVi && !textHidden && doc.lines?.some((l) => l.vi)" class="mt-2 d-flex flex-wrap align-items-center gap-2">
+                <button class="btn btn-outline-warning btn-sm" :disabled="!!practice"
+                  @click="toggleVi((doc.lines ?? []).map((l) => l.vi ?? '').filter(Boolean), -1)">
+                  <i class="bi" :class="viPlaying === -1 ? 'bi-stop-fill' : 'bi-volume-up-fill'"></i>
+                  {{ viPlaying === -1 ? 'Stop' : 'Listen to the whole conversation in Vietnamese' }}
+                </button>
+                <span v-if="noViVoice" class="small text-muted">{{ NO_VI_VOICE }}</span>
               </div>
               <div v-if="doc.useful_phrases?.length && !textHidden" class="mt-3">
                 <h6 class="fw-bold">Useful everyday phrases</h6>
@@ -317,7 +338,7 @@ interface Segment { text: string; word?: Word }
 
 const route = useRoute()
 const router = useRouter()
-const { speakEnglish, speakAs, stop } = useSpeechSynthesis()
+const { speakEnglish, speakAs, speakVietnamese, hasVietnameseVoice, stop } = useSpeechSynthesis()
 
 const kind = ref<'reading' | 'conversation'>('reading')
 const level = ref('medium')
@@ -479,8 +500,46 @@ function stopAll() {
   playToken++
   playing.value = -1
   playingQ.value = -1
+  viPlaying.value = null
   stop()
 }
+
+// ---------------------------------------------------------------- Vietnamese audio
+// Only when the learner turns on "Vietnamese" and presses Listen: nothing is read in Vietnamese automatically.
+const NO_VI_VOICE = 'This device has no Vietnamese voice, so it may sound wrong. Add Vietnamese in the system’s text-to-speech settings.'
+/** Which Vietnamese text is being read: -1 = the whole translation, i = conversation line i, null = none. */
+const viPlaying = ref<number | null>(null)
+const noViVoice = ref(false)
+
+/** Sentence by sentence: long texts stop early in some browsers if read in one go. */
+function splitVi(text: string): string[] {
+  return text.split(/\n+|(?<=[.!?…])\s+/).map((t) => t.trim()).filter(Boolean)
+}
+
+async function toggleVi(texts: string[], key: number) {
+  if (viPlaying.value === key) {
+    stopAll()
+    return
+  }
+  stopAll()
+  const token = ++playToken
+  viToken = token
+  viPlaying.value = key
+  noViVoice.value = !(await hasVietnameseVoice())
+  try {
+    for (const t of texts) {
+      if (token !== playToken) return
+      await speakVietnamese(t, RATE_NORMAL)
+      await pause(250)
+    }
+  } catch {
+    /* stopped */
+  } finally {
+    if (viToken === token) viPlaying.value = null // also when Listen (English) took over
+  }
+}
+let viToken = 0
+watch(showVi, (on) => { if (!on && viPlaying.value !== null) stopAll() })
 
 const pause = (ms: number) => new Promise((r) => setTimeout(r, ms))
 

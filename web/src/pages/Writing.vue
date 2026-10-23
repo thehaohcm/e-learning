@@ -119,6 +119,10 @@
               </li>
             </ul>
             <div class="p-3 bg-light rounded" style="white-space: pre-wrap">{{ current.feedback?.rewrites?.find((r) => r.level === level)?.text }}</div>
+            <AskTutor class="mt-3" :context="{
+              task: current.prompt, learner: current.original_text,
+              corrected: current.feedback?.rewrites?.find((r) => r.level === level)?.text,
+              feedback: [current.feedback?.summary_vi, ...(current.feedback?.errors ?? []).map((e) => `${e.original} → ${e.correction}: ${e.explanation_vi}`)].filter(Boolean).join('\n') }" />
           </template>
         </div>
       </div>
@@ -146,6 +150,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, errorMessage } from '../api'
 import { usesWord } from '../utils/words'
+import AskTutor from '../components/common/AskTutor.vue'
 
 interface WritingTask {
   type: string
@@ -165,6 +170,7 @@ interface Submission {
   status: string
   created_at: string
   error_message?: string
+  original_text?: string
   overall_score?: number
   grammar_score?: number
   vocab_score?: number

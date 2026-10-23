@@ -99,6 +99,18 @@ export function useSpeechSynthesis() {
     await speak(text, 'en', rate)
   }
 
+  // Speak Vietnamese (only when the learner asks for it, e.g. Reading → Vietnamese → Listen)
+  async function speakVietnamese(text: string, rate: number = 1.0) {
+    await loadVoices()
+    await speak(text, 'vi', rate)
+  }
+
+  /** The device has a Vietnamese voice (otherwise the browser reads with a foreign accent or not at all). */
+  async function hasVietnameseVoice(): Promise<boolean> {
+    await loadVoices()
+    return !!findVoice('vi')
+  }
+
   // Speak English with a different voice per speaker (dialogues). If the
   // browser has only one English voice, speakers are told apart by pitch.
   async function speakAs(text: string, speaker: number, rate: number = 1.0) {
@@ -125,6 +137,8 @@ export function useSpeechSynthesis() {
     speakBilingual,
     speakEnglish,
     speakAs,
+    speakVietnamese,
+    hasVietnameseVoice,
     stop,
   }
 }

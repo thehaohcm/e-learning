@@ -23,8 +23,9 @@
         </div>
       </div>
 
+      <Pronunciation v-if="isEnglish" :card-id="card.id" :word="card.front" compact class="small" />
       <CardDetails :card="card" :speakable="isEnglish" class="mt-2"
-        @speak="(en: string, vi?: string) => $emit('speakSentence', en, vi)" />
+        @speak="(en: string) => $emit('speakSentence', en)" />
     </div>
     <div class="card-footer bg-white border-0 pt-0 d-flex justify-content-between align-items-center">
       <small class="text-muted">{{ status }}</small>
@@ -41,11 +42,12 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import CardDetails from '../CardDetails.vue'
+import Pronunciation from '../Pronunciation.vue'
 import type { CardWithProgress } from '../../types'
 import { stateLabel } from '../../types'
 
 const props = defineProps<{ card: CardWithProgress; canDelete?: boolean }>()
-defineEmits<{ speak: [text: string]; speakSentence: [en: string, vi?: string]; add: []; remove: [] }>()
+defineEmits<{ speak: [text: string]; speakSentence: [en: string]; add: []; remove: [] }>()
 
 const isEnglish = computed(() => props.card.kind === 'vocab' || props.card.kind === 'phrasal')
 const youglishUrl = computed(() => `https://youglish.com/pronounce/${encodeURIComponent(props.card.front)}/english`)
