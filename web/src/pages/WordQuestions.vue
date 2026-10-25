@@ -42,6 +42,9 @@
             :class="choiceClass(i)" :disabled="picked !== null" @click="pick(i)">
             <span class="badge bg-light text-dark me-2">{{ 'ABCD'[i] }}</span>{{ c }}
           </button>
+          <button v-if="picked === null" type="button" class="btn btn-outline-secondary w-100 text-start mb-2 py-2 idk" @click="pick(-1)">
+            <span class="badge bg-light text-dark me-2">0</span>? I don't know
+          </button>
           <template v-if="picked !== null">
             <div class="alert py-2 mt-2" :class="picked === q.answer ? 'alert-success' : 'alert-warning'">
               <i class="bi" :class="picked === q.answer ? 'bi-check-circle-fill' : 'bi-arrow-counterclockwise'"></i>
@@ -52,7 +55,7 @@
               {{ idx + 1 < questions.length ? 'Next' : 'Finish' }} <small class="opacity-75">(Enter)</small>
             </button>
           </template>
-          <div v-else class="small text-muted text-center mt-1">Keys 1–4 or A–D</div>
+          <div v-else class="small text-muted text-center mt-1">Keys 1–4 or A–D, 0 = I don't know</div>
         </div>
       </div>
     </div>
@@ -105,6 +108,7 @@ function onKey(e: KeyboardEvent) {
   if (picked.value === null) {
     const n = '1234'.indexOf(e.key) >= 0 ? Number(e.key) - 1 : 'abcd'.indexOf(e.key.toLowerCase())
     if (n >= 0 && n < 4) pick(n)
+    else if (e.key === '0') pick(-1)
   } else if (e.key === 'Enter') {
     e.preventDefault()
     next()
@@ -126,3 +130,7 @@ onMounted(async () => {
 })
 onUnmounted(() => window.removeEventListener('keydown', onKey))
 </script>
+
+<style scoped>
+.idk { border-style: dashed; }
+</style>

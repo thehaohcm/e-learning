@@ -71,6 +71,9 @@
                   :disabled="it.tried.includes(opt)" @click="pick(it, opt)">
                   <span class="opt-key">{{ 'ABCD'[k] }}</span> {{ opt }}
                 </button>
+                <button type="button" class="btn btn-sm btn-outline-secondary opt idk" title="Show the answer (0)" @click="giveUp(it)">
+                  <span class="opt-key">0</span> ? I don't know
+                </button>
                 <span v-if="it.wrong" class="text-danger">Not this one, try again.</span>
               </template>
               <template v-else-if="!it.done && mode === 'say'">
@@ -230,6 +233,14 @@ function pick(it: Item, opt: string) {
   finish(it, '')
 }
 
+/** "I don't know": the answer is shown (not counted as correct). */
+function giveUp(it: Item) {
+  if (it.done) return
+  current.value = it.example_id
+  it.shown = true
+  finish(it, '')
+}
+
 /** A blank is answered (or shown): read the English sentence, show its Vietnamese (not read). */
 function finish(it: Item, note: string) {
   it.done = true
@@ -346,6 +357,12 @@ function onKey(e: KeyboardEvent) {
       pick(it, it.options[n])
       return
     }
+    if (k === '0' && it && !it.done) {
+      e.preventDefault()
+      e.stopPropagation()
+      giveUp(it)
+      return
+    }
   }
   onKeydown(e)
 }
@@ -415,6 +432,7 @@ async function load() {
 </script>
 
 <style scoped>
+.idk { border-style: dashed; }
 .sentence { line-height: 2.1; }
 .blank { padding: 0 0.3rem; height: 1.7rem; vertical-align: baseline; }
 .blank-mc { font-weight: 600; color: var(--bs-primary); letter-spacing: 0.05em; }

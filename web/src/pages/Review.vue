@@ -115,8 +115,8 @@
                 @click="pick(c.id)">
                 <span class="badge bg-light text-dark me-2">{{ i + 1 }}</span>{{ c.text }}
               </button>
-              <button type="button" class="btn btn-link text-muted w-100 mt-1" @click="dontKnow">
-                I don't remember <small>(0)</small>
+              <button type="button" class="btn btn-outline-secondary w-100 text-start py-2 choice idk" @click="dontKnow">
+                <span class="badge bg-light text-dark me-2">0</span>? I don't know
               </button>
             </template>
 
@@ -561,6 +561,7 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.idk { border-style: dashed; }
 .speak-btn {
   width: 40px;
   height: 40px;

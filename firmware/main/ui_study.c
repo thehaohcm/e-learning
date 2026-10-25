@@ -44,7 +44,7 @@ typedef struct {
     int answered, correct;
     int64_t shown_us;    // when the current card appeared (answer time)
     bool answered_this;  // quiz/cloze: first tap counts
-    lv_obj_t *opts[6];
+    lv_obj_t *opts[7]; // up to 6 options + "I don't know"
     int n_opts;
     lv_obj_t *after;     // area filled after answering
 } session_t;
@@ -455,6 +455,8 @@ static void dont_know_clicked(lv_event_t *e)
     unhide_options();
     S.answered_this = true;
     S.pending = AGAIN;
+    // practice: not knowing the AI question = not really known (as a wrong answer)
+    if (S.practice && cur_q()) reviews_add(cur()->id, AGAIN | REVIEW_QUIZ, elapsed_ms());
     reveal(false, s_right_index);
 }
 
@@ -478,6 +480,22 @@ static void option_list(lv_obj_t *p, const char *const *texts, int n, int right)
         lv_label_set_text(l, t);
         s_opt_data[i] = (opt_data_t){.index = i, .right = i == right};
         lv_obj_add_event_cb(b, option_clicked, LV_EVENT_CLICKED, &s_opt_data[i]);
+        S.opts[S.n_opts++] = b;
+    }
+    // "I don't know": honest instead of a lucky guess (counted as forgotten, the answer is shown)
+    {
+        lv_obj_t *b = lv_button_create(p);
+        lv_obj_set_width(b, lv_pct(100));
+        lv_obj_set_style_bg_color(b, COL_BG, 0);
+        lv_obj_set_style_border_color(b, COL_SOFT, 0);
+        lv_obj_set_style_border_width(b, 2, 0);
+        lv_obj_set_style_border_opa(b, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(b, 10, 0);
+        lv_obj_set_style_shadow_width(b, 0, 0);
+        lv_obj_set_style_pad_all(b, 6, 0);
+        lv_obj_t *l = ui_label(b, "?  I don't know", font_body, COL_MUTED, LV_SIZE_CONTENT);
+        lv_obj_center(l);
+        lv_obj_add_event_cb(b, dont_know_clicked, LV_EVENT_CLICKED, NULL);
         S.opts[S.n_opts++] = b;
     }
     S.recall_row = NULL;
@@ -595,7 +613,6 @@ static void build_word_question(lv_obj_t *p, word_q_t *q)
 static void build_practice(lv_obj_t *p, card_t *c)
 {
     word_header(p, c);
-    ui_label(p, "Say what it means, then check.", font_small, COL_MUTED, LV_SIZE_CONTENT);
     lv_obj_t *b = ui_button(p, LV_SYMBOL_EYE_OPEN "  Show the answer", COL_PRIMARY, font_bold);
     lv_obj_set_width(b, lv_pct(100));
     lv_obj_set_height(b, 50);

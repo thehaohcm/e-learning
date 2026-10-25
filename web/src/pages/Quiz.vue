@@ -181,11 +181,10 @@
               <ViHint v-if="c.hint && !solved && !wrong.has(c.id)" :text="c.hint" />
             </button>
             <!-- don't guess: see the answer now, the word goes back to learning and to practice -->
-            <div v-if="!result" class="text-end">
-              <button class="btn btn-link btn-sm text-muted p-0" :disabled="checking" @click="dontKnow">
-                <i class="bi bi-emoji-neutral"></i> I don't know this word (K)
-              </button>
-            </div>
+            <button v-if="!result" class="btn btn-outline-secondary w-100 py-2 mb-2 text-start d-flex align-items-center idk"
+              :disabled="checking" @click="dontKnow">
+              <span class="badge bg-light text-dark me-2">K</span><span class="flex-grow-1">? I don't know</span>
+            </button>
             </template>
 
             <!-- wrong, still trying: the example sentence is the hint -->
@@ -788,6 +787,7 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.idk { border-style: dashed; }
 .vi-after { opacity: 0.75; font-size: 0.85em; }
 .next-step { background: #ecfdf5; border: 1px solid #a7f3d0; }
 .syl { min-width: 4rem; font-size: 1.35rem; line-height: 1.2; }
