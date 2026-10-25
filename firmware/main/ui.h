@@ -7,6 +7,13 @@
 void ui_init(lv_display_t *disp);
 
 void ui_show_boot(const char *msg);
+/** Grey veil + spinner over the screen while waiting for the server; ui_busy_end removes it. */
+void ui_busy(const char *msg);
+void ui_busy_end(void);
+/** The same, for code that already holds the LVGL lock (buttons, timers). */
+void ui_busy_locked(const char *msg);
+void ui_busy_end_locked(void);
+void ui_busy_text_locked(const char *msg);
 void ui_show_setup(const char *ap_ssid);
 void ui_show_pair(const char *code);
 void ui_show_offline(const char *msg);

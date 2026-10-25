@@ -17,6 +17,9 @@ static const char *TAG = "api";
 
 #define MAX_BODY (256 * 1024)
 
+// all calls run in the app task, one at a time; AI calls may take longer
+static int s_timeout_ms = 15000;
+
 typedef struct {
     char *buf;
     int len, cap;
@@ -51,7 +54,7 @@ static int request(esp_http_client_method_t method, const char *path, const char
     esp_http_client_config_t hc = {
         .url = url,
         .method = method,
-        .timeout_ms = 15000,
+        .timeout_ms = s_timeout_ms,
         .crt_bundle_attach = esp_crt_bundle_attach,
         .event_handler = on_http,
         .user_data = out,
@@ -127,7 +130,9 @@ esp_err_t api_status(api_status_t *out)
 esp_err_t api_sync(void)
 {
     body_t b = {0};
-    int st = request(HTTP_METHOD_GET, "/api/device/sync?limit=40", NULL, true, &b);
+    char path[80];
+    snprintf(path, sizeof(path), "/api/device/sync?limit=40&fw=%s", esp_app_get_description()->version);
+    int st = request(HTTP_METHOD_GET, path, NULL, true, &b);
     esp_err_t res = ESP_FAIL;
     if (st == 401) {
         res = ESP_ERR_INVALID_STATE;
@@ -150,6 +155,102 @@ esp_err_t api_sync(void)
     return res;
 }
 
+int api_extra_new(int n)
+{
+    char json[32];
+    snprintf(json, sizeof(json), "{\"count\":%d}", n);
+    body_t b = {0};
+    int st = request(HTTP_METHOD_POST, "/api/device/extra-new", json, true, &b);
+    if (st != 200) ESP_LOGW(TAG, "extra-new: HTTP %d %s", st, b.buf ? b.buf : "");
+    free(b.buf);
+    return st;
+}
+
+static char *dupstr(const cJSON *o, const char *key)
+{
+    const cJSON *v = cJSON_GetObjectItem(o, key);
+    return cJSON_IsString(v) ? strdup(v->valuestring) : NULL;
+}
+
+void word_q_free(word_q_t *q, int n)
+{
+    for (int i = 0; q && i < n; i++) {
+        free(q[i].prompt);
+        free(q[i].explanation);
+        for (int k = 0; k < 4; k++) free(q[i].choices[k]);
+    }
+    free(q);
+}
+
+int api_practice(const int64_t *card_ids, int n, word_q_t **out)
+{
+    *out = NULL;
+    cJSON *root = cJSON_CreateObject();
+    cJSON *arr = cJSON_AddArrayToObject(root, "card_ids");
+    for (int i = 0; i < n; i++) cJSON_AddItemToArray(arr, cJSON_CreateNumber((double)card_ids[i]));
+    char *json = cJSON_PrintUnformatted(root);
+    cJSON_Delete(root);
+    body_t b = {0};
+    s_timeout_ms = 50000; // the server may ask AI to write the questions (~10-40 s)
+    int st = request(HTTP_METHOD_POST, "/api/device/practice", json, true, &b);
+    s_timeout_ms = 15000;
+    free(json);
+    int count = -1;
+    if (st == 200 && b.buf) {
+        cJSON *r = cJSON_Parse(b.buf);
+        const cJSON *qs = cJSON_GetObjectItem(r, "questions");
+        int m = cJSON_GetArraySize(qs);
+        word_q_t *q = m > 0 ? calloc(m, sizeof(word_q_t)) : NULL;
+        count = 0;
+        const cJSON *it;
+        cJSON_ArrayForEach(it, qs)
+        {
+            if (!q) break;
+            word_q_t *w = &q[count];
+            const cJSON *ch = cJSON_GetObjectItem(it, "choices");
+            const cJSON *id = cJSON_GetObjectItem(it, "card_id");
+            const cJSON *ans = cJSON_GetObjectItem(it, "answer");
+            if (cJSON_GetArraySize(ch) != 4 || !cJSON_IsNumber(id) || !cJSON_IsNumber(ans)) continue;
+            w->card_id = (int64_t)id->valuedouble;
+            w->answer = ans->valueint;
+            const cJSON *k = cJSON_GetObjectItem(it, "kind");
+            strlcpy(w->kind, cJSON_IsString(k) ? k->valuestring : "usage", sizeof(w->kind));
+            w->prompt = dupstr(it, "prompt");
+            w->explanation = dupstr(it, "explanation");
+            for (int i = 0; i < 4; i++) {
+                const cJSON *c = cJSON_GetArrayItem(ch, i);
+                w->choices[i] = strdup(cJSON_IsString(c) ? c->valuestring : "");
+            }
+            if (!w->prompt || w->answer < 0 || w->answer > 3) {
+                free(w->prompt);
+                free(w->explanation);
+                for (int i = 0; i < 4; i++) free(w->choices[i]);
+                memset(w, 0, sizeof(*w));
+                continue;
+            }
+            count++;
+        }
+        cJSON_Delete(r);
+        *out = q;
+        if (count == 0) {
+            free(q);
+            *out = NULL;
+        }
+    } else {
+        ESP_LOGW(TAG, "practice: HTTP %d", st);
+    }
+    free(b.buf);
+    return count;
+}
+
+void api_prepare_forms(void)
+{
+    body_t b = {0};
+    int st = request(HTTP_METHOD_POST, "/api/device/prepare-forms", "{}", true, &b);
+    if (st != 200 && st != 202) ESP_LOGW(TAG, "prepare-forms: HTTP %d", st);
+    free(b.buf);
+}
+
 static void iso_time(int64_t t, char *dst, size_t len)
 {
     time_t tt = (time_t)t;
@@ -170,7 +271,8 @@ int api_push_reviews(void)
         cJSON *o = cJSON_CreateObject();
         cJSON_AddStringToObject(o, "client_review_id", rs[i].id);
         cJSON_AddNumberToObject(o, "card_id", (double)rs[i].card_id);
-        cJSON_AddNumberToObject(o, "rating", rs[i].rating);
+        cJSON_AddNumberToObject(o, "rating", rs[i].rating & 0x0F);
+        if (rs[i].rating & REVIEW_QUIZ) cJSON_AddTrueToObject(o, "quiz");
         if (rs[i].at > 0) { // unknown time: the server uses "now"
             char ts[32];
             iso_time(rs[i].at, ts, sizeof(ts));

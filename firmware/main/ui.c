@@ -11,8 +11,11 @@
 #include "esp_lvgl_port.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
+#include "freertos/task.h"
+#include "esp_system.h"
 #include "net.h"
 #include "store.h"
+#include "ota.h"
 #include "ui_study.h"
 #include "ui_theme.h"
 
@@ -73,6 +76,15 @@ static void home_clicked(lv_event_t *e)
     ui_go_home_locked();
 }
 
+/** "12:10  <wifi> <battery>" for the right of the header. */
+static void status_line(char *buf, size_t len)
+{
+    char c[16], h[64];
+    clock_text(c, sizeof(c));
+    header_text(h, sizeof(h));
+    snprintf(buf, len, "%s%s%s", c, c[0] ? "  " : "", h);
+}
+
 lv_obj_t *ui_screen_with_header(const char *title, bool back_home)
 {
     lv_obj_t *scr = lv_obj_create(NULL);
@@ -96,25 +108,28 @@ lv_obj_t *ui_screen_with_header(const char *title, bool back_home)
         lv_obj_set_ext_click_area(b, 14);
         lv_obj_add_event_cb(b, home_clicked, LV_EVENT_CLICKED, NULL);
     }
-    lv_obj_t *t = lv_label_create(bar);
-    lv_label_set_text(t, title ? title : "");
-    lv_obj_set_style_text_color(t, lv_color_white(), 0);
-    lv_obj_set_style_text_font(t, font_bold, 0);
-    lv_obj_align(t, LV_ALIGN_LEFT_MID, back_home ? 26 : 0, 0);
-
-    s_clock = lv_label_create(bar);
-    lv_obj_set_style_text_color(s_clock, lv_color_hex(0xC7D2FE), 0);
-    lv_obj_set_style_text_font(s_clock, font_small, 0);
-    lv_obj_align(s_clock, LV_ALIGN_CENTER, 0, 0);
+    // title on the left (cut with "…" if long), "12:10  wifi  94%" on the right: never overlapping
+    s_clock = NULL; // the clock is part of the status text
     s_status = lv_label_create(bar);
     lv_obj_set_style_text_color(s_status, lv_color_hex(0xC7D2FE), 0);
     lv_obj_set_style_text_font(s_status, font_small, 0);
     lv_obj_align(s_status, LV_ALIGN_RIGHT_MID, 0, 0);
-    char buf[64];
-    clock_text(buf, sizeof(buf));
-    lv_label_set_text(s_clock, buf);
-    header_text(buf, sizeof(buf));
+    char buf[96];
+    status_line(buf, sizeof(buf));
     lv_label_set_text(s_status, buf);
+
+    // the title gets what is left, on ONE line ("…" when too long)
+    lv_point_t sz;
+    lv_text_get_size(&sz, buf, font_small, 0, 0, LV_COORD_MAX, LV_TEXT_FLAG_NONE);
+    int left = back_home ? 26 : 0;
+    int w = lv_display_get_horizontal_resolution(NULL) - 16 - left - sz.x - 12 - 24; // 24: room for "⬆ n"
+    lv_obj_t *t = lv_label_create(bar);
+    lv_label_set_text(t, title ? title : "");
+    lv_obj_set_style_text_color(t, lv_color_white(), 0);
+    lv_obj_set_style_text_font(t, font_bold, 0);
+    lv_label_set_long_mode(t, LV_LABEL_LONG_DOT);
+    lv_obj_set_size(t, w > 60 ? w : 60, lv_font_get_line_height(font_bold));
+    lv_obj_align(t, LV_ALIGN_LEFT_MID, left, 0);
     s_home = false;
     return scr;
 }
@@ -274,7 +289,8 @@ static lv_obj_t *stat_box(lv_obj_t *parent, const char *value, const char *label
     lv_obj_set_style_bg_color(box, COL_CARD, 0);
     lv_obj_set_style_radius(box, 12, 0);
     lv_obj_set_style_border_width(box, 0, 0);
-    lv_obj_set_style_pad_all(box, 6, 0);
+    lv_obj_set_style_pad_all(box, 3, 0);
+    lv_obj_set_style_pad_row(box, 0, 0);
     lv_obj_set_flex_grow(box, 1);
     lv_obj_set_height(box, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
@@ -291,9 +307,89 @@ static lv_obj_t *stat_box(lv_obj_t *parent, const char *value, const char *label
     return box;
 }
 
+// ---------------------------------------------------------------- busy overlay
+// A grey veil over the whole screen with a spinner: shown while the device
+// talks to the server after a tap (+5 new words, Sync), so nothing can be
+// tapped twice. Removed by ui_busy_end(), or after 60 s at the latest.
+
+static lv_obj_t *s_busy;
+static lv_obj_t *s_busy_label;
+static lv_timer_t *s_busy_timer;
+
+static void busy_end_locked(void)
+{
+    if (s_busy_timer) {
+        lv_timer_delete(s_busy_timer);
+        s_busy_timer = NULL;
+    }
+    if (s_busy) {
+        lv_obj_delete(s_busy);
+        s_busy = NULL;
+        s_busy_label = NULL;
+    }
+}
+
+static void busy_timeout_cb(lv_timer_t *t)
+{
+    s_busy_timer = NULL; // one-shot: LVGL deletes it
+    if (s_busy) {
+        lv_obj_delete(s_busy);
+        s_busy = NULL;
+        s_busy_label = NULL;
+    }
+}
+
+/** Call with the LVGL lock held (e.g. from a button). */
+static void busy_locked(const char *msg)
+{
+    busy_end_locked();
+    s_busy = lv_obj_create(lv_layer_top());
+    lv_obj_remove_style_all(s_busy);
+    lv_obj_set_size(s_busy, lv_pct(100), lv_pct(100));
+    lv_obj_set_style_bg_color(s_busy, lv_color_hex(0x111827), 0);
+    lv_obj_set_style_bg_opa(s_busy, LV_OPA_60, 0);
+    lv_obj_add_flag(s_busy, LV_OBJ_FLAG_CLICKABLE); // swallows taps underneath
+    lv_obj_set_flex_flow(s_busy, LV_FLEX_FLOW_COLUMN);
+    lv_obj_set_flex_align(s_busy, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_row(s_busy, 12, 0);
+    lv_obj_t *sp = lv_spinner_create(s_busy);
+    lv_spinner_set_anim_params(sp, 1000, 270);
+    lv_obj_set_size(sp, 56, 56);
+    lv_obj_set_style_arc_width(sp, 6, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(sp, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_color(sp, lv_color_white(), LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(sp, LV_OPA_30, LV_PART_MAIN);
+    s_busy_label = ui_label(s_busy, msg ? msg : "", font_body, lv_color_white(), LV_SIZE_CONTENT);
+    lv_obj_set_style_text_align(s_busy_label, LV_TEXT_ALIGN_CENTER, 0);
+    s_busy_timer = lv_timer_create(busy_timeout_cb, 60000, NULL);
+    lv_timer_set_repeat_count(s_busy_timer, 1);
+}
+
+void ui_busy_locked(const char *msg) { busy_locked(msg); }
+void ui_busy_end_locked(void) { busy_end_locked(); }
+void ui_busy_text_locked(const char *msg)
+{
+    if (s_busy_label) lv_label_set_text(s_busy_label, msg);
+}
+
+void ui_busy(const char *msg)
+{
+    LOCK();
+    busy_locked(msg);
+    UNLOCK();
+}
+
+void ui_busy_end(void)
+{
+    LOCK();
+    busy_end_locked();
+    UNLOCK();
+}
+
 static void sync_clicked(lv_event_t *e)
 {
     audio_fx(AUDIO_FX_TAP);
+    busy_locked("Syncing…");
     app_request(APP_REQ_SYNC);
 }
 
@@ -305,8 +401,23 @@ void study_clicked_cb(lv_event_t *e)
     study_start(0, false);
 }
 
+static void quiz_clicked_cb(lv_event_t *e)
+{
+    audio_fx(AUDIO_FX_TAP);
+    app_request(APP_REQ_PREP_FORMS); // word-form questions for the next quizzes (AI, on the server)
+    quiz_start(10);
+}
+
+static void extra_new_cb(lv_event_t *e)
+{
+    audio_fx(AUDIO_FX_TAP);
+    busy_locked("Getting 5 new words…");
+    app_request(APP_REQ_EXTRA_NEW);
+}
+
 static void build_home(void)
 {
+    study_stop(); // leaving a round half-way must not block syncing and pop-ups
     deck_t *d = deck_get();
     const app_status_t *st = app_status();
     char title[64];
@@ -339,16 +450,42 @@ static void build_home(void)
     stat_box(row, v, "day streak", COL_WARN);
 
     char lbl[48];
-    if (due + fresh > 0) {
-        snprintf(lbl, sizeof(lbl), LV_SYMBOL_PLAY "  Study %d card%s", due + fresh, due + fresh > 1 ? "s" : "");
-        lv_obj_t *sb = ui_button(b, lbl, COL_PRIMARY, font_title);
-        lv_obj_set_width(sb, lv_pct(100));
-        lv_obj_set_height(sb, 52);
-        lv_obj_add_event_cb(sb, study_clicked_cb, LV_EVENT_CLICKED, NULL);
-    } else {
+    bool can_quiz = d && d->n_quiz > 0;
+    if (due + fresh == 0) {
         lv_obj_t *m = ui_label(b, d ? "All done for now! New cards come back when they are due."
                                     : "No cards yet: press Sync.", font_body, COL_OK, -1);
         lv_obj_set_style_text_align(m, LV_TEXT_ALIGN_CENTER, 0);
+    }
+    bool can_extra = due + fresh == 0 && d && d->extra_new_left > 0 && st->online;
+    if (due + fresh > 0 || can_quiz || can_extra) {
+        // [ Study N cards ] [ Quiz ]
+        lv_obj_t *row1 = lv_obj_create(b);
+        lv_obj_set_size(row1, lv_pct(100), LV_SIZE_CONTENT);
+        lv_obj_set_style_bg_opa(row1, LV_OPA_TRANSP, 0);
+        lv_obj_set_style_border_width(row1, 0, 0);
+        lv_obj_set_style_pad_all(row1, 0, 0);
+        lv_obj_set_style_pad_column(row1, 8, 0);
+        lv_obj_set_flex_flow(row1, LV_FLEX_FLOW_ROW);
+        lv_obj_remove_flag(row1, LV_OBJ_FLAG_SCROLLABLE);
+        if (due + fresh > 0) {
+            snprintf(lbl, sizeof(lbl), LV_SYMBOL_PLAY "  Study %d", due + fresh);
+            lv_obj_t *sb = ui_button(row1, lbl, COL_PRIMARY, font_title);
+            lv_obj_set_flex_grow(sb, 2);
+            lv_obj_set_height(sb, 46);
+            lv_obj_add_event_cb(sb, study_clicked_cb, LV_EVENT_CLICKED, NULL);
+        }
+        if (can_quiz) {
+            lv_obj_t *qb = ui_button(row1, LV_SYMBOL_SHUFFLE "  Quiz", COL_OK, font_title);
+            lv_obj_set_flex_grow(qb, 1);
+            lv_obj_set_height(qb, 46);
+            lv_obj_add_event_cb(qb, quiz_clicked_cb, LV_EVENT_CLICKED, NULL);
+        }
+        if (can_extra) {
+            lv_obj_t *xb = ui_button(row1, LV_SYMBOL_PLUS " 5 new", COL_INFO, font_title);
+            lv_obj_set_flex_grow(xb, 1);
+            lv_obj_set_height(xb, 46);
+            lv_obj_add_event_cb(xb, extra_new_cb, LV_EVENT_CLICKED, NULL);
+        }
     }
 
     lv_obj_t *row2 = lv_obj_create(b);
@@ -368,6 +505,10 @@ static void build_home(void)
 
     if (st->message[0]) {
         ui_label(b, st->message, font_small, COL_BAD, -1);
+    } else if (d && ota_is_newer(d->fw_version)) {
+        char m[64];
+        snprintf(m, sizeof(m), LV_SYMBOL_DOWNLOAD " New firmware %s: Settings → Update", d->fw_version);
+        ui_label(b, m, font_small, COL_OK, -1);
     } else if (d && d->reviews_today > 0) {
         char m[48];
         snprintf(m, sizeof(m), "%d review%s today. Keep going!", d->reviews_today, d->reviews_today > 1 ? "s" : "");
@@ -405,6 +546,22 @@ static void volume_changed(lv_event_t *e)
     audio_set_volume(cfg()->volume);
 }
 
+static void speak_changed(lv_event_t *e)
+{
+    lv_obj_t *sw = lv_event_get_target(e);
+    cfg()->speak = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    cfg_save();
+    audio_fx(AUDIO_FX_TAP);
+}
+
+static void recall_changed(lv_event_t *e)
+{
+    lv_obj_t *sw = lv_event_get_target(e);
+    cfg()->recall_first = lv_obj_has_state(sw, LV_STATE_CHECKED);
+    cfg_save();
+    audio_fx(AUDIO_FX_TAP);
+}
+
 static void slider_released(lv_event_t *e)
 {
     cfg_save();
@@ -415,7 +572,20 @@ static void confirm_cb(lv_event_t *e)
 {
     app_req_t r = (app_req_t)(intptr_t)lv_event_get_user_data(e);
     lv_obj_t *mbox = lv_obj_get_parent(lv_obj_get_parent(lv_event_get_target(e)));
-    lv_msgbox_close(mbox);
+    lv_msgbox_close_async(mbox); // not while its own button is still handling the tap
+    if (r == APP_REQ_WIFI_SETUP || r == APP_REQ_UNPAIR) {
+        // done right here (the app task may be busy syncing): forget, show it, restart
+        if (r == APP_REQ_WIFI_SETUP) cfg_forget_wifi();
+        else cfg_forget_token();
+        lv_obj_t *scr = lv_obj_create(NULL);
+        base_screen(scr);
+        lv_obj_t *l = ui_label(scr, "Restarting…", font_title, COL_TEXT, LV_SIZE_CONTENT);
+        lv_obj_center(l);
+        lv_screen_load(scr);
+        lv_refr_now(NULL);
+        vTaskDelay(pdMS_TO_TICKS(300));
+        esp_restart();
+    }
     app_request(r);
 }
 
@@ -452,6 +622,12 @@ static lv_obj_t *setting_row(lv_obj_t *parent, const char *icon, const char *nam
     return r;
 }
 
+static void update_clicked(lv_event_t *e)
+{
+    audio_fx(AUDIO_FX_TAP);
+    app_request(APP_REQ_UPDATE);
+}
+
 static void settings_clicked(lv_event_t *e)
 {
     audio_fx(AUDIO_FX_TAP);
@@ -476,6 +652,17 @@ static void settings_clicked(lv_event_t *e)
     lv_obj_add_event_cb(s, volume_changed, LV_EVENT_VALUE_CHANGED, NULL);
     lv_obj_add_event_cb(s, slider_released, LV_EVENT_RELEASED, NULL);
 
+    r = setting_row(b, LV_SYMBOL_AUDIO, "Read words");
+    lv_obj_t *sw = lv_switch_create(r);
+    if (cfg()->speak) lv_obj_add_state(sw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(sw, speak_changed, LV_EVENT_VALUE_CHANGED, NULL);
+
+    // multiple choice: try to remember before seeing the options
+    r = setting_row(b, LV_SYMBOL_EYE_CLOSE, "Recall first");
+    sw = lv_switch_create(r);
+    if (cfg()->recall_first) lv_obj_add_state(sw, LV_STATE_CHECKED);
+    lv_obj_add_event_cb(sw, recall_changed, LV_EVENT_VALUE_CHANGED, NULL);
+
     char info[400];
     const esp_app_desc_t *app = esp_app_get_description();
     deck_t *d = deck_get();
@@ -483,9 +670,18 @@ static void settings_clicked(lv_event_t *e)
              cfg()->ssid, net_connected() ? net_ip() : "(offline)", cfg()->server,
              d ? d->reminder_every_min : 0, d ? d->active_from : "--", d ? d->active_to : "--",
              app->version, reviews_count());
+    char newer[16] = "";
+    if (d && ota_is_newer(d->fw_version)) strlcpy(newer, d->fw_version, sizeof(newer));
     deck_unref(d);
+    if (newer[0]) {
+        char t[48];
+        snprintf(t, sizeof(t), LV_SYMBOL_DOWNLOAD "  Update to %s", newer);
+        lv_obj_t *u = ui_button(b, t, COL_OK, font_bold);
+        lv_obj_set_width(u, lv_pct(100));
+        lv_obj_add_event_cb(u, update_clicked, LV_EVENT_CLICKED, NULL);
+    }
     ui_label(b, info, font_small, COL_MUTED, -1);
-    ui_label(b, "The pop-up interval, active hours and card mode are set on the website (Settings).", font_small,
+    ui_label(b, "Topics, pop-ups and card mode are set on the website (Devices → Settings).", font_small,
              COL_MUTED, -1);
 
     lv_obj_t *row = lv_obj_create(b);
@@ -506,8 +702,8 @@ static void settings_clicked(lv_event_t *e)
 
 // ---------------------------------------------------------------- sleep / wake
 // After DIM_AFTER_S without a touch the backlight dims; after SLEEP_AFTER_S the
-// screen sleeps (backlight off, panel in sleep mode, LVGL paused, CPU 80 MHz).
-// A touch / the BOOT key (polled) or a study reminder wakes it. The touch
+// backlight goes off. LVGL keeps running, so a touch (on a transparent layer
+// over the screen), the BOOT key or a study reminder wakes it. The touch
 // that wakes the screen is swallowed by a transparent layer, so it does not
 // press a button by accident.
 
@@ -519,9 +715,12 @@ static void drop_layer_cb(lv_timer_t *t)
     }
 }
 
+static volatile bool s_wake_req;
+
 static void sleep_layer_pressed(lv_event_t *e)
 {
     drop_layer_cb(NULL); // the waking touch ends here
+    s_wake_req = true;   // the main task turns the screen on (ui_wait)
 }
 
 static void wake(bool by_touch)
@@ -560,14 +759,21 @@ void ui_reminder(void)
 {
     wake(false);
     audio_fx(AUDIO_FX_CHIME);
-    study_start(1, true);
+    deck_t *d = deck_get();
+    int n = d && d->popup_cards > 0 ? d->popup_cards : 10;
+    bool cards = false;
+    for (int i = 0; d && i < d->n_cards; i++) cards |= !d->cards[i].done;
+    deck_unref(d);
+    if (cards) study_start(n, true);
+    else quiz_start(5); // nothing due and no new words left: 5 words already learned
 }
 
 void ui_wait(int ms)
 {
     // asleep: check the touch panel and the BOOT key every 100 ms
     for (int t = 0; t < ms; t += 100) {
-        if (s_sleeping && (board_touch_pressed() || board_boot_pressed())) {
+        if (s_sleeping && (s_wake_req || board_boot_pressed())) {
+            s_wake_req = false;
             wake(true);
             return;
         }
@@ -584,7 +790,8 @@ void ui_tick(void)
     if (idle >= SLEEP_AFTER_S) {
         go_sleep = true;
         s_sleeping = true;
-        if (!s_home && !study_active()) build_home();
+        s_wake_req = false;
+        if (!s_home) build_home(); // also ends a round left unanswered, so syncs and pop-ups go on
         s_sleep_layer = lv_obj_create(lv_layer_top());
         lv_obj_remove_style_all(s_sleep_layer);
         lv_obj_set_size(s_sleep_layer, lv_pct(100), lv_pct(100));
@@ -598,11 +805,9 @@ void ui_tick(void)
         s_dimmed = false;
         board_backlight(cfg()->brightness);
     }
-    if (s_clock && lv_obj_is_valid(s_clock) && s_status && lv_obj_is_valid(s_status)) {
-        char buf[64];
-        clock_text(buf, sizeof(buf));
-        lv_label_set_text(s_clock, buf);
-        header_text(buf, sizeof(buf));
+    if (s_status && lv_obj_is_valid(s_status)) {
+        char buf[96];
+        status_line(buf, sizeof(buf));
         lv_label_set_text(s_status, buf);
     }
     UNLOCK();

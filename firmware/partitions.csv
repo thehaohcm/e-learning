@@ -1,5 +1,11 @@
-# Name,   Type, SubType, Offset,  Size
-nvs,      data, nvs,     0x9000,  0x6000
-phy_init, data, phy,     0xf000,  0x1000
-factory,  app,  factory, 0x10000, 6M
-storage,  data, spiffs,  ,        2M
+# Name,   Type, SubType, Offset,   Size
+# Everything the cable flash file (one .bin at 0x0) overwrites is below 0x410000:
+# bootloader, this table, otadata (so the device starts the app just flashed)
+# and ota_0. Settings (nvs: Wi-Fi, device link) and the card cache (storage)
+# are at the end, so they survive a firmware update.
+otadata,  data, ota,     0xd000,   0x2000
+phy_init, data, phy,     0xf000,   0x1000
+ota_0,    app,  ota_0,   0x10000,  4M
+ota_1,    app,  ota_1,   0x410000, 4M
+storage,  data, spiffs,  0x810000, 2M
+nvs,      data, nvs,     0xa10000, 0x6000

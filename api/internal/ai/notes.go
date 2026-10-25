@@ -22,6 +22,9 @@ type NoteInfo struct {
 	MeaningEn string `json:"meaning_en,omitempty"`
 	ExampleEn string `json:"example_en,omitempty"`
 	ExampleVi string `json:"example_vi,omitempty"`
+	// Dict: the meaning came from the dictionary (dict.minhqnd.com), not the AI
+	// or a card; "Explain" still writes the full entry.
+	Dict bool `json:"dict,omitempty"`
 	// Answered: the model returned this item. Answered with an empty MeaningVi =
 	// not an English word (typo, other language): the note can be dropped.
 	Answered bool `json:"-"`

@@ -185,6 +185,15 @@ func StudyReminder(st study.Stats) (msg Message, ok bool) {
 	if st.NewLeftToday > 0 {
 		parts = append(parts, plural(st.NewLeftToday, "new word", "new words")+" left today")
 	}
+	if len(parts) == 0 && st.Learning > 0 {
+		// nothing due: a short quiz on words already learned keeps them fresh
+		return Message{
+			Title: "Quick quiz? 🧠",
+			Body:  "Nothing to review now: 5 words you already know, about a minute.",
+			URL:   "/quiz?count=5",
+			Tag:   "study-reminder",
+		}, true
+	}
 	if len(parts) == 0 {
 		return Message{
 			Title: "All done for now ✓",

@@ -2,7 +2,7 @@
 # which works both with the component manager (espressif__esp_lvgl_port...)
 # and with local copies of the components.
 idf_component_register(
-    SRCS "main.c" "board.c" "audio.c" "net.c" "portal.c" "api.c" "store.c"
+    SRCS "main.c" "board.c" "ota.c" "audio.c" "net.c" "portal.c" "api.c" "store.c"
          "ui_theme.c" "ui.c" "ui_study.c"
     INCLUDE_DIRS "."
     EMBED_FILES "fonts/ui_regular.ttf" "fonts/ui_bold.ttf"

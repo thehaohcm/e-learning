@@ -326,6 +326,8 @@ const { cache: pronCache, generate: pronGenerate } = usePronunciation()
 
 const subjects = ref<Subject[]>([])
 const deckId = ref<number>(Number(route.query.deck_id) || 0)
+// ?count=5 from the "Quick quiz" reminder / the empty Review page
+const quizCount = Math.min(50, Math.max(5, Number(route.query.count) || 10))
 const questions = ref<Question[]>([])
 const idx = ref(0)
 const score = ref(0)
@@ -724,7 +726,7 @@ async function start() {
   loading.value = true
   error.value = ''
   try {
-    const { data } = await api.get('/quiz', { params: { deck_id: deckId.value, count: 10 } })
+    const { data } = await api.get('/quiz', { params: { deck_id: deckId.value, count: quizCount } })
     questions.value = data
     saved = {}
     forgotten.value = []

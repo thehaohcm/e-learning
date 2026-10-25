@@ -50,11 +50,17 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 
 	// ---- study device (ESP32). Token: "Authorization: Bearer dev_..."
 	api.POST("/device/register", handlers.RateLimit(10), h.DeviceRegister)
+	// words read aloud for the device (key = hash of the text, see internal/tts)
+	api.GET("/audio/:file", handlers.RateLimit(300), h.Audio)
 	dev := api.Group("/device", h.RequireDevice)
 	{
 		dev.GET("/status", h.DeviceStatus)
 		dev.GET("/sync", h.DeviceSync)
 		dev.POST("/reviews", h.DeviceReviews)
+		dev.GET("/firmware/:file", h.DeviceFirmware)
+		dev.POST("/extra-new", h.DeviceExtraNew)
+		dev.POST("/practice", handlers.RateLimit(10), h.DevicePractice)          // may call AI
+		dev.POST("/prepare-forms", handlers.RateLimit(10), h.DevicePrepareForms) // AI, in the background
 	}
 
 	// ---- browser extension. Key: "Authorization: Bearer ext_..." (Settings → Browser extension)
@@ -85,6 +91,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/study/suspend", h.Suspend)
 		u.POST("/study/extra-new", h.ExtraNew)
 
+		u.POST("/practice/word-questions", practiceLimit, h.WordQuestions) // may call AI (shared with the device)
+		u.POST("/practice/word-questions/answer", h.WordQuestionAnswer)
 		u.GET("/quiz", h.Quiz)
 		u.POST("/quiz/answer", h.QuizAnswer)
 
@@ -107,6 +115,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.GET("/devices", h.ListDevices)
 		u.POST("/devices/pair", h.PairDevice)
 		u.PATCH("/devices/:id", h.RenameDevice)
+		u.PUT("/devices/:id/settings", h.UpdateDeviceSettings)
 		u.DELETE("/devices/:id", h.UnpairDevice)
 
 		u.POST("/readings", h.CreateReading)
@@ -127,6 +136,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/practice/write/grade", practiceLimit, h.WriteGrade)
 
 		// word notes (floating panel) and the personal "My words" deck
+		u.GET("/dict", h.DictLookup) // quick Vietnamese meaning (dict.minhqnd.com)
 		u.GET("/notes", h.ListNotes)
 		u.POST("/notes", h.CreateNote)
 		u.PATCH("/notes/:id", h.UpdateNote)
@@ -148,6 +158,9 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		a.POST("/cards", h.CreateCard)
 		a.PUT("/cards/:id", h.UpdateCard)
 		a.DELETE("/cards/:id", h.DeleteCard)
+		a.GET("/admin/audio", h.AudioStats)
+		a.GET("/admin/audio/test", h.AudioTest)
+		a.DELETE("/admin/audio", h.AudioPurge)
 	}
 
 	return r

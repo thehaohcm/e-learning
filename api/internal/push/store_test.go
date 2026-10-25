@@ -17,6 +17,10 @@ func TestStudyReminder(t *testing.T) {
 	if !ok || m.Body != "12 cards to review · 1 new word left today — keep your 4-day streak!" || m.URL != "/review" {
 		t.Fatalf("%+v", m)
 	}
+	q, ok := StudyReminder(study.Stats{Learning: 30})
+	if !ok || q.URL != "/quiz?count=5" {
+		t.Fatalf("all done with learned words: quiz suggestion, got %+v %v", q, ok)
+	}
 	m, _ = StudyReminder(study.Stats{DueNow: 1, ReviewsToday: 3, StreakDays: 4})
 	if m.Body != "1 card to review" {
 		t.Fatalf("%q", m.Body)

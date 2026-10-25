@@ -110,6 +110,29 @@ Thiết bị gọi qua cùng cổng với web (nginx proxy `/api`), ví dụ `ht
    `rating`: 1 = quên, 2 = khó, 3 = nhớ, 4 = dễ. Gửi lại cùng `client_review_id` sẽ không bị tính hai lần.
    Thiết bị nên lấy giờ qua NTP. Nếu giờ sai (ở tương lai), server dùng giờ của server.
 
+### Quiz trên thiết bị
+
+`/api/device/sync` trả thêm `quiz`: tối đa 40 thẻ đã học (không phải thẻ mới) thuộc chủ đề của thiết bị, ngẫu nhiên,
+mỗi thẻ có `mode` quiz / cloze / listening và 4 lựa chọn. Câu trả lời gửi qua `/api/device/reviews` với `"quiz": true`:
+chỉ thẻ đến hạn mới được xếp lịch lại (như Quiz trên web); trả lời sai thẻ chưa đến hạn thì thẻ đó đến hạn ngay
+(trí nhớ FSRS không đổi).
+
+### Câu hỏi AI cho từ hay quên (thiết bị)
+
+`POST /api/device/practice {"card_ids":[...]}` (bấm *Practise these now*): mỗi từ 1 câu trắc nghiệm (usage /
+synonym / collocation). Từ chưa có câu hỏi → một lần gọi DeepSeek cho tất cả, lưu ở bảng `word_questions` (dùng
+lại về sau, không gọi AI nữa). Câu trả lời sai gửi như quiz review `Again` → từ đến hạn ngay.
+Trên web: cuối Study / Quiz, ô "words to practise" có nút **Check them (A–D)** → trang `/practice/check?ids=…`
+dùng chung các câu hỏi này (`POST /api/practice/word-questions`, trả lời sai → `.../answer` làm từ đến hạn ngay).
+
+### Cài đặt của từng thiết bị
+
+Trang Devices → nút **⚙ Settings** của từng thiết bị: **chủ đề** (vd. chỉ English), kiểu câu khi pop-up, số thẻ mỗi
+pop-up (5/10/20), pop-up mỗi N phút và khung giờ. Đây là chỗ duy nhất chỉnh pop-up (Study settings bên phải chỉ còn
+các mục dùng chung cho cả tài khoản: số thẻ mới mỗi ngày, deck cấp thẻ mới, múi giờ, nhắc học trên điện thoại).
+API: `PUT /api/devices/:id/settings` (lưu ở `devices.settings`); `/api/device/sync` chỉ trả thẻ của các chủ đề đã
+chọn và gửi các giá trị này trong `settings`. Thiết bị nhận thay đổi trong vòng 3 phút.
+
 ### Chế độ "cloze" trên thiết bị (điền từ, chỉ chọn)
 
 `settings.device_mode = "cloze"` (hoặc nằm trong vòng `mix`): thẻ đã học có `mode: "cloze"` và
@@ -289,10 +312,21 @@ Các từ được nhắc tới hiện thành nút **+ từ** để lưu vào My
 ## Firmware thiết bị ES3C28P
 
 Thư mục `firmware/` (ESP-IDF 5.4 + LVGL 9). Cách nạp, cài Wi-Fi, ghép nối và chỉnh màn hình: xem `firmware/README.md`.
-File nạp sẵn: `firmware/prebuilt/elearn-device-1.0.0.bin` (địa chỉ 0x0).
+File nạp sẵn: `firmware/prebuilt/elearn-device-1.3.4.bin` (một file, địa chỉ 0x0, giữ Wi-Fi và liên kết).
+Cập nhật qua Wi-Fi: `deploy.sh` đưa `firmware/prebuilt/*-app.bin` lên server (mount vào API ở `/firmware`);
+`/api/device/sync` trả `firmware.version`, thiết bị tải `/api/device/firmware/<file>` khi bấm Update.
+
+### Đọc từ vựng trên thiết bị (container `tts`)
+
+- Container `tts` (Python + edge-tts + ffmpeg, chỉ nội bộ) đọc từ bằng giọng Microsoft Edge, trả WAV 16 kHz mono.
+- Khi thiết bị đồng bộ, API tạo audio cho các thẻ vocab/phrasal còn thiếu (chờ tối đa ~6 giây, phần còn lại
+  làm tiếp ở nền) và lưu vào bảng `tts_audio` (~20–40 KB/từ). Thiết bị tải ở `/api/audio/<key>.wav`.
+- **Dọn dẹp**: từ không được phát trong `TTS_KEEP_DAYS` ngày (mặc định 60) tự xoá mỗi ngày; xoá rồi vẫn được
+  tạo lại khi học tới. Admin xem dung lượng và **Delete all audio** ở trang Devices (`GET/DELETE /api/admin/audio`).
+- Edge TTS là dịch vụ không chính thức. Nếu log `tts:` báo lỗi liên tục: `bash deploy.sh --clean` để cài edge-tts mới nhất.
+  Tắt hẳn: `TTS_URL=` (để trống) trong `.env`.
 
 ## Còn thiếu / bước tiếp theo
 
-- Audio cho thiết bị: firmware phát WAV 16-bit từ `audio_url`; server chưa sinh file audio.
 - Dùng mic trên thiết bị (cần speech-to-text phía server).
 - Chấm phát âm (luyện nói) qua dịch vụ speech-to-text.

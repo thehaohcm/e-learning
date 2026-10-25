@@ -18,6 +18,8 @@ typedef struct {
     char token[80];     // "dev_..." from /api/device/register
     int volume;         // 0..100
     int brightness;     // 10..100
+    bool speak;         // read English words aloud when a card is shown
+    bool recall_first;  // multiple choice: options hidden until "Show options"
 } device_cfg_t;
 
 esp_err_t store_init(void);
@@ -55,12 +57,17 @@ typedef struct {
     time_t server_time;     // server clock at sync (fallback clock)
     int utc_offset_sec;     // user's time zone
     // user settings
-    int daily_new, reminder_every_min;
+    int daily_new, reminder_every_min, popup_cards;
     char active_from[6], active_to[6], device_mode[12];
     // counters at sync time
     int due_now, new_left_today, reviews_today, streak_days;
     int n_cards;
     card_t *cards;
+    int n_quiz;      // words already learned, for the Quiz button
+    card_t *quiz;
+    int extra_new_left;  // "+5 new words" still allowed today
+    char fw_version[16]; // newest firmware on the server ("" = none)
+    char *fw_url;        // its download URL
 } deck_t;
 
 /** Parses /api/device/sync JSON into a new deck (refs = 1). NULL on error. */
@@ -75,10 +82,14 @@ void deck_cache_save(const char *json, size_t len);
 deck_t *deck_cache_load(void);
 
 // ---------------------------------------------------------------- answers waiting to be sent
+/** Added to a rating: the answer comes from the Quiz button (the server only
+ *  reschedules cards that are due). */
+#define REVIEW_QUIZ 0x40
+
 typedef struct {
     char id[28];       // client_review_id (idempotent on the server)
     int64_t card_id;
-    int8_t rating;     // 1 again .. 4 easy
+    int8_t rating;     // 1 again .. 4 easy (| REVIEW_QUIZ)
     int64_t at;        // unix seconds (UTC)
     int32_t duration_ms;
 } review_t;

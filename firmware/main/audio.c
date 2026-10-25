@@ -13,8 +13,10 @@
 #include "esp_heap_caps.h"
 #include "esp_http_client.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
 
 static const char *TAG = "audio";
@@ -26,13 +28,26 @@ static esp_codec_dev_handle_t s_spk;
 static QueueHandle_t s_q;
 static int s_volume = 70;
 static int s_open_rate;
-static volatile bool s_stop;
+// Every new word to play (or audio_stop) bumps s_gen: whatever is playing or
+// waiting with an older number is dropped, so fast answers never pile up sounds.
+static volatile uint32_t s_gen;
+static uint32_t s_cur; // number of what the task is playing now
+
+static inline bool stale(void) { return s_cur != s_gen; }
+
+typedef enum { MSG_FX, MSG_PLAY, MSG_PREFETCH } msg_kind_t;
 
 typedef struct {
-    int kind; // 0 = effect, 1 = url
+    msg_kind_t kind;
     audio_fx_t fx;
     char *url;
+    uint32_t gen;
+    uint32_t batch; // MSG_PREFETCH from audio_preload: counted in s_pre_done
 } audio_msg_t;
+
+// audio_preload: words of the round downloaded before it starts
+static volatile uint32_t s_pre_batch;
+static volatile int s_pre_done;
 
 static esp_err_t i2s_init(void)
 {
@@ -112,7 +127,7 @@ static void tone(int freq, int ms, float amp)
     const int chunk = 256;
     int16_t buf[256];
     const int fade = AUDIO_RATE / 200; // 5 ms
-    for (int i = 0; i < n && !s_stop; i += chunk) {
+    for (int i = 0; i < n; i += chunk) {
         int m = (n - i < chunk) ? n - i : chunk;
         for (int k = 0; k < m; k++) {
             int idx = i + k;
@@ -128,7 +143,7 @@ static void tone(int freq, int ms, float amp)
 static void silence(int ms)
 {
     int16_t z[160] = {0};
-    for (int i = 0; i < ms / 10 && !s_stop; i++) esp_codec_dev_write(s_spk, z, sizeof(z));
+    for (int i = 0; i < ms / 10; i++) esp_codec_dev_write(s_spk, z, sizeof(z));
 }
 
 static void play_fx(audio_fx_t fx)
@@ -156,82 +171,200 @@ static void play_fx(audio_fx_t fx)
     silence(40);
 }
 
-// ---------------------------------------------------------------- WAV over HTTP
+// ---------------------------------------------------------------- words (WAV over HTTPS)
+//
+// A word is downloaded completely before it plays (no gaps when the network is
+// slow) and kept in a small cache in PSRAM, so "play again", the quiz and the
+// next card (prefetched while the current one is on screen) start at once.
+// One HTTPS connection is kept open and reused (no TLS handshake per word).
 
-static bool read_full(esp_http_client_handle_t c, uint8_t *buf, int len)
+#define CACHE_SLOTS 48
+#define CACHE_MAX_BYTES (1536 * 1024)
+#define WAV_MAX_BYTES (256 * 1024)
+
+typedef struct {
+    char *url;
+    uint8_t *data;
+    int len;
+    uint32_t used; // for LRU
+} cache_t;
+
+static cache_t s_cache[CACHE_SLOTS];
+static SemaphoreHandle_t s_cache_lock; // the UI asks audio_ready() from another task
+static int s_cache_bytes;
+static uint32_t s_tick;
+static esp_http_client_handle_t s_http;
+static int64_t s_http_used_us; // last use of the kept-open connection
+
+// The server (nginx/Cloudflare) closes an idle connection after about a minute;
+// reusing a closed one only fails after a long timeout (the word came 10 s late
+// or never). So it is reused only for words close together, as during a round.
+#define KEEP_OPEN_US (20 * 1000000LL)
+
+typedef struct {
+    uint8_t *buf;
+    int len, cap;
+    bool too_big;
+} dl_t;
+
+static esp_err_t on_data(esp_http_client_event_t *e)
 {
-    int got = 0;
-    while (got < len) {
-        int r = esp_http_client_read(c, (char *)buf + got, len - got);
-        if (r <= 0) return false;
-        got += r;
+    dl_t *d = e->user_data;
+    if (e->event_id != HTTP_EVENT_ON_DATA || !d || d->too_big) return ESP_OK;
+    if (d->len + e->data_len > d->cap) {
+        int cap = d->cap ? d->cap * 2 : 48 * 1024;
+        while (cap < d->len + e->data_len) cap *= 2;
+        if (cap > WAV_MAX_BYTES) {
+            d->too_big = true;
+            return ESP_OK;
+        }
+        uint8_t *nb = heap_caps_realloc_prefer(d->buf, cap, 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_DEFAULT);
+        if (!nb) {
+            d->too_big = true;
+            return ESP_OK;
+        }
+        d->buf = nb;
+        d->cap = cap;
     }
-    return true;
+    memcpy(d->buf + d->len, e->data, e->data_len);
+    d->len += e->data_len;
+    return ESP_OK;
 }
 
-static void play_wav_url(const char *url)
+static cache_t *cache_find(const char *url)
 {
-    esp_http_client_config_t cfg = {
-        .url = url,
-        .timeout_ms = 10000,
-        .crt_bundle_attach = esp_crt_bundle_attach,
-        .buffer_size = 2048,
-    };
-    esp_http_client_handle_t c = esp_http_client_init(&cfg);
-    if (!c) return;
-    if (esp_http_client_open(c, 0) != ESP_OK || esp_http_client_fetch_headers(c) < 0 ||
-        esp_http_client_get_status_code(c) != 200) {
-        ESP_LOGW(TAG, "cannot open %s", url);
-        goto done;
-    }
-    // RIFF header, then chunks until "data"
-    uint8_t h[12];
-    if (!read_full(c, h, 12) || memcmp(h, "RIFF", 4) || memcmp(h + 8, "WAVE", 4)) {
-        ESP_LOGW(TAG, "not a WAV file");
-        goto done;
-    }
-    int rate = AUDIO_RATE, channels = 1, bits = 16;
-    for (;;) {
-        uint8_t ch[8];
-        if (!read_full(c, ch, 8)) goto done;
-        uint32_t size = ch[4] | ch[5] << 8 | ch[6] << 16 | (uint32_t)ch[7] << 24;
-        if (!memcmp(ch, "fmt ", 4)) {
-            uint8_t f[40];
-            uint32_t n = size < sizeof(f) ? size : sizeof(f);
-            if (!read_full(c, f, n)) goto done;
-            for (uint32_t skip = size - n; skip > 0; skip--) {
-                uint8_t b;
-                if (!read_full(c, &b, 1)) goto done;
-            }
-            channels = f[2] | f[3] << 8;
-            rate = f[4] | f[5] << 8 | f[6] << 16 | f[7] << 24;
-            bits = f[14] | f[15] << 8;
-        } else if (!memcmp(ch, "data", 4)) {
-            break;
-        } else {
-            uint8_t tmp[64];
-            while (size > 0) {
-                uint32_t n = size < sizeof(tmp) ? size : sizeof(tmp);
-                if (!read_full(c, tmp, n)) goto done;
-                size -= n;
-            }
+    if (!url) return NULL;
+    for (int i = 0; i < CACHE_SLOTS; i++) {
+        if (s_cache[i].url && !strcmp(s_cache[i].url, url)) {
+            s_cache[i].used = ++s_tick;
+            return &s_cache[i];
         }
     }
-    if (bits != 16 || channels < 1 || channels > 2 || rate < 8000 || rate > 48000) {
+    return NULL;
+}
+
+static void cache_drop(cache_t *c)
+{
+    s_cache_bytes -= c->len;
+    free(c->url);
+    free(c->data);
+    memset(c, 0, sizeof(*c));
+}
+
+static cache_t *cache_put(const char *url, uint8_t *data, int len)
+{
+    for (;;) { // make room: drop the least recently used
+        int free_slot = -1, oldest = -1;
+        for (int i = 0; i < CACHE_SLOTS; i++) {
+            if (!s_cache[i].url) {
+                if (free_slot < 0) free_slot = i;
+            } else if (oldest < 0 || s_cache[i].used < s_cache[oldest].used) {
+                oldest = i;
+            }
+        }
+        if (free_slot >= 0 && s_cache_bytes + len <= CACHE_MAX_BYTES) {
+            cache_t *c = &s_cache[free_slot];
+            c->url = strdup(url);
+            if (!c->url) break;
+            c->data = data;
+            c->len = len;
+            c->used = ++s_tick;
+            s_cache_bytes += len;
+            return c;
+        }
+        if (oldest < 0) break;
+        cache_drop(&s_cache[oldest]);
+    }
+    free(data);
+    return NULL;
+}
+
+/** The WAV at url: from the cache, or downloaded (and cached). NULL on error. */
+static cache_t *fetch(const char *url)
+{
+    xSemaphoreTake(s_cache_lock, portMAX_DELAY);
+    cache_t *hit = cache_find(url);
+    xSemaphoreGive(s_cache_lock);
+    if (hit) return hit; // entries are only dropped by this task, so it stays valid
+    dl_t d = {0};
+    if (s_http && esp_timer_get_time() - s_http_used_us > KEEP_OPEN_US) {
+        esp_http_client_cleanup(s_http);
+        s_http = NULL;
+    }
+    for (int attempt = 0; attempt < 2; attempt++) {
+        if (!s_http) {
+            esp_http_client_config_t cfg = {
+                .url = url,
+                .timeout_ms = 12000, // a word not made yet is made on request (a few seconds)
+                .crt_bundle_attach = esp_crt_bundle_attach,
+                .buffer_size = 4096,
+                .keep_alive_enable = true,
+                .event_handler = on_data,
+            };
+            s_http = esp_http_client_init(&cfg);
+            if (!s_http) return NULL;
+        }
+        esp_http_client_set_url(s_http, url);
+        esp_http_client_set_user_data(s_http, &d);
+        d.len = 0;
+        d.too_big = false;
+        int64_t t0 = esp_timer_get_time();
+        esp_err_t err = esp_http_client_perform(s_http);
+        int status = err == ESP_OK ? esp_http_client_get_status_code(s_http) : -1;
+        s_http_used_us = esp_timer_get_time();
+        if (err == ESP_OK && status == 200 && !d.too_big && d.len > 44) {
+            ESP_LOGI(TAG, "got %s: %d bytes in %d ms", url, d.len, (int)((s_http_used_us - t0) / 1000));
+            xSemaphoreTake(s_cache_lock, portMAX_DELAY);
+            cache_t *c = cache_put(url, d.buf, d.len);
+            xSemaphoreGive(s_cache_lock);
+            return c;
+        }
+        ESP_LOGW(TAG, "%s: %s, HTTP %d", url, esp_err_to_name(err), status);
+        // a broken kept-alive connection: start a new one and try once more
+        esp_http_client_cleanup(s_http);
+        s_http = NULL;
+        if (status > 0) break; // the server answered (e.g. 404): no retry
+    }
+    free(d.buf);
+    return NULL;
+}
+
+static inline uint32_t le32(const uint8_t *p) { return p[0] | p[1] << 8 | p[2] << 16 | (uint32_t)p[3] << 24; }
+
+static void play_wav(const cache_t *w)
+{
+    const uint8_t *p = w->data, *end = w->data + w->len;
+    if (w->len < 12 || memcmp(p, "RIFF", 4) || memcmp(p + 8, "WAVE", 4)) {
+        ESP_LOGW(TAG, "not a WAV file");
+        return;
+    }
+    int rate = AUDIO_RATE, channels = 1, bits = 16;
+    const uint8_t *pcm = NULL;
+    uint32_t pcm_len = 0;
+    for (p += 12; p + 8 <= end;) {
+        uint32_t size = le32(p + 4);
+        const uint8_t *body = p + 8;
+        if (!memcmp(p, "fmt ", 4) && size >= 16 && body + 16 <= end) {
+            channels = body[2] | body[3] << 8;
+            rate = (int)le32(body + 4);
+            bits = body[14] | body[15] << 8;
+        } else if (!memcmp(p, "data", 4)) {
+            pcm = body;
+            pcm_len = size > (uint32_t)(end - body) ? (uint32_t)(end - body) : size;
+            break;
+        }
+        p = body + size + (size & 1);
+    }
+    if (!pcm || bits != 16 || channels < 1 || channels > 2 || rate < 8000 || rate > 48000) {
         ESP_LOGW(TAG, "unsupported WAV: %d Hz, %d bit, %d ch", rate, bits, channels);
-        goto done;
+        return;
     }
     open_rate(rate, channels);
-    uint8_t *buf = heap_caps_malloc(4096, MALLOC_CAP_DEFAULT);
-    if (!buf) goto done;
-    int r;
-    while (!s_stop && (r = esp_http_client_read(c, (char *)buf, 4096)) > 0) {
-        esp_codec_dev_write(s_spk, buf, r & ~1);
+    for (uint32_t off = 0; off < pcm_len && !stale();) {
+        uint32_t n = pcm_len - off > 2048 ? 2048 : pcm_len - off;
+        esp_codec_dev_write(s_spk, (void *)(pcm + off), n & ~1u);
+        off += n;
     }
-    free(buf);
-done:
-    esp_http_client_close(c);
-    esp_http_client_cleanup(c);
 }
 
 static void audio_task(void *arg)
@@ -239,13 +372,23 @@ static void audio_task(void *arg)
     audio_msg_t m;
     for (;;) {
         if (xQueueReceive(s_q, &m, portMAX_DELAY) != pdTRUE) continue;
-        s_stop = false;
-        if (m.kind == 0) {
-            play_fx(m.fx);
-        } else if (m.url) {
-            play_wav_url(m.url);
-            free(m.url);
+        s_cur = m.gen;
+        switch (m.kind) {
+        case MSG_FX:
+            play_fx(m.fx); // short: always played, so right/wrong is never lost
+            break;
+        case MSG_PLAY: {
+            if (stale()) break; // a newer word was asked for meanwhile
+            cache_t *w = fetch(m.url);
+            if (w && !stale()) play_wav(w);
+            break;
         }
+        case MSG_PREFETCH:
+            fetch(m.url);
+            if (m.batch && m.batch == s_pre_batch) s_pre_done++;
+            break;
+        }
+        free(m.url);
     }
 }
 
@@ -257,8 +400,9 @@ esp_err_t audio_init(void)
         s_spk = NULL;
         return ESP_FAIL;
     }
-    s_q = xQueueCreate(6, sizeof(audio_msg_t));
-    xTaskCreatePinnedToCore(audio_task, "audio", 6144, NULL, 5, NULL, 0);
+    s_q = xQueueCreate(32, sizeof(audio_msg_t));
+    s_cache_lock = xSemaphoreCreateMutex();
+    xTaskCreatePinnedToCore(audio_task, "audio", 12288, NULL, 5, NULL, 0); // HTTPS (TLS) needs a big stack
     return ESP_OK;
 }
 
@@ -272,18 +416,63 @@ void audio_set_volume(int volume)
 
 int audio_get_volume(void) { return s_volume; }
 
+static void enqueue(msg_kind_t kind, audio_fx_t fx, const char *url, bool front)
+{
+    audio_msg_t m = {.kind = kind, .fx = fx, .gen = s_gen};
+    if (url && !(m.url = strdup(url))) return;
+    BaseType_t ok = front ? xQueueSendToFront(s_q, &m, 0) : xQueueSend(s_q, &m, 0);
+    if (ok != pdTRUE) free(m.url);
+}
+
 void audio_fx(audio_fx_t fx)
 {
     if (!s_q || s_volume == 0) return;
-    audio_msg_t m = {.kind = 0, .fx = fx};
-    xQueueSend(s_q, &m, 0);
+    enqueue(MSG_FX, fx, NULL, false);
 }
 
 void audio_play_url(const char *url)
 {
-    if (!s_q || !url || !*url) return;
-    audio_msg_t m = {.kind = 1, .url = strdup(url)};
-    if (m.url && xQueueSend(s_q, &m, 0) != pdTRUE) free(m.url);
+    if (!s_q || !url || !*url || s_volume == 0) return;
+    s_gen++; // stops the word playing now and drops the ones still waiting
+    enqueue(MSG_PLAY, 0, url, false);
 }
 
-void audio_stop(void) { s_stop = true; }
+void audio_prefetch(const char *url)
+{
+    // queued after what was asked for already, so it never delays it
+    if (!s_q || !url || !*url || s_volume == 0 || uxQueueSpacesAvailable(s_q) < 3) return;
+    enqueue(MSG_PREFETCH, 0, url, false);
+}
+
+void audio_stop(void) { s_gen++; }
+
+bool audio_ready(const char *url)
+{
+    if (!url || !s_cache_lock) return false;
+    xSemaphoreTake(s_cache_lock, portMAX_DELAY);
+    bool ok = false;
+    for (int i = 0; i < CACHE_SLOTS && !ok; i++) ok = s_cache[i].url && !strcmp(s_cache[i].url, url);
+    xSemaphoreGive(s_cache_lock);
+    return ok;
+}
+
+int audio_preload(const char *const *urls, int n)
+{
+    if (!s_q || s_volume == 0) return 0;
+    s_pre_batch++;
+    s_pre_done = 0;
+    int queued = 0;
+    for (int i = 0; i < n; i++) {
+        if (!urls[i] || !*urls[i]) continue;
+        audio_msg_t m = {.kind = MSG_PREFETCH, .gen = s_gen, .batch = s_pre_batch, .url = strdup(urls[i])};
+        if (!m.url) continue;
+        if (xQueueSend(s_q, &m, 0) != pdTRUE) {
+            free(m.url);
+            break;
+        }
+        queued++;
+    }
+    return queued;
+}
+
+int audio_preload_done(void) { return s_pre_done; }

@@ -16,6 +16,11 @@
             <i class="bi bi-eye"></i> Self-check
           </button>
         </div>
+        <div v-if="mode === 'choose'" class="form-check form-switch mb-0"
+          title="Try to remember the meaning before the options are shown (no guessing from the options)">
+          <input id="recallfirst" v-model="recallFirst" class="form-check-input" type="checkbox" />
+          <label class="form-check-label" for="recallfirst">Recall first</label>
+        </div>
         <div class="form-check form-switch mb-0">
           <input id="autospeak" v-model="autoSpeak" class="form-check-input" type="checkbox" />
           <label class="form-check-label" for="autospeak">Auto pronounce</label>
@@ -90,7 +95,20 @@
             </div>
 
             <!-- ASK: multiple choice -->
-            <template v-if="phase === 'ask' && choices.length">
+            <template v-if="phase === 'ask' && choices.length && hideOptions">
+              <p class="text-center text-muted small mb-2">
+                {{ item.card.kind === 'mcq' ? 'Think of the answer first.' : 'What does it mean? Say it to yourself first.' }}
+              </p>
+              <div class="d-flex gap-2">
+                <button type="button" class="btn btn-outline-secondary flex-fill py-2" @click="dontKnow">
+                  I don't know <small class="opacity-75">(0)</small>
+                </button>
+                <button type="button" class="btn btn-primary flex-fill py-2" @click="optionsShown = true">
+                  <i class="bi bi-eye"></i> Show options <small class="opacity-75">(Space)</small>
+                </button>
+              </div>
+            </template>
+            <template v-else-if="phase === 'ask' && choices.length">
               <p class="text-center text-muted small mb-2">{{ item.card.kind === 'mcq' ? 'Choose the best answer' : 'What does it mean?' }}</p>
               <button v-for="(c, i) in choices" :key="c.id" type="button"
                 class="btn btn-outline-primary w-100 text-start mb-2 py-2 choice"
@@ -150,6 +168,11 @@
                   <small class="opacity-75">Enter</small>
                 </button>
                 <template v-else>
+                  <button v-if="outcome === 'correct'" class="btn btn-outline-warning flex-fill py-2" :disabled="sending"
+                    title="Right, but only thanks to the options: it comes back soon" @click="rate(1)">
+                    <div class="fw-semibold">I guessed</div>
+                    <small class="d-block opacity-75">{{ item.preview['1'] }} · G</small>
+                  </button>
                   <button v-for="r in visibleRatings" :key="r.value" class="btn flex-fill py-2"
                     :class="r.value === 3 ? 'btn-success' : r.cls" :disabled="sending" @click="rate(r.value)">
                     <div class="fw-semibold">{{ r.label }}</div>
@@ -176,9 +199,13 @@
             You've started all {{ empty.new_limit_today }} new words for today ({{ empty.new_today }}/{{ empty.new_limit_today }}).
           </div>
           <div class="small mb-2">
-            The daily limit keeps future reviews manageable. Want more today? It only applies to today;
-            the daily amount is in <router-link to="/devices">Settings</router-link>.
+            The daily limit keeps future reviews manageable. Want more today? It only applies to today
+            (at most 20 extra a day); the daily amount is in <router-link to="/devices">Settings</router-link>.
+            Or keep the words you know fresh with a short quiz (it does not add new reviews).
           </div>
+          <router-link class="btn btn-success btn-sm me-2" to="/quiz?count=5">
+            <i class="bi bi-question-circle"></i> Quiz 5 words
+          </router-link>
           <button class="btn btn-primary btn-sm me-2" :disabled="addingMore" @click="learnMore(5)">
             <span v-if="addingMore" class="spinner-border spinner-border-sm me-1"></span>
             <i v-else class="bi bi-plus-lg"></i> Learn 5 more today
@@ -189,6 +216,9 @@
           <i class="bi bi-info-circle"></i>
           No new cards left {{ route.query.deck_id ? 'in this deck' : route.query.subject_id ? 'in this subject' : 'in your active decks' }}:
           every card is already in your list. Add another deck or come back when cards are due.
+          <router-link class="btn btn-success btn-sm ms-2" to="/quiz?count=5">
+            <i class="bi bi-question-circle"></i> Quiz 5 words
+          </router-link>
         </div>
         <p v-if="empty.next_due_at" class="text-muted mb-0">
           <i class="bi bi-clock-history"></i> Next review {{ fromNow(empty.next_due_at) }}.
@@ -234,6 +264,9 @@ const sending = ref(false)
 const loaded = ref(false)
 const error = ref('')
 const autoSpeak = ref(storageGet('elearn.autospeak') !== 'false')
+// recall first: options hidden until "Show options", so the meaning is remembered, not recognised
+const recallFirst = ref(storageGet('elearn.recallfirst') !== 'false')
+const optionsShown = ref(false)
 const mode = ref<Mode>(storageGet('elearn.reviewmode') === 'self' ? 'self' : 'choose')
 let shownAt = Date.now()
 // English cards graded "Again" in this session: offered for practice
@@ -273,10 +306,14 @@ function storageSet(k: string, v: string) {
 }
 watch(autoSpeak, (v) => storageSet('elearn.autospeak', String(v)))
 watch(mode, (v) => storageSet('elearn.reviewmode', v))
+watch(recallFirst, (v) => storageSet('elearn.recallfirst', String(v)))
+// not for PMP questions (mcq): they cannot be answered without the options
+const hideOptions = computed(() => recallFirst.value && !optionsShown.value && item.value?.card.kind !== 'mcq')
 
 watch(item, (it) => {
   outcome.value = null
   picked.value = null
+  optionsShown.value = false
   // new cards are shown with the answer straight away: there is nothing to recall yet
   phase.value = it?.is_new ? 'reveal' : 'ask'
   shownAt = Date.now()
@@ -475,6 +512,13 @@ function onKey(e: KeyboardEvent) {
     return
   }
   if (phase.value === 'ask') {
+    if (choices.value.length && hideOptions.value) {
+      if (e.code === 'Space') {
+        e.preventDefault()
+        optionsShown.value = true
+      } else if (e.key === '0') dontKnow()
+      return
+    }
     if (choices.value.length) {
       const n = Number(e.key)
       if (n >= 1 && n <= choices.value.length) pick(choices.value[n - 1].id)
@@ -486,6 +530,10 @@ function onKey(e: KeyboardEvent) {
     return
   }
   // reveal phase
+  if ((e.key === 'g' || e.key === 'G') && outcome.value === 'correct') {
+    rate(1) // "I guessed"
+    return
+  }
   if (e.key === 'Enter') {
     e.preventDefault()
     rate(outcome.value === 'wrong' ? 1 : 3)

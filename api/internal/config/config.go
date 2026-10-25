@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -30,6 +31,19 @@ type Config struct {
 	DeepSeekAPIKey  string
 	DeepSeekBaseURL string
 	DeepSeekModel   string
+
+	// Text-to-speech for the study device: the "tts" container (empty = off),
+	// the English voice, and how long unused audio is kept before it is deleted.
+	TTSURL      string
+	TTSVoice    string
+	TTSKeepDays int
+
+	// Vietnamese meanings while a word is typed in the notes panel
+	// (dict.minhqnd.com, free, no key; empty = off).
+	DictURL string
+
+	// Study-device firmware for updates over Wi-Fi (firmware/prebuilt, mounted read-only).
+	FirmwareDir string
 }
 
 func Load() Config {
@@ -52,6 +66,15 @@ func Load() Config {
 		DeepSeekAPIKey:  getEnv("DEEPSEEK_API_KEY", ""),
 		DeepSeekBaseURL: getEnv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
 		DeepSeekModel:   getEnv("DEEPSEEK_MODEL", "deepseek-chat"),
+	}
+
+	cfg.DictURL = strings.TrimRight(getEnv("DICT_URL", "https://dict.minhqnd.com"), "/")
+	cfg.FirmwareDir = getEnv("FIRMWARE_DIR", "/firmware")
+	cfg.TTSURL = strings.TrimRight(getEnv("TTS_URL", "http://tts:5050"), "/")
+	cfg.TTSVoice = getEnv("TTS_VOICE", "en-US-AriaNeural")
+	cfg.TTSKeepDays = 60
+	if n, err := strconv.Atoi(getEnv("TTS_KEEP_DAYS", "60")); err == nil && n >= 1 {
+		cfg.TTSKeepDays = n
 	}
 
 	cfg.PushAnyHost = getEnv("PUSH_ALLOW_ANY_HOST", "false") == "true"

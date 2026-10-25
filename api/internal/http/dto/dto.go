@@ -103,6 +103,8 @@ type DeviceReview struct {
 	Rating         int       `json:"rating" binding:"required,min=1,max=4"`
 	ReviewedAt     time.Time `json:"reviewed_at"`
 	DurationMs     *int      `json:"duration_ms"`
+	// Quiz: answered with the device's Quiz button (not Study)
+	Quiz bool `json:"quiz"`
 }
 
 type DeviceReviewsRequest struct {

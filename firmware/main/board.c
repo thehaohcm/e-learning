@@ -263,34 +263,11 @@ bool board_touch_pressed(void)
     return down;
 }
 
-static void cpu_speed(int mhz)
-{
-#if CONFIG_PM_ENABLE
-    esp_pm_config_t pm = {.max_freq_mhz = mhz, .min_freq_mhz = mhz, .light_sleep_enable = false};
-    esp_pm_configure(&pm);
-#endif
-}
-
 void board_display_sleep(bool sleep)
 {
+    // Only the backlight goes off (it uses most of the power). LVGL keeps
+    // running and reading the touch panel, so a touch always wakes the screen.
     if (sleep == s_asleep) return;
-    if (sleep) {
-        board_backlight(0);
-        lvgl_port_stop(); // no more drawing / touch polling
-        if (s_panel) {
-            esp_lcd_panel_disp_on_off(s_panel, false);
-            esp_lcd_panel_disp_sleep(s_panel, true);
-        }
-        cpu_speed(80);
-        s_asleep = true;
-    } else {
-        s_asleep = false;
-        cpu_speed(240);
-        if (s_panel) {
-            esp_lcd_panel_disp_sleep(s_panel, false);
-            vTaskDelay(pdMS_TO_TICKS(120)); // ILI9341 needs 120 ms after sleep out
-            esp_lcd_panel_disp_on_off(s_panel, true);
-        }
-        lvgl_port_resume();
-    }
+    s_asleep = sleep;
+    if (sleep) board_backlight(0);
 }

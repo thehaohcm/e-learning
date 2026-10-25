@@ -33,9 +33,21 @@ services:
       PORT: "8000"
       DB_HOST: db        # the db service above (overrides DB_HOST in .env)
       DB_PORT: "5432"
+    volumes:
+      # study-device firmware for updates over Wi-Fi (elearn-device-X.Y.Z-app.bin)
+      - ./firmware/prebuilt:/firmware:ro
     depends_on:
       db:
         condition: service_healthy
+      tts:
+        condition: service_started
+    restart: unless-stopped
+
+  # Text-to-speech for the study device (English words read aloud). Internal only:
+  # the API calls http://tts:5050 and keeps the audio in the database.
+  tts:
+    build: ./tts
+    container_name: elearn_tts
     restart: unless-stopped
 
   web:

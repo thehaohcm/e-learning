@@ -23,9 +23,22 @@
             placeholder="New word or phrase… (Enter)" autocomplete="off" autocapitalize="off" spellcheck="false" />
           <button class="btn btn-sm btn-warning" :disabled="!word.trim() || saving"><i class="bi bi-plus-lg"></i></button>
         </form>
+        <!-- Vietnamese meaning from the dictionary while typing -->
+        <div v-if="word.trim().length >= 2" class="dict-preview small mt-1 px-2 py-1 rounded" :class="{ 'opacity-50': previewLoading && preview }">
+          <span v-if="previewLoading && !preview" class="text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Looking up…</span>
+          <template v-else-if="preview?.found">
+            <span class="fw-semibold">{{ preview.word }}</span>
+            <span v-if="preview.ipa" class="text-muted ms-1">{{ preview.ipa }}</span>
+            <div v-for="(m, i) in preview.meanings.slice(0, 3)" :key="i">
+              <span v-if="m.pos" class="text-muted fst-italic me-1">{{ m.pos }}</span>{{ m.vi }}
+            </div>
+          </template>
+          <span v-else-if="preview?.error" class="text-muted">Dictionary unavailable: add it, then press Explain.</span>
+          <span v-else-if="preview" class="text-muted">Not in the dictionary: add it, then press Explain.</span>
+        </div>
         <input v-if="word.trim()" v-model="remark" class="form-control form-control-sm mt-1" maxlength="300"
           placeholder="Your note (optional)" @keydown.enter.prevent="add" />
-        <div class="small text-muted mt-1">Tip: select a word anywhere on the page, then press <b>Note</b>.</div>
+        <div v-else class="small text-muted mt-1">Tip: select a word anywhere on the page, then press <b>Note</b>.</div>
       </div>
 
       <div class="list flex-grow-1">
@@ -40,8 +53,16 @@
               <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline" title="Listen" @click="say(n.info?.base || n.text)">
                 <i class="bi bi-volume-up"></i>
               </button>
-              <div v-if="n.info?.meaning_vi" class="small">{{ n.info.meaning_vi }}</div>
-              <div v-else class="small text-muted fst-italic">no meaning yet: press Explain</div>
+              <div v-if="n.info?.meaning_vi" class="small">
+                {{ n.info.meaning_vi }}
+                <span v-if="n.info.dict" class="badge dict-badge text-bg-light border fw-normal" title="From the dictionary. Explain (AI) adds examples.">dict</span>
+              </div>
+              <div v-else-if="listDict[n.id]?.found" class="small">
+                {{ shortMeaning(listDict[n.id]) }}
+                <span class="badge dict-badge text-bg-light border fw-normal" title="From the dictionary. Explain (AI) adds examples.">dict</span>
+              </div>
+              <div v-else-if="listDict[n.id]?.error" class="small text-muted fst-italic">no meaning yet: press Explain</div>
+              <div v-else-if="listDict[n.id]" class="small text-muted fst-italic">not in the dictionary: press Explain</div>
               <div v-if="n.note" class="small text-secondary"><i class="bi bi-chat-left-text"></i> {{ n.note }}</div>
               <div v-if="n.context" class="small text-muted fst-italic context">“{{ n.context }}”</div>
               <div v-if="n.source" class="tiny text-muted">{{ n.source }}</div>
@@ -70,7 +91,8 @@
             <i v-else class="bi bi-plus-circle"></i> Add {{ pendingCount || '' }} to Study
           </button>
         </div>
-        <div class="tiny text-muted mt-1">New words go to your private deck “My words” (Browse).</div>
+        <div class="tiny text-muted mt-1">New words go to your private deck “My words” (Browse).
+          Meanings: <a href="https://dict.minhqnd.com" target="_blank" rel="noopener" class="text-muted">dict.minhqnd.com</a> (CC BY-SA).</div>
       </div>
     </div>
 
@@ -89,7 +111,8 @@ import { useRoute } from 'vue-router'
 import { api, errorMessage } from '../api'
 import { RATE_REPLAY, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 
-interface NoteInfo { base?: string; ipa?: string; pos?: string; meaning_vi?: string; meaning_en?: string }
+interface NoteInfo { base?: string; ipa?: string; pos?: string; meaning_vi?: string; meaning_en?: string; dict?: boolean }
+interface DictEntry { word: string; found: boolean; ipa?: string; meanings: { pos?: string; vi: string }[]; error?: string }
 interface Note { id: number; text: string; note: string; context: string; source: string; card_id: number | null; status: 'new' | 'ready' | 'added'; info: NoteInfo }
 
 const route = useRoute()
@@ -114,6 +137,61 @@ const error = ref('')
 const info = ref('')
 const toast = ref('')
 const wordBox = ref<HTMLInputElement | null>(null)
+
+// ---------------------------------------------------------------- dictionary (dict.minhqnd.com via /api/dict)
+
+const dictCache = new Map<string, DictEntry>()
+const preview = ref<DictEntry | null>(null)
+const previewLoading = ref(false)
+const listDict = ref<Record<number, DictEntry>>({}) // older notes saved before they got a meaning
+let previewTimer: ReturnType<typeof setTimeout> | undefined
+let previewSeq = 0
+
+async function lookup(w: string): Promise<DictEntry | null> {
+  const key = w.trim().toLowerCase().replace(/\s+/g, ' ')
+  if (!key || key.length > 60) return null
+  const hit = dictCache.get(key)
+  if (hit) return hit
+  try {
+    const { data } = await api.get('/dict', { params: { word: key } })
+    if (!data.error) dictCache.set(key, data)
+    return data as DictEntry
+  } catch {
+    return { word: key, found: false, meanings: [], error: 'unavailable' }
+  }
+}
+
+function shortMeaning(e: DictEntry): string {
+  return e.meanings.slice(0, 3).map((m) => m.vi).join('; ')
+}
+
+// look the word up a moment after typing stops
+watch(word, (v) => {
+  clearTimeout(previewTimer)
+  const w = v.trim()
+  const seq = ++previewSeq
+  if (w.length < 2) {
+    preview.value = null
+    previewLoading.value = false
+    return
+  }
+  previewLoading.value = true
+  previewTimer = setTimeout(async () => {
+    const e = await lookup(w)
+    if (seq !== previewSeq) return // a newer word was typed
+    preview.value = e
+    previewLoading.value = false
+  }, 350)
+})
+
+/** Notes without a meaning (saved earlier): show the dictionary meaning, a few at a time. */
+async function lookupMissing() {
+  const todo = notes.value.filter((n) => n.status === 'new' && !n.info?.meaning_vi && !(n.id in listDict.value)).slice(0, 15)
+  for (const n of todo) {
+    const e = await lookup(n.text)
+    if (e) listDict.value = { ...listDict.value, [n.id]: e }
+  }
+}
 
 const newCount = computed(() => notes.value.filter((n) => n.status === 'new').length)
 const pendingCount = computed(() => notes.value.filter((n) => n.status !== 'added').length)
@@ -159,6 +237,7 @@ async function load() {
   try {
     notes.value = (await api.get('/notes')).data ?? []
     loaded.value = true
+    lookupMissing()
   } catch (e) {
     error.value = errorMessage(e)
   } finally {
@@ -377,6 +456,8 @@ onUnmounted(() => {
   overflow: hidden;
 }
 .tiny { font-size: 0.72rem; }
+.dict-preview { background: #fff8e1; line-height: 1.35; }
+.dict-badge { font-size: 0.62rem; vertical-align: middle; }
 .min-w-0 { min-width: 0; }
 .pick-btn {
   position: fixed;

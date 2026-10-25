@@ -169,10 +169,13 @@ func (s *Service) MeaningChoices(c models.Card) ([]Choice, error) {
 	if own == "" {
 		return nil, nil
 	}
-	others, err := s.distractors(c, 8)
+	others, err := s.distractors(c, 12)
 	if err != nil {
 		return nil, err
 	}
+	// wrong options of the same part of speech first (a verb among verbs):
+	// harder to find the answer by ruling the others out
+	others = samePOSFirst(content.ToCompact(c).POS, others)
 	seen := map[string]bool{strings.ToLower(own): true}
 	choices := []Choice{{ID: c.ID, Text: own}}
 	for _, o := range others {
@@ -213,4 +216,23 @@ func (s *Service) distractors(c models.Card, n int) ([]models.Card, error) {
 		out = append(out, more...)
 	}
 	return out, nil
+}
+
+// samePOSFirst moves the cards with the same part of speech as pos to the front
+// (keeping the random order inside each group).
+func samePOSFirst(pos string, cards []models.Card) []models.Card {
+	pos = strings.ToLower(strings.TrimSpace(pos))
+	if pos == "" {
+		return cards
+	}
+	out := make([]models.Card, 0, len(cards))
+	var rest []models.Card
+	for _, o := range cards {
+		if strings.ToLower(strings.TrimSpace(content.ToCompact(o).POS)) == pos {
+			out = append(out, o)
+		} else {
+			rest = append(rest, o)
+		}
+	}
+	return append(out, rest...)
 }

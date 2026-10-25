@@ -44,6 +44,8 @@ static void load_cfg(void)
     memset(&s_cfg, 0, sizeof(s_cfg));
     s_cfg.volume = 70;
     s_cfg.brightness = 80;
+    s_cfg.speak = true;
+    s_cfg.recall_first = true;
     strlcpy(s_cfg.server, CONFIG_ELEARN_SERVER_URL, sizeof(s_cfg.server));
     if (nvs_open("cfg", NVS_READONLY, &h) != ESP_OK) return;
     nvs_str(h, "ssid", s_cfg.ssid, sizeof(s_cfg.ssid), "");
@@ -53,6 +55,9 @@ static void load_cfg(void)
     int32_t v;
     if (nvs_get_i32(h, "volume", &v) == ESP_OK) s_cfg.volume = v;
     if (nvs_get_i32(h, "bright", &v) == ESP_OK) s_cfg.brightness = v;
+    uint8_t sp;
+    if (nvs_get_u8(h, "speak", &sp) == ESP_OK) s_cfg.speak = sp != 0;
+    if (nvs_get_u8(h, "recall", &sp) == ESP_OK) s_cfg.recall_first = sp != 0;
     uint32_t seq;
     if (nvs_get_u32(h, "seq", &seq) == ESP_OK) s_review_seq = seq;
     nvs_close(h);
@@ -71,6 +76,8 @@ esp_err_t cfg_save(void)
     nvs_set_str(h, "token", s_cfg.token);
     nvs_set_i32(h, "volume", s_cfg.volume);
     nvs_set_i32(h, "bright", s_cfg.brightness);
+    nvs_set_u8(h, "speak", s_cfg.speak ? 1 : 0);
+    nvs_set_u8(h, "recall", s_cfg.recall_first ? 1 : 0);
     nvs_set_u32(h, "seq", s_review_seq);
     err = nvs_commit(h);
     nvs_close(h);
@@ -253,7 +260,61 @@ static void deck_free(deck_t *d)
     if (!d) return;
     for (int i = 0; i < d->n_cards; i++) card_free(&d->cards[i]);
     free(d->cards);
+    for (int i = 0; i < d->n_quiz; i++) card_free(&d->quiz[i]);
+    free(d->quiz);
+    free(d->fw_url);
     free(d);
+}
+
+/** "/api/..." -> "https://server/api/..." (takes ownership of url). */
+static char *absolute_url(char *url)
+{
+    if (!url || url[0] != '/') return url;
+    char *abs = malloc(strlen(s_cfg.server) + strlen(url) + 1);
+    if (abs) {
+        strcpy(abs, s_cfg.server);
+        strcat(abs, url);
+    }
+    free(url);
+    return abs;
+}
+
+/** One card of the sync JSON. false if it has no front text. */
+static bool parse_card(const cJSON *c, card_t *k)
+{
+    k->id = jid(c, "id");
+    jcopy(c, "kind", k->kind, sizeof(k->kind), "vocab");
+    jcopy(c, "mode", k->mode, sizeof(k->mode), "flashcard");
+    k->is_new = cJSON_IsTrue(cJSON_GetObjectItem(c, "is_new"));
+    k->front = jstr(c, "front");
+    if (!k->front) return false;
+    k->ipa = jstr(c, "ipa");
+    k->pos = jstr(c, "pos");
+    k->meaning_vi = jstr(c, "meaning_vi");
+    k->meaning_en = jstr(c, "meaning_en");
+    k->example_en = jstr(c, "example_en");
+    k->example_vi = jstr(c, "example_vi");
+    k->back = jstr(c, "back");
+    k->audio_url = absolute_url(jstr(c, "audio_url"));
+    k->answer = jint(c, "answer", -1);
+    const cJSON *ch;
+    cJSON_ArrayForEach(ch, cJSON_GetObjectItem(c, "choices"))
+    {
+        if (k->n_choices < 6 && cJSON_IsString(ch)) k->choices[k->n_choices++] = strdup(ch->valuestring);
+    }
+    k->n_options = parse_options(cJSON_GetObjectItem(c, "options"), k->options, 4);
+    const cJSON *cz = cJSON_GetObjectItem(c, "cloze");
+    if (cz) {
+        k->cloze_sentence = jstr(cz, "sentence");
+        k->cloze_vi = jstr(cz, "translation_vi");
+        jcopy(cz, "kind", k->cloze_kind, sizeof(k->cloze_kind), "word");
+        k->n_cloze = parse_options(cJSON_GetObjectItem(cz, "options"), k->cloze, 4);
+    }
+    // a mode the device cannot show falls back to a flashcard
+    if (!strcmp(k->mode, "cloze") && (!k->cloze_sentence || k->n_cloze < 2)) strcpy(k->mode, "flashcard");
+    if ((!strcmp(k->mode, "quiz") || !strcmp(k->mode, "listening")) && k->n_options < 2 && k->n_choices < 2)
+        strcpy(k->mode, "flashcard");
+    return true;
 }
 
 deck_t *deck_parse(const char *json, size_t len)
@@ -273,9 +334,11 @@ deck_t *deck_parse(const char *json, size_t len)
     d->new_left_today = jint(root, "new_left_today", 0);
     d->reviews_today = jint(root, "reviews_today", 0);
     d->streak_days = jint(root, "streak_days", 0);
+    d->extra_new_left = jint(root, "extra_new_left", 0);
     const cJSON *st = cJSON_GetObjectItem(root, "settings");
     d->daily_new = jint(st, "daily_new", 10);
     d->reminder_every_min = jint(st, "reminder_every_min", 45);
+    d->popup_cards = jint(st, "popup_cards", 10);
     jcopy(st, "active_from", d->active_from, sizeof(d->active_from), "07:30");
     jcopy(st, "active_to", d->active_to, sizeof(d->active_to), "22:00");
     jcopy(st, "device_mode", d->device_mode, sizeof(d->device_mode), "flashcard");
@@ -291,49 +354,24 @@ deck_t *deck_parse(const char *json, size_t len)
     const cJSON *c;
     cJSON_ArrayForEach(c, cards)
     {
-        card_t *k = &d->cards[d->n_cards];
-        k->id = jid(c, "id");
-        jcopy(c, "kind", k->kind, sizeof(k->kind), "vocab");
-        jcopy(c, "mode", k->mode, sizeof(k->mode), "flashcard");
-        k->is_new = cJSON_IsTrue(cJSON_GetObjectItem(c, "is_new"));
-        k->front = jstr(c, "front");
-        if (!k->front) continue;
-        k->ipa = jstr(c, "ipa");
-        k->pos = jstr(c, "pos");
-        k->meaning_vi = jstr(c, "meaning_vi");
-        k->meaning_en = jstr(c, "meaning_en");
-        k->example_en = jstr(c, "example_en");
-        k->example_vi = jstr(c, "example_vi");
-        k->back = jstr(c, "back");
-        k->audio_url = jstr(c, "audio_url");
-        if (k->audio_url && k->audio_url[0] == '/') { // relative to the server
-            char *abs = malloc(strlen(s_cfg.server) + strlen(k->audio_url) + 1);
-            if (abs) {
-                strcpy(abs, s_cfg.server);
-                strcat(abs, k->audio_url);
-            }
-            free(k->audio_url);
-            k->audio_url = abs;
-        }
-        k->answer = jint(c, "answer", -1);
-        const cJSON *ch;
-        cJSON_ArrayForEach(ch, cJSON_GetObjectItem(c, "choices"))
+        if (parse_card(c, &d->cards[d->n_cards])) d->n_cards++;
+        else card_free(&d->cards[d->n_cards]), memset(&d->cards[d->n_cards], 0, sizeof(card_t));
+    }
+    const cJSON *fw = cJSON_GetObjectItem(root, "firmware");
+    if (fw) {
+        jcopy(fw, "version", d->fw_version, sizeof(d->fw_version), "");
+        d->fw_url = absolute_url(jstr(fw, "url"));
+    }
+    const cJSON *quiz = cJSON_GetObjectItem(root, "quiz");
+    int nq = cJSON_GetArraySize(quiz);
+    if (nq > 0) {
+        d->quiz = heap_caps_calloc_prefer(nq, sizeof(card_t), 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT, MALLOC_CAP_DEFAULT);
+        cJSON_ArrayForEach(c, quiz)
         {
-            if (k->n_choices < 6 && cJSON_IsString(ch)) k->choices[k->n_choices++] = strdup(ch->valuestring);
+            if (!d->quiz) break;
+            if (parse_card(c, &d->quiz[d->n_quiz])) d->n_quiz++;
+            else card_free(&d->quiz[d->n_quiz]), memset(&d->quiz[d->n_quiz], 0, sizeof(card_t));
         }
-        k->n_options = parse_options(cJSON_GetObjectItem(c, "options"), k->options, 4);
-        const cJSON *cz = cJSON_GetObjectItem(c, "cloze");
-        if (cz) {
-            k->cloze_sentence = jstr(cz, "sentence");
-            k->cloze_vi = jstr(cz, "translation_vi");
-            jcopy(cz, "kind", k->cloze_kind, sizeof(k->cloze_kind), "word");
-            k->n_cloze = parse_options(cJSON_GetObjectItem(cz, "options"), k->cloze, 4);
-        }
-        // a mode the device cannot show falls back to a flashcard
-        if (!strcmp(k->mode, "cloze") && (!k->cloze_sentence || k->n_cloze < 2)) strcpy(k->mode, "flashcard");
-        if ((!strcmp(k->mode, "quiz") || !strcmp(k->mode, "listening")) && k->n_options < 2 && k->n_choices < 2)
-            strcpy(k->mode, "flashcard");
-        d->n_cards++;
     }
     cJSON_Delete(root);
     return d;

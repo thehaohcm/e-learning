@@ -9,6 +9,10 @@ typedef enum {
     APP_REQ_WIFI_SETUP,  // forget Wi-Fi, restart into the setup access point
     APP_REQ_UNPAIR,      // forget the device token (link again with a new code)
     APP_REQ_RETRY,       // retry connecting
+    APP_REQ_UPDATE,      // install the newest firmware (over Wi-Fi)
+    APP_REQ_EXTRA_NEW,   // "+5 new words" today, then sync
+    APP_REQ_PRACTICE,    // "Practise these now": get the AI questions, then start
+    APP_REQ_PREP_FORMS,  // Quiz pressed: server prepares word-form questions for later
 } app_req_t;
 
 void app_request(app_req_t r);

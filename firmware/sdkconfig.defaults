@@ -44,3 +44,6 @@ CONFIG_SPIFFS_MAX_PARTITIONS=1
 
 # ---- power: CPU drops to 80 MHz while the screen sleeps
 CONFIG_PM_ENABLE=y
+
+# OTA: a new firmware that does not start properly goes back to the previous one
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

@@ -9,18 +9,21 @@
 #include "audio.h"
 #include "board.h"
 #include "esp_log.h"
+#include "esp_timer.h"
+#include "esp_ota_ops.h"
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "net.h"
+#include "ota.h"
 #include "store.h"
 #include "ui.h"
 #include "ui_study.h"
 
 static const char *TAG = "app";
 
-#define SYNC_EVERY_S (10 * 60)  // fresh batch from the server
+#define SYNC_EVERY_S (3 * 60)   // fresh batch + settings from the server
 #define PUSH_EVERY_S 60         // pending answers
 #define PAIR_POLL_S 5
 
@@ -84,7 +87,7 @@ static void maybe_remind(void)
 {
     if (!ui_sleeping() || study_active()) return;
     deck_t *d = deck_get();
-    bool has = false;
+    bool has = d && d->n_quiz > 0; // nothing to study: the pop-up is a short quiz
     for (int i = 0; d && i < d->n_cards; i++) has |= !d->cards[i].done;
     if (!has || d->reminder_every_min <= 0) {
         deck_unref(d);
@@ -162,6 +165,34 @@ static void link_device(void)
     }
 }
 
+static void update_progress(int pct)
+{
+    char m[64];
+    snprintf(m, sizeof(m), "Updating the firmware… %d%%\nDo not unplug the device.", pct);
+    ui_show_boot(m);
+}
+
+/** Update over Wi-Fi to the newest firmware announced by the server. */
+static void do_update(void)
+{
+    deck_t *d = deck_get();
+    char *url = d && d->fw_url && ota_is_newer(d->fw_version) ? strdup(d->fw_url) : NULL;
+    deck_unref(d);
+    if (!url) return;
+    do_push(); // send the answers first
+    ui_wake();
+    update_progress(0);
+    esp_err_t err = ota_update(url, update_progress);
+    free(url);
+    if (err == ESP_OK) {
+        ui_show_boot("Update installed. Restarting…");
+        vTaskDelay(pdMS_TO_TICKS(1500));
+        esp_restart();
+    }
+    snprintf(s_st.message, sizeof(s_st.message), "Update failed (%s). Try again later.", esp_err_to_name(err));
+    ui_show_home();
+}
+
 static void handle(int r)
 {
     switch (r) {
@@ -171,6 +202,7 @@ static void handle(int r)
             cfg_forget_token();
             esp_restart();
         }
+        ui_busy_end();
         break;
     case APP_REQ_PUSH:
         do_push();
@@ -183,6 +215,42 @@ static void handle(int r)
         cfg_forget_token();
         esp_restart();
         break;
+    case APP_REQ_UPDATE:
+        do_update();
+        break;
+    case APP_REQ_PREP_FORMS: {
+        static int64_t last_us;
+        int64_t now = esp_timer_get_time();
+        if (s_st.online && (!last_us || now - last_us > 10 * 60 * 1000000LL)) { // at most every 10 min
+            last_us = now;
+            api_prepare_forms();
+        }
+        break;
+    }
+    case APP_REQ_PRACTICE: {
+        int64_t ids[20];
+        int n = study_practice_ids(ids, 20);
+        word_q_t *qs = NULL;
+        int nq = n > 0 ? api_practice(ids, n, &qs) : 0;
+        study_practice_begin(qs, nq > 0 ? nq : 0); // without questions: flashcards only
+        break;
+    }
+    case APP_REQ_EXTRA_NEW: {
+        int st = api_extra_new(5);
+        if (st != 200) {
+            if (st < 0) strlcpy(s_st.message, "Could not reach the server: check the Wi-Fi.", sizeof(s_st.message));
+            else if (st == 404) strlcpy(s_st.message, "The server is older than the device: run deploy.sh.", sizeof(s_st.message));
+            else snprintf(s_st.message, sizeof(s_st.message), "Could not add new words (server error %d).", st);
+            ui_show_home();
+        } else if (!do_sync()) {
+            cfg_forget_token();
+            esp_restart();
+        } else {
+            ui_show_home();
+        }
+        ui_busy_end();
+        break;
+    }
     }
 }
 
@@ -232,6 +300,9 @@ void app_main(void)
         }
     }
     ui_show_home();
+    // this firmware works (screen, Wi-Fi, server): keep it. After a Wi-Fi update
+    // that never gets here, the next restart goes back to the previous firmware.
+    esp_ota_mark_app_valid_cancel_rollback();
 
     int since_sync = 0, since_push = 0;
     bool was_online = s_st.online;

@@ -1,5 +1,5 @@
 # E-Learn study device: ESP32-S3 2.8" ES3C28P (ILI9341V + FT6336G touch + ES8311 audio)
 cmake_minimum_required(VERSION 3.16)
-set(PROJECT_VER "1.0.0")
+set(PROJECT_VER "1.3.5")
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(elearn_device)

@@ -15,9 +15,11 @@ import (
 	"mvp-lang-app/internal/ai"
 	"mvp-lang-app/internal/auth"
 	"mvp-lang-app/internal/config"
+	"mvp-lang-app/internal/dict"
 	"mvp-lang-app/internal/models"
 	"mvp-lang-app/internal/push"
 	"mvp-lang-app/internal/study"
+	"mvp-lang-app/internal/tts"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -30,6 +32,8 @@ type Handler struct {
 	Tokens *auth.Issuer
 	Study  *study.Service
 	Push   *push.Store // nil if the VAPID key could not be loaded
+	TTS    *tts.Service
+	Dict   *dict.Client
 }
 
 func New(db *gorm.DB, cfg config.Config) *Handler {
@@ -39,6 +43,8 @@ func New(db *gorm.DB, cfg config.Config) *Handler {
 		AI:     ai.NewClient(cfg.DeepSeekAPIKey, cfg.DeepSeekBaseURL, cfg.DeepSeekModel),
 		Tokens: auth.NewIssuer(cfg.JWTSecret),
 		Study:  &study.Service{DB: db},
+		TTS:    tts.New(db, cfg.TTSURL, cfg.TTSVoice, cfg.TTSKeepDays),
+		Dict:   dict.New(cfg.DictURL),
 	}
 	if store, err := push.NewStore(db, cfg.VAPIDSubject, cfg.PushAnyHost); err != nil {
 		log.Printf("push notifications disabled: %v", err)

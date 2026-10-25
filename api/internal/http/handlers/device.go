@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"math/rand/v2"
 	"net/http"
+	"os"
+	"slices"
 	"strings"
 	"time"
 
 	"mvp-lang-app/internal/auth"
 	"mvp-lang-app/internal/content"
+	"mvp-lang-app/internal/firmware"
 	"mvp-lang-app/internal/http/dto"
 	"mvp-lang-app/internal/models"
 	"mvp-lang-app/internal/study"
@@ -142,22 +145,46 @@ func (h *Handler) DeviceSync(c *gin.Context) {
 		limit = 30
 	}
 	now := time.Now().UTC()
-	items, err := h.Study.Queue(uid, study.Filter{}, limit, now)
+	dev := device(c)
+	devSettings := study.ParseDeviceSettings(dev.Settings)
+	// the device says which firmware it runs (shown on the Devices page)
+	if fw := strings.TrimSpace(c.Query("fw")); fw != "" && len(fw) <= 32 && fw != dev.Firmware {
+		h.DB.Model(&models.Device{}).Where("id = ?", dev.ID).Update("firmware", fw)
+	}
+	items, err := h.Study.Queue(uid, study.Filter{SubjectIDs: devSettings.SubjectIDs}, limit, now)
 	if err != nil {
 		internal(c, err)
 		return
 	}
 	var u models.User
 	h.DB.Select("id, settings, timezone").First(&u, uid)
-	settings := study.ParseSettings(u.Settings)
+	settings := study.ParseSettings(u.Settings).ForDevice(devSettings)
+
+	// words already learned, for the Quiz button (any due date)
+	pool, err := h.Study.QuizPool(uid, study.Filter{SubjectIDs: devSettings.SubjectIDs}, quizPoolSize)
+	if err != nil {
+		internal(c, err)
+		return
+	}
 
 	clozeWords := h.clozeWords(items, settings.DeviceMode)
 	clozeForms := h.clozeFormsFor(items, settings.DeviceMode)
+	quizWords := h.clozeWords(pool, study.DeviceModeMix)
+	quizForms := h.clozeFormsFor(pool, study.DeviceModeMix)
+	// audio for both lists in one go (it waits a few seconds at most)
+	all := append(append([]study.QueueItem{}, items...), pool...)
+	allCC := make([]content.Compact, len(all))
+	for i, it := range all {
+		allCC[i] = content.ToCompact(it.Card)
+	}
+	h.addAudio(c.Request.Context(), all, allCC)
+	compacts, quizCC := allCC[:len(items)], allCC[len(items):]
+
 	cards := make([]deviceCard, 0, len(items))
 	nth := 0 // cards that can be quizzed, for "mix"
-	for _, it := range items {
-		cc := content.ToCompact(it.Card)
-		cloze := buildCloze(it, cc, clozeWords, clozeForms)
+	for i, it := range items {
+		cc := compacts[i]
+		cloze := buildCloze(it, cc, clozeWords, clozeForms, false)
 		mode := study.DeviceCardMode(settings.DeviceMode, study.DeviceCard{
 			Kind: it.Card.Kind, IsNew: it.IsNew, HasOptions: len(it.Choices) >= 2, HasAudio: cc.AudioURL != "", HasCloze: cloze != nil,
 		}, nth)
@@ -170,24 +197,85 @@ func (h *Handler) DeviceSync(c *gin.Context) {
 		}
 		cards = append(cards, dc)
 	}
+	quiz := make([]deviceCard, 0, len(pool))
+	for i, it := range pool {
+		quiz = append(quiz, quizCard(it, quizCC[i], buildCloze(it, quizCC[i], quizWords, quizForms, true)))
+	}
 	stats, err := h.Study.Stats(uid, now)
 	if err != nil {
 		internal(c, err)
 		return
 	}
+	dueNow := stats.DueNow
+	if len(devSettings.SubjectIDs) > 0 { // only the topics shown on this device
+		dueNow = 0
+		for _, sub := range stats.Subjects {
+			if slices.Contains(devSettings.SubjectIDs, sub.SubjectID) {
+				dueNow += sub.Due
+			}
+		}
+	}
 	loc := study.UserLocation(u.Timezone)
 	_, offset := now.In(loc).Zone()
 
-	c.JSON(http.StatusOK, gin.H{
+	resp := gin.H{
 		"server_time":    now,
 		"utc_offset_sec": offset,
 		"settings":       settings,
-		"due_now":        stats.DueNow,
+		"due_now":        dueNow,
 		"new_left_today": stats.NewLeftToday,
 		"reviews_today":  stats.ReviewsToday,
 		"streak_days":    stats.StreakDays,
 		"cards":          cards,
-	})
+		"quiz":           quiz,
+		// "+5 new words" left today (when there is nothing else to study)
+		"extra_new_left": study.ParseSettings(u.Settings).ExtraNewLeft(study.DayKey(now, loc)),
+	}
+	// newest firmware for updates over Wi-Fi: the device compares it with its own
+	if rel := firmware.Latest(h.Cfg.FirmwareDir); rel != nil {
+		resp["firmware"] = gin.H{"version": rel.Version, "size": rel.Size, "url": "/api/device/firmware/" + rel.File}
+	}
+	c.JSON(http.StatusOK, resp)
+}
+
+// DeviceExtraNew: "+5 new words" on the device, like "Learn 5 more today" on
+// the website (at most study.MaxExtraNew extra a day). The device then syncs.
+func (h *Handler) DeviceExtraNew(c *gin.Context) {
+	uid, ok := h.pairedUser(c)
+	if !ok {
+		return
+	}
+	var req struct {
+		Count int `json:"count"`
+	}
+	_ = c.ShouldBindJSON(&req)
+	if req.Count <= 0 || req.Count > 10 {
+		req.Count = 5
+	}
+	now := time.Now().UTC()
+	s, err := h.Study.AddExtraNew(uid, req.Count, now)
+	if err != nil {
+		internal(c, err)
+		return
+	}
+	var u models.User
+	h.DB.Select("id, timezone").First(&u, uid)
+	c.JSON(http.StatusOK, gin.H{"extra_new_left": s.ExtraNewLeft(study.DayKey(now, study.UserLocation(u.Timezone)))})
+}
+
+// DeviceFirmware sends a firmware image (update over Wi-Fi; device token needed).
+func (h *Handler) DeviceFirmware(c *gin.Context) {
+	path, ok := firmware.Path(h.Cfg.FirmwareDir, c.Param("file"))
+	if !ok {
+		abort(c, http.StatusNotFound, "not found")
+		return
+	}
+	if _, err := os.Stat(path); err != nil {
+		abort(c, http.StatusNotFound, "not found")
+		return
+	}
+	c.Header("Content-Type", "application/octet-stream")
+	c.File(path)
 }
 
 // DeviceReviews receives answers recorded on the device (possibly offline).
@@ -215,9 +303,15 @@ func (h *Handler) DeviceReviews(c *gin.Context) {
 	failed := []failure{}
 	for _, r := range reviews {
 		cid := r.ClientReviewID
+		src := "device"
+		if r.Quiz {
+			src = "device-quiz"
+		}
 		res, err := h.Study.ApplyAnswer(study.Answer{
 			UserID: uid, CardID: r.CardID, Rating: r.Rating, At: r.ReviewedAt,
-			DurationMs: r.DurationMs, Source: "device", DeviceID: &devID, ClientReviewID: &cid,
+			DurationMs: r.DurationMs, Source: src, DeviceID: &devID, ClientReviewID: &cid,
+			// Quiz button: only due cards are rescheduled; a wrong answer makes the card due now
+			OnlyIfDue: r.Quiz, DueNowIfWrong: r.Quiz,
 		})
 		switch {
 		case err != nil:
@@ -229,6 +323,28 @@ func (h *Handler) DeviceReviews(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, gin.H{"accepted": accepted, "duplicates": duplicates, "failed": failed})
+}
+
+// quizPoolSize: learned words sent for the device Quiz (it asks 10 of them at a time).
+const quizPoolSize = 40
+
+// quizCard: a question for the device Quiz, in one of three forms: the word
+// and 4 meanings (half of the time), the sentence with a blank (pick the
+// word), or listening (hear the word, pick the meaning).
+func quizCard(it study.QueueItem, cc content.Compact, cloze *deviceCloze) deviceCard {
+	dc := deviceCard{Compact: cc, State: it.Progress.State, Due: it.Progress.Due, Options: it.Choices, Mode: study.DeviceModeQuiz}
+	if it.Card.Kind == models.KindMCQ {
+		return dc
+	}
+	switch r := rand.IntN(10); {
+	case r >= 5 && cloze != nil && cloze.Kind == "form": // TOEIC Part 5 "which form?": half of the time when ready
+		dc.Mode, dc.Cloze = study.DeviceModeCloze, cloze
+	case r >= 7 && cloze != nil:
+		dc.Mode, dc.Cloze = study.DeviceModeCloze, cloze
+	case r >= 5 && cc.AudioURL != "":
+		dc.Mode = study.DeviceModeListening
+	}
+	return dc
 }
 
 func sortByTime(rs []dto.DeviceReview) {
@@ -297,6 +413,37 @@ func (h *Handler) RenameDevice(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true})
 }
 
+// DeviceSettings: per-device overrides (topics, pop-up mode, pop-up interval
+// and window). The device picks them up at its next sync (within 10 minutes,
+// or at once with Sync on the device).
+func (h *Handler) UpdateDeviceSettings(c *gin.Context) {
+	id, ok := paramID(c, "id")
+	if !ok {
+		return
+	}
+	var req study.DeviceSettings
+	if err := c.ShouldBindJSON(&req); err != nil {
+		bad(c, err)
+		return
+	}
+	ds := req.Sanitized()
+	raw, err := jsonMarshal(ds)
+	if err != nil {
+		internal(c, err)
+		return
+	}
+	res := h.DB.Model(&models.Device{}).Where("id = ? AND user_id = ?", id, userID(c)).Update("settings", models.JSON(raw))
+	if res.Error != nil {
+		internal(c, res.Error)
+		return
+	}
+	if res.RowsAffected == 0 {
+		abort(c, http.StatusNotFound, "device not found")
+		return
+	}
+	c.JSON(http.StatusOK, ds)
+}
+
 // UnpairDevice deletes the device; it must register again to be used.
 func (h *Handler) UnpairDevice(c *gin.Context) {
 	id, ok := paramID(c, "id")
@@ -346,7 +493,7 @@ func (h *Handler) clozeWords(items []study.QueueItem, mode string) map[int64]str
 
 // buildCloze: the example sentence with the word blanked and 4 shuffled words
 // (the card's own + the words of its 3 meaning distractors). nil if not possible.
-func buildCloze(it study.QueueItem, cc content.Compact, words map[int64]string, forms map[string][]string) *deviceCloze {
+func buildCloze(it study.QueueItem, cc content.Compact, words map[int64]string, forms map[string][]string, preferForm bool) *deviceCloze {
 	if it.IsNew || (it.Card.Kind != models.KindVocab && it.Card.Kind != models.KindPhrasal) || cc.ExampleEn == "" {
 		return nil
 	}
@@ -355,7 +502,7 @@ func buildCloze(it study.QueueItem, cc content.Compact, words map[int64]string, 
 		return nil
 	}
 	// half of the time, when prepared: which FORM of the word fits (TOEIC Part 5)
-	if f := forms[formKey(it.Card.ID, cc.ExampleEn)]; len(f) == 3 && rand.IntN(2) == 0 {
+	if f := forms[formKey(it.Card.ID, cc.ExampleEn)]; len(f) == 3 && (preferForm || rand.IntN(2) == 0) {
 		if answer, ok := study.FindWord(cc.ExampleEn, it.Card.Front); ok {
 			opts := []study.Choice{{ID: it.Card.ID, Text: answer}, {ID: -1, Text: f[0]}, {ID: -2, Text: f[1]}, {ID: -3, Text: f[2]}}
 			rand.Shuffle(len(opts), func(i, j int) { opts[i], opts[j] = opts[j], opts[i] })

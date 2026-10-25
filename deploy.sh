@@ -60,7 +60,8 @@ echo ""
 tar czf - \
     --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" \
     --exclude="go.dev.mod" --exclude="go.dev.sum" \
-    api web proxy docker-compose.yaml .env.example README.md docs | \
+    --exclude="elearn-device-*[0-9].bin" --exclude="*-bootloader.bin" --exclude="*-partitions.bin" \
+    api web proxy tts firmware/prebuilt docker-compose.yaml .env.example README.md docs | \
 ssh "$SERVER" "
 set -e
 mkdir -p '$REMOTE_DIR'
@@ -70,6 +71,9 @@ echo '[1/4] Extracting files...'
 cat > /tmp/elearn_deploy.tar.gz
 tar xzf /tmp/elearn_deploy.tar.gz
 rm -f /tmp/elearn_deploy.tar.gz
+# files copied from some editors/tools are readable only by their owner: the
+# containers run as other users (tts: nobody, api: app)
+chmod -R a+rX api web proxy tts firmware docs 2>/dev/null || true
 
 echo '[2/4] Writing .env...'
 cat > .env <<'ENVEOF'

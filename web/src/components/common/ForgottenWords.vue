@@ -5,7 +5,11 @@
         <span class="fw-semibold"><i class="bi bi-lightbulb text-warning"></i> {{ words.length }} word{{ words.length > 1 ? 's' : '' }} to practise:</span>
         <span v-for="w in words.slice(0, 10)" :key="w.id" class="badge bg-warning-subtle text-dark border">{{ w.front }}</span>
         <span v-if="words.length > 10" class="small text-muted">+{{ words.length - 10 }} more (next time)</span>
-        <button class="btn btn-warning btn-sm ms-auto" @click="go">
+        <button class="btn btn-outline-warning btn-sm ms-auto" title="One multiple-choice question per word (usage, closest meaning, collocation)"
+          @click="check">
+          <i class="bi bi-ui-checks"></i> Check them (A–D)
+        </button>
+        <button class="btn btn-warning btn-sm" @click="go">
           <i class="bi bi-translate"></i> Practise them
         </button>
       </div>
@@ -21,6 +25,10 @@ import { useRouter } from 'vue-router'
 
 const props = defineProps<{ words: { id: number; front: string }[]; compact?: boolean }>()
 const router = useRouter()
+
+function check() {
+  router.push({ path: '/practice/check', query: { ids: props.words.slice(0, 10).map((w) => w.id).join(',') } })
+}
 
 function go() {
   router.push({ path: '/practice/forgotten', query: { ids: props.words.slice(0, 10).map((w) => w.id).join(',') } })

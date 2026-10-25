@@ -23,6 +23,8 @@ type Service struct{ DB *gorm.DB }
 type Filter struct {
 	SubjectID int64
 	DeckID    int64
+	// SubjectIDs limits to these topics (e.g. a device set to English only).
+	SubjectIDs []int64
 }
 
 // QueueItem is a card the user should study now.
@@ -76,8 +78,14 @@ func scope(q *gorm.DB, f Filter) *gorm.DB {
 	if f.SubjectID > 0 {
 		q = q.Where("c.deck_id IN (SELECT id FROM decks WHERE subject_id = ?)", f.SubjectID)
 	}
+	if len(f.SubjectIDs) > 0 {
+		q = q.Where("c.deck_id IN (SELECT id FROM decks WHERE subject_id IN ?)", f.SubjectIDs)
+	}
 	return q
 }
+
+// DayKey is the user's calendar day ("2026-10-22").
+func DayKey(now time.Time, loc *time.Location) string { return dayKey(now, loc) }
 
 // dayKey is the user's calendar day ("2026-10-22").
 func dayKey(now time.Time, loc *time.Location) string {
@@ -248,6 +256,10 @@ type Answer struct {
 	// OnlyIfDue: used by quizzes, so a quiz never reschedules a card that is
 	// not due yet (and never enrolls a card the user did not add).
 	OnlyIfDue bool
+	// DueNowIfWrong (with OnlyIfDue, device quiz): a wrong answer on a card
+	// that is not due yet makes it due now, so Study shows it again soon. Its
+	// FSRS memory state is not changed.
+	DueNowIfWrong bool
 }
 
 type AnswerResult struct {
@@ -301,6 +313,12 @@ func (s *Service) ApplyAnswer(a Answer) (AnswerResult, error) {
 			return err
 		}
 		if a.OnlyIfDue && uc.Due.After(at) {
+			if a.DueNowIfWrong && a.Rating == srs.Again && uc.State != srs.StateNew {
+				if err := tx.Model(&uc).Update("due", at).Error; err != nil {
+					return err
+				}
+				uc.Due = at
+			}
 			out.Progress = uc
 			return nil
 		}

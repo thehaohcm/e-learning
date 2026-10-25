@@ -98,7 +98,9 @@ func (h *Handler) createNote(c *gin.Context, uid int64, req noteRequest) {
 		UserID: uid, Text: text, Note: clip(req.Note, 300), Context: clip(req.Context, 400), Source: clip(req.Source, 80),
 		Status: noteNew, Info: models.JSON("{}"), CreatedAt: now, UpdatedAt: now,
 	}
-	h.matchNote(uid, &n, text)
+	if !h.matchNote(uid, &n, text) {
+		h.dictInfo(c.Request.Context(), &n, text)
+	}
 	if err := h.DB.Create(&n).Error; err != nil {
 		internal(c, err)
 		return
@@ -131,7 +133,9 @@ func (h *Handler) UpdateNote(c *gin.Context) {
 		}
 		if !strings.EqualFold(text, n.Text) {
 			n.Text, n.CardID, n.Status, n.Info = text, nil, noteNew, models.JSON("{}")
-			h.matchNote(n.UserID, &n, text)
+			if !h.matchNote(n.UserID, &n, text) {
+				h.dictInfo(c.Request.Context(), &n, text)
+			}
 		}
 	}
 	n.UpdatedAt = time.Now().UTC()

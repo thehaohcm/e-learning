@@ -13,6 +13,7 @@ const router = createRouter({
     { path: '/reading', component: () => import('./pages/Reading.vue') }, // ?id=
     { path: '/practice', component: () => import('./pages/PracticeHub.vue') },
     { path: '/practice/forgotten', component: () => import('./pages/Practice.vue') }, // ?ids=1,2,3, default: today's forgotten words
+    { path: '/practice/check', component: () => import('./pages/WordQuestions.vue') }, // ?ids=1,2,3: AI multiple choice (shared with the device)
     { path: '/writing', component: () => import('./pages/Writing.vue') },
     // search is part of Browse now ("All decks")
     { path: '/search', redirect: (to) => ({ path: '/learn', query: { deck_id: 'all', q: to.query.q } }) },
