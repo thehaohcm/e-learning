@@ -26,6 +26,7 @@ type Progress struct {
 	Answers30 int               `json:"answers_30d"` // answers in the last 30 days
 	Correct30 int               `json:"correct_30d"` // of them: Good / Easy (or right in a quiz)
 	Weakest   []WeakCard        `json:"weakest"`     // most forgotten cards, worst first
+	DueNow    int               `json:"due_now"`     // cards due to review right now (this topic)
 }
 
 type Buckets struct {
@@ -146,5 +147,10 @@ func (s *Service) Progress(userID int64, now time.Time, subjectIDs ...int64) (Pr
 			Lapses: w.Lapses, Reps: w.Reps, Days: w.Stability,
 		})
 	}
+
+	args["now"] = now
+	s.DB.Raw(`SELECT COUNT(*) FROM user_cards uc
+	          WHERE uc.user_id = @user AND NOT uc.suspended AND uc.state <> 0 AND uc.due <= @now`+inSubjects, args).
+		Row().Scan(&p.DueNow)
 	return p, nil
 }

@@ -96,6 +96,9 @@ func TestQueuePerSubject(t *testing.T) {
 	if err != nil || p.Buckets.Total != 2 || len(p.Subjects) != 1 {
 		t.Fatalf("progress pmp %+v %v", p.Buckets, err)
 	}
+	if p.DueNow != 0 {
+		t.Fatalf("new cards are not due: DueNow = %d", p.DueNow)
+	}
 	if p, _ := s.Progress(uid, now); p.Buckets.Total != 6 {
 		t.Fatalf("progress all %+v", p.Buckets)
 	}

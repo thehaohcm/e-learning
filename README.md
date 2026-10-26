@@ -255,6 +255,18 @@ Nội dung là tài liệu học: nhận biết, phương pháp và cách phòng
 cụ thể. Giống PMP, môn này chỉ tự lấy thẻ mới nếu bạn **tick deck Pentesting trong Settings** (hoặc thêm thẻ tay);
 đặt số thẻ mới/ngày riêng cho nó trong Settings như các môn khác.
 
+## Lời khuyên học (trên khung thống kê Home)
+
+Khung "How well you know your cards" (mỗi môn) đưa ra:
+- **Mức ghi nhớ tổng thể** (badge cạnh tiêu đề): **Strong / Okay / Needs focus** (hoặc "Just started"),
+  tính từ tỉ lệ nhớ tốt (mastered+familiar), tỉ lệ hay quên (struggling) và độ chính xác 30 ngày.
+- **Nên học thêm từ mới hay nên ôn lại**:
+  - Mới học (<10 thẻ): học ít thôi (~5–10/ngày) rồi xem phản ứng.
+  - Căng (due ≥ 30, hoặc ≥25% thẻ hay quên, hoặc accuracy < 65%): **ngưng từ mới, tập trung ôn**.
+  - Hơi căng (due ≥ 15, ≥12% hay quên, accuracy < 80%): giữ từ mới ở mức thấp (~5/ngày).
+  - Khỏe mạnh: có thể tăng số thẻ mới/ngày (10–15).
+  Kèm nút ôn ngay và mở Settings để chỉnh số thẻ mới/ngày. Tính riêng từng môn.
+
 ## English và PMP tách riêng
 
 - Trên thanh menu có nút **English | PMP** (nhớ theo trình duyệt). Mọi trang chỉ hiện môn đang chọn: Home (số thẻ,
