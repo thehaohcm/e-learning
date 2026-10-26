@@ -11,6 +11,13 @@
             <small class="brand-subtitle">English · PMP</small>
           </div>
         </router-link>
+        <!-- the topic every page shows -->
+        <div v-if="subjects.length > 1" class="btn-group btn-group-sm subject-switch ms-lg-3 me-auto" role="group" aria-label="Topic">
+          <button v-for="sb in subjects" :key="sb.id" type="button" class="btn"
+            :class="sb.slug === subjectSlug ? 'btn-light fw-semibold' : 'btn-outline-light'" @click="chooseSubject(sb.slug)">
+            {{ shortName(sb.slug, sb.name) }}
+          </button>
+        </div>
         <button class="navbar-toggler border-0" type="button" @click="navOpen = !navOpen"
           :aria-expanded="navOpen" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
@@ -49,6 +56,7 @@
     </nav>
 
     <main class="container my-4">
+      <StudyNudge v-if="auth.token" />
       <router-view v-slot="{ Component }">
         <transition name="page-fade" mode="out-in">
           <component :is="Component" />
@@ -57,7 +65,7 @@
     </main>
 
     <!-- floating word notes (every page, logged in) -->
-    <NotesWidget v-if="auth.token" />
+    <NotesWidget v-if="auth.token && isEnglish" />
 
     <footer class="modern-footer">
       <div class="container text-center">
@@ -78,6 +86,8 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth, logout } from './auth'
 import NotesWidget from './components/NotesWidget.vue'
+import { isEnglish, loadSubjects, setSubject, shortName, subjectOfDeck, subjects, subjectSlug } from './composables/useSubject'
+import StudyNudge from './components/StudyNudge.vue'
 import { disablePush, syncPush } from './composables/usePwa'
 
 const router = useRouter()
@@ -90,7 +100,11 @@ watch(() => route.fullPath, () => {
 })
 
 interface NavLink { to: string; label: string; icon: string; exact?: boolean; children?: NavLink[] }
-const links: NavLink[] = [
+// Reading, Writing and the word practice are English only
+const ENGLISH_ONLY = ['/reading', '/writing', '/practice/forgotten', '/practice/check']
+const links = computed<NavLink[]>(() => allLinks.map((l) =>
+  l.children ? { ...l, children: l.children.filter((c) => isEnglish.value || !ENGLISH_ONLY.includes(c.to)) } : l))
+const allLinks: NavLink[] = [
   { to: '/', label: 'Home', icon: 'bi-speedometer2', exact: true },
   { to: '/review', label: 'Study', icon: 'bi-arrow-repeat' },
   {
@@ -120,6 +134,32 @@ async function signOut() {
   logout()
   router.push('/login')
 }
+
+// ---------------------------------------------------------------- topic (English / PMP)
+async function chooseSubject(slug: string) {
+  if (slug === subjectSlug.value) return
+  setSubject(slug)
+  // a page of the other topic: go to the same page without its deck / topic
+  if (!isEnglish.value && ENGLISH_ONLY.some((p) => route.path.startsWith(p))) {
+    router.push('/practice')
+  } else if (route.query.deck_id || route.query.subject_id) {
+    router.replace({ path: route.path })
+  }
+}
+
+// a link into a deck or topic (/review?deck_id=5) switches to its topic
+async function followTopic() {
+  if (!auth.token) return
+  await loadSubjects()
+  const sid = Number(route.query.subject_id) || 0
+  const did = Number(route.query.deck_id) || 0
+  const target = sid ? subjects.value.find((x) => x.id === sid) : did ? subjectOfDeck(did) : undefined
+  if (target && target.slug !== subjectSlug.value) setSubject(target.slug)
+  if (ENGLISH_ONLY.some((p) => route.path.startsWith(p)) && !isEnglish.value && subjects.value.length) setSubject('english')
+}
+watch(() => route.fullPath, followTopic)
+onMounted(followTopic)
+watch(() => auth.token, (t) => { if (t) loadSubjects(true) })
 
 // keep this device's reminder subscription fresh (browsers renew it now and then)
 onMounted(() => { if (auth.token) syncPush() })
@@ -193,6 +233,8 @@ main {
 }
 
 /* Nav Pills */
+.subject-switch .btn { border-radius: 50px; padding: 0.2rem 0.85rem; }
+.subject-switch .btn + .btn { margin-left: 4px; }
 .nav-pill {
   border-radius: 50px !important;
   padding: 0.5rem 1.1rem !important;

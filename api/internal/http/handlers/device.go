@@ -6,7 +6,6 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
-	"slices"
 	"strings"
 	"time"
 
@@ -201,20 +200,12 @@ func (h *Handler) DeviceSync(c *gin.Context) {
 	for i, it := range pool {
 		quiz = append(quiz, quizCard(it, quizCC[i], buildCloze(it, quizCC[i], quizWords, quizForms, true)))
 	}
-	stats, err := h.Study.Stats(uid, now)
+	stats, err := h.Study.Stats(uid, now, devSettings.SubjectIDs...) // only the topics shown on this device
 	if err != nil {
 		internal(c, err)
 		return
 	}
 	dueNow := stats.DueNow
-	if len(devSettings.SubjectIDs) > 0 { // only the topics shown on this device
-		dueNow = 0
-		for _, sub := range stats.Subjects {
-			if slices.Contains(devSettings.SubjectIDs, sub.SubjectID) {
-				dueNow += sub.Due
-			}
-		}
-	}
 	loc := study.UserLocation(u.Timezone)
 	_, offset := now.In(loc).Zone()
 
@@ -229,7 +220,7 @@ func (h *Handler) DeviceSync(c *gin.Context) {
 		"cards":          cards,
 		"quiz":           quiz,
 		// "+5 new words" left today (when there is nothing else to study)
-		"extra_new_left": study.ParseSettings(u.Settings).ExtraNewLeft(study.DayKey(now, loc)),
+		"extra_new_left": study.ParseSettings(u.Settings).ExtraNewLeft(h.deviceSubject(devSettings), study.DayKey(now, loc)),
 	}
 	// newest firmware for updates over Wi-Fi: the device compares it with its own
 	if rel := firmware.Latest(h.Cfg.FirmwareDir); rel != nil {
@@ -253,14 +244,25 @@ func (h *Handler) DeviceExtraNew(c *gin.Context) {
 		req.Count = 5
 	}
 	now := time.Now().UTC()
-	s, err := h.Study.AddExtraNew(uid, req.Count, now)
+	subject := h.deviceSubject(study.ParseDeviceSettings(device(c).Settings))
+	s, err := h.Study.AddExtraNew(uid, subject, req.Count, now)
 	if err != nil {
 		internal(c, err)
 		return
 	}
 	var u models.User
 	h.DB.Select("id, timezone").First(&u, uid)
-	c.JSON(http.StatusOK, gin.H{"extra_new_left": s.ExtraNewLeft(study.DayKey(now, study.UserLocation(u.Timezone)))})
+	c.JSON(http.StatusOK, gin.H{"extra_new_left": s.ExtraNewLeft(subject, study.DayKey(now, study.UserLocation(u.Timezone)))})
+}
+
+// deviceSubject: the topic of "+5 new words" on a device: its only topic, else English.
+func (h *Handler) deviceSubject(ds study.DeviceSettings) string {
+	if len(ds.SubjectIDs) == 1 {
+		if slug := h.Study.SubjectSlug(ds.SubjectIDs[0]); slug != "" {
+			return slug
+		}
+	}
+	return study.DefaultSubject
 }
 
 // DeviceFirmware sends a firmware image (update over Wi-Fi; device token needed).

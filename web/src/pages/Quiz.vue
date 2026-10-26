@@ -6,25 +6,23 @@
         <small class="text-muted">Correct answers on due cards also count as a review.</small>
       </div>
       <div class="d-flex flex-wrap gap-2 align-items-center">
-        <div class="btn-group btn-group-sm" role="group" aria-label="Quiz mode">
+        <div v-if="isEnglish" class="btn-group btn-group-sm" role="group" aria-label="Quiz mode">
           <button class="btn" :class="qmode === 'choose' ? 'btn-success' : 'btn-outline-success'" @click="setMode('choose')"
             title="Pick the right meaning"><i class="bi bi-ui-checks"></i> Choose</button>
           <button class="btn" :class="qmode === 'write' ? 'btn-success' : 'btn-outline-success'" @click="setMode('write')"
             title="Write the English sentence for a Vietnamese one"><i class="bi bi-pencil"></i> Write it</button>
         </div>
-        <div v-if="qmode === 'choose'" class="form-check form-switch mb-0 small"
+        <div v-if="qmode === 'choose' && isEnglish" class="form-check form-switch mb-0 small"
           title="Say the word aloud before choosing its meaning. Forgot how to say it? Press “I forgot”: it comes back as a stress question.">
           <input id="sayfirst" v-model="sayFirst" class="form-check-input" type="checkbox" />
           <label class="form-check-label" for="sayfirst">Say it first</label>
         </div>
-        <div v-if="qmode === 'choose'" class="form-check form-switch mb-0 small">
+        <div v-if="qmode === 'choose' && isEnglish" class="form-check form-switch mb-0 small">
           <input id="listen" v-model="listening" class="form-check-input" type="checkbox" />
           <label class="form-check-label" for="listen">Listening mode</label>
         </div>
         <select v-model.number="deckId" class="form-select w-auto" @change="start">
-          <optgroup v-for="s in subjects" :key="s.id" :label="s.name">
-            <option v-for="d in s.decks" :key="d.id" :value="d.id">{{ d.name }}</option>
-          </optgroup>
+          <option v-for="d in subject?.decks ?? []" :key="d.id" :value="d.id">{{ d.name }}</option>
         </select>
       </div>
     </div>
@@ -286,7 +284,7 @@ import ViHint from '../components/common/ViHint.vue'
 import Pronunciation from '../components/Pronunciation.vue'
 import { usePronunciation } from '../composables/usePronunciation'
 import { scoreSpeech, speechRecognitionSupported, useSpeechRecognition } from '../composables/useSpeechRecognition'
-import type { Subject } from '../types'
+import { isEnglish, loadSubjects, subject, subjectId } from '../composables/useSubject'
 
 interface Question {
   card_id: number; kind: string; mode: string; prompt: string; prompt_hint?: string; speak?: string
@@ -323,7 +321,6 @@ const router = useRouter()
 const { speakEnglish } = useSpeechSynthesis()
 const { cache: pronCache, generate: pronGenerate } = usePronunciation()
 
-const subjects = ref<Subject[]>([])
 const deckId = ref<number>(Number(route.query.deck_id) || 0)
 // ?count=5 from the "Quick quiz" reminder / the empty Review page
 const quizCount = Math.min(50, Math.max(5, Number(route.query.count) || 10))
@@ -773,11 +770,23 @@ async function preparePron() {
   }
 }
 
+/** A deck of the topic chosen in the menu (the one asked for when it belongs to it). */
+function deckOfTopic(want: number): number {
+  const decks = subject.value?.decks ?? []
+  return decks.some((d) => d.id === want) ? want : decks[0]?.id ?? 0
+}
+
+watch(subjectId, (id, old) => {
+  if (!old || id === old) return
+  if (!isEnglish.value) qmode.value = 'choose' // Write it is for English
+  deckId.value = deckOfTopic(0)
+  start()
+})
+
 onMounted(async () => {
   try {
-    const { data } = await api.get('/subjects')
-    subjects.value = data
-    if (!deckId.value) deckId.value = data[0]?.decks[0]?.id ?? 0
+    await loadSubjects()
+    deckId.value = deckOfTopic(deckId.value)
     await start()
   } catch (e) {
     error.value = errorMessage(e)

@@ -179,7 +179,16 @@ func (s *Store) SendToUser(ctx context.Context, userID int64, msg Message, endpo
 // ok=false: nothing to study right now, no reminder needed.
 func StudyReminder(st study.Stats) (msg Message, ok bool) {
 	var parts []string
-	if st.DueNow > 0 {
+	var per []string // "8 English · 3 PMP" when more than one topic has cards due
+	for _, sub := range st.Subjects {
+		if sub.Due > 0 {
+			per = append(per, fmt.Sprintf("%d %s", sub.Due, shortSubject(sub.Slug, sub.Name)))
+		}
+	}
+	switch {
+	case len(per) > 1:
+		parts = append(parts, strings.Join(per, " · ")+" to review")
+	case st.DueNow > 0:
 		parts = append(parts, plural(st.DueNow, "card", "cards")+" to review")
 	}
 	if st.NewLeftToday > 0 {
@@ -207,6 +216,19 @@ func StudyReminder(st study.Stats) (msg Message, ok bool) {
 		body += fmt.Sprintf(" — keep your %d-day streak!", st.StreakDays)
 	}
 	return Message{Title: "Time to study 📚", Body: body, URL: "/review", Tag: "study-reminder"}, true
+}
+
+// shortSubject: "English", "PMP" (the full names are long for a notification).
+func shortSubject(slug, name string) string {
+	switch slug {
+	case "english":
+		return "English"
+	case "pmp":
+		return "PMP"
+	case "pentest":
+		return "Pentest"
+	}
+	return name
 }
 
 func plural(n int, one, many string) string {

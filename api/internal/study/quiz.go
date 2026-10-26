@@ -201,9 +201,28 @@ func (s *Service) MeaningChoices(c models.Card) ([]Choice, error) {
 // decks of the same subject. Never from another user's personal deck.
 func (s *Service) distractors(c models.Card, n int) ([]models.Card, error) {
 	var out []models.Card
-	if err := s.DB.Where("deck_id = ? AND kind = ? AND id <> ?", c.DeckID, c.Kind, c.ID).
-		Order("random()").Limit(n).Find(&out).Error; err != nil {
-		return nil, err
+	// writing phrases: frames of the same group first ("Yours sincerely" among other
+	// ways to end a letter), so the answer cannot be found by its function alone
+	if g := content.ToCompact(c).POS; c.Kind == models.KindConcept && g != "" {
+		if err := s.DB.Where("deck_id = ? AND kind = ? AND id <> ? AND payload->>'group' = ?", c.DeckID, c.Kind, c.ID, g).
+			Order("random()").Limit(n).Find(&out).Error; err != nil {
+			return nil, err
+		}
+	}
+	if missing := n - len(out); missing > 0 {
+		var rest []models.Card
+		q := s.DB.Where("deck_id = ? AND kind = ? AND id <> ?", c.DeckID, c.Kind, c.ID)
+		if len(out) > 0 {
+			ids := make([]int64, len(out))
+			for i, o := range out {
+				ids[i] = o.ID
+			}
+			q = q.Where("id NOT IN ?", ids)
+		}
+		if err := q.Order("random()").Limit(missing).Find(&rest).Error; err != nil {
+			return nil, err
+		}
+		out = append(out, rest...)
 	}
 	if missing := n - len(out); missing > 0 {
 		var more []models.Card

@@ -100,21 +100,22 @@
       <ExtensionKeys />
       <div v-if="settings" class="card border-0 shadow-sm">
         <div class="card-body">
-          <div class="mb-3">
-            <label class="form-label">New cards per day</label>
-            <input v-model.number="settings.daily_new" type="number" min="0" max="200" class="form-control" />
-          </div>
-          <div class="mb-3">
-            <label class="form-label">Decks that feed new cards automatically</label>
-            <div v-for="s in subjects" :key="s.id" class="mb-1">
-              <small class="text-muted">{{ s.name }}</small>
-              <div v-for="d in s.decks" :key="d.id" class="form-check">
-                <input :id="`deck-${d.id}`" v-model="settings.active_deck_ids" :value="d.id" type="checkbox" class="form-check-input" />
-                <label :for="`deck-${d.id}`" class="form-check-label">{{ d.name }}</label>
-              </div>
+          <!-- each topic: its own number of new cards a day and the decks they come from -->
+          <div v-for="s in subjects" :key="s.id" class="mb-3 pb-2 border-bottom">
+            <div class="fw-semibold mb-1">{{ s.name }}</div>
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <label :for="`new-${s.slug}`" class="form-label mb-0 small">New cards per day</label>
+              <input :id="`new-${s.slug}`" v-model.number="settings.daily_new_by_subject[s.slug]" type="number" min="0" max="200"
+                class="form-control form-control-sm" style="width: 6rem" />
             </div>
-            <div class="form-text">None selected = Core Vocabulary.</div>
+            <small class="text-muted">New cards come from:</small>
+            <div v-for="d in s.decks" :key="d.id" class="form-check">
+              <input :id="`deck-${d.id}`" v-model="settings.active_deck_ids" :value="d.id" type="checkbox" class="form-check-input" />
+              <label :for="`deck-${d.id}`" class="form-check-label">{{ d.name }}</label>
+            </div>
           </div>
+          <div class="form-text mb-3">No deck ticked at all = English Core Vocabulary. A topic with no deck ticked gets no new cards
+            (only the ones you add yourself).</div>
           <div class="mb-3">
             <label class="form-label">Time zone</label>
             <input v-model="timezone" class="form-control" placeholder="Asia/Ho_Chi_Minh" />
@@ -138,7 +139,7 @@ import { auth } from '../auth'
 
 interface DeviceSettings { subject_ids: number[]; device_mode: string; reminder_every_min: number | ''; active_from: string; active_to: string; popup_cards: number }
 interface Device { id: number; name: string; firmware: string; last_seen_at: string | null; settings: Partial<DeviceSettings> | null }
-interface Settings { daily_new: number; active_deck_ids: number[]; reminder_every_min: number; active_from: string; active_to: string; tts_speed: number; device_mode: string; push_times: string[]; popup_cards: number }
+interface Settings { daily_new: number; daily_new_by_subject: Record<string, number>; active_deck_ids: number[]; reminder_every_min: number; active_from: string; active_to: string; tts_speed: number; device_mode: string; push_times: string[]; popup_cards: number }
 
 const POPUP_CARDS = [5, 10, 20]
 
@@ -265,7 +266,8 @@ async function save() {
   saving.value = true
   saveMsg.value = ''
   try {
-    const { data } = await api.put('/settings', { settings: settings.value, timezone: timezone.value })
+    const perTopic = Object.fromEntries(Object.entries(settings.value!.daily_new_by_subject ?? {}).map(([k, v]) => [k, Math.max(0, Number(v) || 0)]))
+    const { data } = await api.put('/settings', { settings: { ...settings.value, daily_new_by_subject: perTopic }, timezone: timezone.value })
     settings.value = data.settings
     timezone.value = data.timezone
     saveOk.value = true
@@ -280,7 +282,11 @@ async function save() {
 
 onMounted(async () => {
   const [s, subs] = await Promise.all([api.get('/settings'), api.get('/subjects'), loadDevices()])
-  settings.value = { ...s.data.settings, push_times: s.data.settings.push_times ?? [], popup_cards: s.data.settings.popup_cards || 10 }
+  const st = s.data.settings
+  // every topic shows its number (the old single one until it has its own)
+  const perTopic: Record<string, number> = { ...(st.daily_new_by_subject ?? {}) }
+  for (const sub of subs.data as Subject[]) perTopic[sub.slug] ??= st.daily_new ?? 10
+  settings.value = { ...st, daily_new_by_subject: perTopic, push_times: st.push_times ?? [], popup_cards: st.popup_cards || 10 }
   timezone.value = s.data.timezone
   subjects.value = subs.data
 })

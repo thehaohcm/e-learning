@@ -9,8 +9,10 @@ import (
 // Settings are per-user study preferences stored in users.settings (JSONB).
 // The device receives them on every sync.
 type Settings struct {
-	// New cards introduced per day across all active decks.
-	DailyNew int `json:"daily_new"`
+	// New cards introduced per day, per topic: DailyNewBySubject["pmp"], or
+	// DailyNew for a topic without its own number.
+	DailyNew          int            `json:"daily_new"`
+	DailyNewBySubject map[string]int `json:"daily_new_by_subject"`
 	// Decks that automatically feed new cards into the study queue.
 	// Empty = use the default English core vocabulary deck.
 	ActiveDeckIDs []int64 `json:"active_deck_ids"`
@@ -25,8 +27,10 @@ type Settings struct {
 	PopupCards int `json:"popup_cards"`
 	// "Learn N more today": extra new cards allowed on ExtraNewDate only
 	// (YYYY-MM-DD in the user's time zone). Set via POST /api/study/extra-new.
-	ExtraNewDate string `json:"extra_new_date,omitempty"`
-	ExtraNew     int    `json:"extra_new,omitempty"`
+	// Per topic (subject slug); ExtraNew is the old single value (= English).
+	ExtraNewDate      string         `json:"extra_new_date,omitempty"`
+	ExtraNew          int            `json:"extra_new,omitempty"`
+	ExtraNewBySubject map[string]int `json:"extra_new_by_subject,omitempty"`
 	// Text-to-speech speed for the web app.
 	TTSSpeed float64 `json:"tts_speed"`
 	// Study reminders sent as push notifications to the user's phones and
@@ -65,21 +69,34 @@ func DefaultSettings() Settings {
 // words"): every new word brings several reviews in the next weeks.
 const MaxExtraNew = 20
 
-// ExtraNewLeft: how many more extra new cards can still be added on day.
-func (s Settings) ExtraNewLeft(day string) int {
-	if s.ExtraNewDate != day {
-		return MaxExtraNew
-	}
-	return max(0, MaxExtraNew-s.ExtraNew)
-}
+// DefaultSubject: the topic of the old single settings ("+5 new words", extra).
+const DefaultSubject = "english"
 
-// NewLimit is the number of new cards allowed on the given day (YYYY-MM-DD):
-// the daily setting plus any extra added for that day.
-func (s Settings) NewLimit(day string) int {
-	if s.ExtraNewDate == day {
-		return s.DailyNew + s.ExtraNew
+// DailyNewFor: new cards a day for a topic (its own number, else DailyNew).
+func (s Settings) DailyNewFor(subject string) int {
+	if n, ok := s.DailyNewBySubject[subject]; ok {
+		return n
 	}
 	return s.DailyNew
+}
+
+// extraFor: extra new cards added for a topic on day.
+func (s Settings) extraFor(subject, day string) int {
+	if s.ExtraNewDate != day {
+		return 0
+	}
+	return s.ExtraNewBySubject[subject]
+}
+
+// ExtraNewLeft: how many more extra new cards of a topic can still be added on day.
+func (s Settings) ExtraNewLeft(subject, day string) int {
+	return max(0, MaxExtraNew-s.extraFor(subject, day))
+}
+
+// NewLimit is the number of new cards of a topic allowed on the given day
+// (YYYY-MM-DD): the daily setting plus any extra added for that day.
+func (s Settings) NewLimit(subject, day string) int {
+	return s.DailyNewFor(subject) + s.extraFor(subject, day)
 }
 
 var hhmm = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
@@ -118,8 +135,22 @@ func (s Settings) sanitized() Settings {
 	if !validPopupCards(s.PopupCards) {
 		s.PopupCards = d.PopupCards
 	}
-	if s.ExtraNew < 0 || s.ExtraNew > MaxExtraNew {
-		s.ExtraNew = 0
+	if s.ExtraNew > 0 && s.ExtraNew <= MaxExtraNew && len(s.ExtraNewBySubject) == 0 { // stored before topics had their own
+		s.ExtraNewBySubject = map[string]int{DefaultSubject: s.ExtraNew}
+	}
+	s.ExtraNew = 0
+	for k, v := range s.ExtraNewBySubject {
+		if v <= 0 || v > MaxExtraNew {
+			delete(s.ExtraNewBySubject, k)
+		}
+	}
+	if s.DailyNewBySubject == nil {
+		s.DailyNewBySubject = map[string]int{}
+	}
+	for k, v := range s.DailyNewBySubject {
+		if v < 0 || v > 200 || k == "" {
+			delete(s.DailyNewBySubject, k)
+		}
 	}
 	if s.ActiveDeckIDs == nil {
 		s.ActiveDeckIDs = []int64{}

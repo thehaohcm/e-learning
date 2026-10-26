@@ -2,12 +2,12 @@
   <div>
     <div class="mb-3">
       <h2 class="fw-bold mb-0"><i class="bi bi-lightning-charge"></i> Practice</h2>
-      <small class="text-muted">Extra practice on top of your daily Study: use your words in context.</small>
+      <small class="text-muted">{{ isEnglish ? 'Extra practice on top of your daily Study: use your words in context.' : `${topicName}: study and quiz your decks.` }}</small>
     </div>
 
     <div class="row g-3">
       <!-- forgotten words -->
-      <div class="col-md-6">
+      <div v-if="isEnglish" class="col-md-6">
         <div class="card border-0 shadow-sm h-100 hoverable" :class="{ 'border-warning border-2 border': forgotten.length }">
           <div class="card-body d-flex flex-column">
             <h5 class="fw-bold"><i class="bi bi-translate text-warning"></i> Forgotten words</h5>
@@ -32,17 +32,33 @@
         <div class="card border-0 shadow-sm h-100 hoverable">
           <div class="card-body d-flex flex-column">
             <h5 class="fw-bold"><i class="bi bi-question-circle text-success"></i> Quiz</h5>
-            <p class="small text-muted mb-2">Test any deck: choose the meaning, listening mode, or <b>Write it</b>: write the English sentence for a Vietnamese one, using the word.</p>
+            <p v-if="isEnglish" class="small text-muted mb-2">Test any deck: choose the meaning, listening mode, or <b>Write it</b>: write the English sentence for a Vietnamese one, using the word.</p>
+            <p v-else class="small text-muted mb-2">10 random questions from your {{ topicName }} decks. Wrong answers come back in Study.</p>
             <div class="mt-auto d-flex gap-2">
               <router-link to="/quiz" class="btn btn-success">Start a quiz</router-link>
-              <router-link to="/quiz?mode=write" class="btn btn-outline-success"><i class="bi bi-pencil"></i> Write it</router-link>
+              <router-link v-if="isEnglish" to="/quiz?mode=write" class="btn btn-outline-success"><i class="bi bi-pencil"></i> Write it</router-link>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PMP: the decks, to study or browse one -->
+      <div v-if="!isEnglish" class="col-md-6">
+        <div class="card border-0 shadow-sm h-100 hoverable">
+          <div class="card-body d-flex flex-column">
+            <h5 class="fw-bold"><i class="bi bi-collection text-primary"></i> {{ topicName }} decks</h5>
+            <p class="small text-muted mb-2">Study one deck only, or browse its cards.</p>
+            <div v-for="d in subject?.decks ?? []" :key="d.id" class="d-flex align-items-center gap-2 small mb-1">
+              <span class="flex-grow-1">{{ d.name }} <span class="text-muted">· {{ d.learning_count }}/{{ d.card_count }}</span></span>
+              <router-link :to="`/review?deck_id=${d.id}`" class="btn btn-sm btn-warning py-0">Study</router-link>
+              <router-link :to="`/learn?deck_id=${d.id}`" class="btn btn-sm btn-outline-primary py-0">Browse</router-link>
             </div>
           </div>
         </div>
       </div>
 
       <!-- reading -->
-      <div class="col-md-6">
+      <div v-if="isEnglish" class="col-md-6">
         <div class="card border-0 shadow-sm h-100 hoverable">
           <div class="card-body d-flex flex-column">
             <h5 class="fw-bold"><i class="bi bi-book-half text-primary"></i> Reading &amp; listening</h5>
@@ -58,7 +74,7 @@
       </div>
 
       <!-- writing -->
-      <div class="col-md-6">
+      <div v-if="isEnglish" class="col-md-6">
         <div class="card border-0 shadow-sm h-100 hoverable">
           <div class="card-body d-flex flex-column">
             <h5 class="fw-bold"><i class="bi bi-pencil text-danger"></i> Writing</h5>
@@ -77,8 +93,10 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
+import { isEnglish, loadSubjects, shortName, subject } from '../composables/useSubject'
+const topicName = computed(() => (subject.value ? shortName(subject.value.slug, subject.value.name) : ''))
 
 interface ReadingSummary { id: number; title: string; status: string; score: number | null; total: number | null }
 interface WritingSummary { id: number; prompt: string; original_text: string; overall_score: number | null }
@@ -91,6 +109,7 @@ const lastWriting = ref<WritingSummary | null>(null)
 const shorten = (s: string) => (s.length > 50 ? s.slice(0, 50) + '…' : s)
 
 onMounted(async () => {
+  loadSubjects()
   // each tile works on its own: one failing request does not hide the others
   const [f, r, w] = await Promise.allSettled([api.get('/practice/forgotten'), api.get('/readings'), api.get('/writing')])
   if (f.status === 'fulfilled') forgotten.value = f.value.data ?? []

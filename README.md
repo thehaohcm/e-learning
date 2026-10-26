@@ -233,6 +233,57 @@ soạn đề theo bài (trả lời email/thông báo, tin nhắn sau hội tho�
 Trang Writing hiện đề, đếm từ, từ bắt buộc chuyển xanh khi đã dùng; gợi ý mở dần: Outline → Useful phrases
 (bấm để chèn vào bài) → Sample answer. Chấm điểm như Writing thường.
 
+Điểm: thang **0–100** cho Overall / Grammar / Vocabulary / Coherence, kèm nhãn Good (80+), Fair (60–79),
+Needs work (40–59), Redo (<40). AI được đưa đúng các mốc này; thiếu số từ hoặc thiếu từ bắt buộc thì
+Overall tối đa 60 (thiếu số từ: server tự giới hạn).
+
+## Pentesting (môn thứ 3)
+
+Môn **Pentesting** (migration 0019) để học nền tảng cho chứng chỉ HTB CPTS và THM Penetration Tester:
+6 deck, 57 thẻ khái niệm + 12 câu hỏi trắc nghiệm.
+
+- **Methodology & scoping** (có uỷ quyền/văn bản cho phép, scope, RoE, các giai đoạn, báo cáo, CVE/CVSS).
+- **Linux & shell** (quyền file, SUID, sudo -l, cron, /etc/passwd vs shadow, các lệnh tìm/đọc).
+- **Networking & enumeration** (bắt tay TCP, cổng phổ biến, trạng thái cổng, DNS/subdomain, OSINT).
+- **Web vulnerabilities (OWASP)**: mỗi lớp lỗi kèm **cách phòng chống** (SQLi → parameterized query, XSS → output
+  encoding + CSP, CSRF → token + SameSite, IDOR, SSRF, command injection, traversal, session/cookie…).
+- **Tools of the trade**: mỗi công cụ nói rõ **để làm gì**; các công cụ tấn công nêu kèm giới hạn "chỉ test khi
+  được phép" và biện pháp phòng thủ (ví dụ cracking hash → bcrypt/argon2 + MFA).
+- **Practice questions**: trắc nghiệm kiểu đề thi.
+
+Nội dung là tài liệu học: nhận biết, phương pháp và cách phòng thủ — không phải hướng dẫn tấn công vào một mục tiêu
+cụ thể. Giống PMP, môn này chỉ tự lấy thẻ mới nếu bạn **tick deck Pentesting trong Settings** (hoặc thêm thẻ tay);
+đặt số thẻ mới/ngày riêng cho nó trong Settings như các môn khác.
+
+## English và PMP tách riêng
+
+- Trên thanh menu có nút **English | PMP** (nhớ theo trình duyệt). Mọi trang chỉ hiện môn đang chọn: Home (số thẻ,
+  chuỗi ngày, biểu đồ, thống kê tiến độ, deck), Study, Practice (PMP: Quiz + các deck PMP; English: thêm Reading,
+  Writing, Forgotten words), Quiz, Browse. Nút ghi từ (Notes) chỉ hiện ở English.
+- Mở link của một deck/môn (ví dụ `/review?deck_id=5`) thì tự chuyển sang môn của nó.
+- **Thẻ mới mỗi ngày tính riêng từng môn** (Settings: English 10, PMP 5…); "Learn 5 more today" / "+5 new" cũng
+  theo môn. Mỗi môn chỉ lấy thẻ mới từ các deck được tick của môn đó (không tick deck nào cả = English Core Vocabulary).
+- Thông báo đẩy: "8 English · 3 PMP to review". Thiết bị dùng các môn đã chọn cho nó.
+
+## Nhắc học trên web
+
+- Thông báo đẩy (giờ cố định trong Settings) **bỏ qua** nếu đã học (web hoặc thiết bị) trong 60 phút trước đó.
+- Đang mở web (không ở Home/Study/Quiz): mỗi chu kỳ *pop-up every N min* của thiết bị, trong khung giờ của nó,
+  nếu có thẻ đến hạn và chưa học trong chu kỳ đó → dải nhắc nhỏ phía trên trang (**Study now** / × để nhắc sau).
+  Không kêu, không pop-up.
+
+## Phrase bank (khung câu để viết)
+
+Bộ **Writing phrases** (migration 0018, 81 khung, 14 nhóm: mở bài, quan điểm, lý do, ví dụ, thêm ý, đối lập,
+nguyên nhân – kết quả, giải pháp, ưu – nhược điểm, kết luận, và email: mở đầu / đề nghị / báo vấn đề / kết thư).
+Mỗi thẻ: mặt trước là **điều muốn nói** (tiếng Việt), mặt sau là **khung tiếng Anh** + ghi chú + câu ví dụ.
+
+- Trang Writing → nút **Phrase bank**: tìm (không dấu cũng được), lọc theo nhóm, bấm khung để chèn vào chỗ con trỏ,
+  ⓘ xem ví dụ. **Learn these in Study** thêm cả bộ vào Study (vào dần theo số thẻ mới mỗi ngày).
+- Study (web và thiết bị): thấy câu tiếng Việt → tự nhớ câu tiếng Anh → chọn trong 4 khung **cùng nhóm**
+  (ví dụ 4 cách kết thư), nên không đoán được nhờ chức năng.
+- Khi chấm bài, AI chỉ ra tối đa 3 câu nên viết lại bằng một khung trong bộ (**Use a frame**).
+
 ## My notes (ghi chú từ lạ)
 
 Nút 📝 ở góc dưới bên phải (mọi trang, **Alt+N**) mở khung ghi chú: gõ từ/cụm từ + ghi chú riêng.

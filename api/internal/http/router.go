@@ -97,6 +97,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/quiz/answer", h.QuizAnswer)
 
 		u.GET("/stats", h.Stats)
+		u.GET("/stats/progress", h.Progress)
 		u.POST("/quiz/stress", h.QuizStress)
 		u.POST("/quiz/sound", h.QuizSound)
 		u.POST("/pron/forgot", h.PronForgot)
@@ -144,6 +145,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/notes/fill", practiceLimit, h.FillNotes)
 		u.POST("/notes/add", practiceLimit, h.AddNotes)
 
+		u.GET("/writing/phrases", h.WritingPhrases)              // phrase bank (Writing page panel)
+		u.POST("/writing/phrases/study", h.StudyWritingPhrases) // add the whole bank to Study
 		u.POST("/writing", h.SubmitWriting)
 		u.GET("/writing", h.ListWriting)
 		u.GET("/writing/:id", h.GetWriting)

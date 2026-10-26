@@ -92,17 +92,23 @@ func dayKey(now time.Time, loc *time.Location) string {
 	return startOfDay(now, loc).Format("2006-01-02")
 }
 
-// AddExtraNew allows n more new cards today (on top of the daily setting).
-func (s *Service) AddExtraNew(userID int64, n int, now time.Time) (Settings, error) {
+// AddExtraNew allows n more new cards of a topic (slug) today, on top of the daily setting.
+func (s *Service) AddExtraNew(userID int64, subject string, n int, now time.Time) (Settings, error) {
 	u, settings, err := s.loadUser(userID)
 	if err != nil {
 		return settings, err
 	}
+	if subject == "" {
+		subject = DefaultSubject
+	}
 	day := dayKey(now, UserLocation(u.Timezone))
 	if settings.ExtraNewDate != day {
-		settings.ExtraNewDate, settings.ExtraNew = day, 0
+		settings.ExtraNewDate, settings.ExtraNewBySubject = day, nil
 	}
-	settings.ExtraNew = min(MaxExtraNew, settings.ExtraNew+n)
+	if settings.ExtraNewBySubject == nil {
+		settings.ExtraNewBySubject = map[string]int{}
+	}
+	settings.ExtraNewBySubject[subject] = min(MaxExtraNew, settings.ExtraNewBySubject[subject]+n)
 	b, err := json.Marshal(settings)
 	if err != nil {
 		return settings, err
@@ -112,12 +118,15 @@ func (s *Service) AddExtraNew(userID int64, n int, now time.Time) (Settings, err
 	return settings, err
 }
 
-// NewIntroducedToday counts cards answered for the first time today.
-func (s *Service) NewIntroducedToday(userID int64, loc *time.Location, now time.Time) (int, error) {
+// NewIntroducedToday counts cards of a topic (0 = all) answered for the first time today.
+func (s *Service) NewIntroducedToday(userID int64, loc *time.Location, now time.Time, subjectID int64) (int, error) {
 	var n int64
-	err := s.DB.Model(&models.ReviewLog{}).
-		Where("user_id = ? AND state_before = ? AND reviewed_at >= ?", userID, srs.StateNew, startOfDay(now, loc)).
-		Distinct("card_id").Count(&n).Error
+	q := s.DB.Model(&models.ReviewLog{}).
+		Where("user_id = ? AND state_before = ? AND reviewed_at >= ?", userID, srs.StateNew, startOfDay(now, loc))
+	if subjectID > 0 {
+		q = q.Where("card_id IN (SELECT c.id FROM cards c JOIN decks d ON d.id = c.deck_id WHERE d.subject_id = ?)", subjectID)
+	}
+	err := q.Distinct("card_id").Count(&n).Error
 	return int(n), err
 }
 
@@ -152,34 +161,62 @@ func (s *Service) Queue(userID int64, f Filter, limit int, now time.Time) ([]Que
 		return nil, err
 	}
 
+	// new cards: each topic has its own daily quota (English 10, PMP 5…); the
+	// topics in the scope take turns so one does not use all the room
 	var fresh []row
 	if room := limit - len(due); room > 0 {
-		introduced, err := s.NewIntroducedToday(userID, loc, now)
+		subs, err := s.subjectsIn(f)
 		if err != nil {
 			return nil, err
 		}
-		quota := min(room, settings.NewLimit(dayKey(now, loc))-introduced)
-		if quota > 0 {
-			q := s.DB.Table("user_cards uc").Select(sel).
-				Joins("JOIN cards c ON c.id = uc.card_id").
-				Where("uc.user_id = ? AND NOT uc.suspended AND uc.state = ?", userID, srs.StateNew)
-			if err := scope(q, f).Order("uc.created_at ASC, c.id ASC").Limit(quota).Scan(&fresh).Error; err != nil {
+		day := dayKey(now, loc)
+		perSubject := make([][]row, len(subs))
+		for i, sub := range subs {
+			introduced, err := s.NewIntroducedToday(userID, loc, now, sub.ID)
+			if err != nil {
 				return nil, err
 			}
-			if missing := quota - len(fresh); missing > 0 {
-				added, err := s.autoIntroduce(userID, settings, f, missing, now)
+			quota := min(room, settings.NewLimit(sub.Slug, day)-introduced)
+			if quota <= 0 {
+				continue
+			}
+			sf := f
+			sf.SubjectID, sf.SubjectIDs = sub.ID, nil
+			load := func() ([]row, error) {
+				var out []row
+				q := s.DB.Table("user_cards uc").Select(sel).
+					Joins("JOIN cards c ON c.id = uc.card_id").
+					Where("uc.user_id = ? AND NOT uc.suspended AND uc.state = ?", userID, srs.StateNew)
+				err := scope(q, sf).Order("uc.created_at ASC, c.id ASC").Limit(quota).Scan(&out).Error
+				return out, err
+			}
+			rows, err := load()
+			if err != nil {
+				return nil, err
+			}
+			if missing := quota - len(rows); missing > 0 {
+				added, err := s.autoIntroduce(userID, settings, sf, sub.Slug, missing, now)
 				if err != nil {
 					return nil, err
 				}
 				if added > 0 {
-					fresh = fresh[:0]
-					q := s.DB.Table("user_cards uc").Select(sel).
-						Joins("JOIN cards c ON c.id = uc.card_id").
-						Where("uc.user_id = ? AND NOT uc.suspended AND uc.state = ?", userID, srs.StateNew)
-					if err := scope(q, f).Order("uc.created_at ASC, c.id ASC").Limit(quota).Scan(&fresh).Error; err != nil {
+					if rows, err = load(); err != nil {
 						return nil, err
 					}
 				}
+			}
+			perSubject[i] = rows
+		}
+		for k := 0; len(fresh) < room; k++ { // one of each topic in turn
+			took := false
+			for _, rows := range perSubject {
+				if k < len(rows) && len(fresh) < room {
+					fresh = append(fresh, rows[k])
+					took = true
+				}
+			}
+			if !took {
+				break
 			}
 		}
 	}
@@ -209,18 +246,21 @@ func (s *Service) Queue(userID int64, f Filter, limit int, now time.Time) ([]Que
 	return items, nil
 }
 
-// autoIntroduce enrolls up to n cards the user has never seen from the active
-// decks (or from the filtered deck/subject).
-func (s *Service) autoIntroduce(userID int64, settings Settings, f Filter, n int, now time.Time) (int, error) {
+// autoIntroduce enrolls up to n cards of one topic the user has never seen:
+// from the filtered deck, else from the active decks of that topic (no active
+// deck at all: the English core vocabulary).
+func (s *Service) autoIntroduce(userID int64, settings Settings, f Filter, subject string, n int, now time.Time) (int, error) {
 	q := s.DB.Table("cards c").Select("c.id").
 		Where("NOT EXISTS (SELECT 1 FROM user_cards uc WHERE uc.user_id = ? AND uc.card_id = c.id)", userID)
 	switch {
-	case f.DeckID > 0 || f.SubjectID > 0:
+	case f.DeckID > 0:
 		q = scope(q, f)
 	case len(settings.ActiveDeckIDs) > 0:
-		q = q.Where("c.deck_id IN ?", settings.ActiveDeckIDs)
-	default:
+		q = scope(q, f).Where("c.deck_id IN ?", settings.ActiveDeckIDs)
+	case subject == DefaultSubject:
 		q = q.Where("c.deck_id IN (SELECT d.id FROM decks d JOIN subjects s ON s.id = d.subject_id WHERE s.slug = 'english' AND d.slug = 'core-vocab')")
+	default:
+		return 0, nil // a topic with no active deck: only the cards added by hand
 	}
 	q = q.Where("c.deck_id IN ("+VisibleDecksSQL+")", userID) // never another user's personal words
 	var ids []int64
@@ -228,6 +268,35 @@ func (s *Service) autoIntroduce(userID int64, settings Settings, f Filter, n int
 		return 0, err
 	}
 	return s.Enroll(userID, ids, now)
+}
+
+// SubjectRef is a topic (id and slug).
+type SubjectRef struct {
+	ID   int64
+	Slug string
+}
+
+// subjectsIn: the topics a filter covers (all topics when it has none), in display order.
+func (s *Service) subjectsIn(f Filter) ([]SubjectRef, error) {
+	var out []SubjectRef
+	q := s.DB.Table("subjects").Select("id, slug").Order("sort_order, id")
+	switch {
+	case f.DeckID > 0:
+		q = q.Where("id = (SELECT subject_id FROM decks WHERE id = ?)", f.DeckID)
+	case f.SubjectID > 0:
+		q = q.Where("id = ?", f.SubjectID)
+	case len(f.SubjectIDs) > 0:
+		q = q.Where("id IN ?", f.SubjectIDs)
+	}
+	err := q.Scan(&out).Error
+	return out, err
+}
+
+// SubjectSlug: the slug of a topic ("" if unknown).
+func (s *Service) SubjectSlug(id int64) string {
+	var slug string
+	s.DB.Raw(`SELECT slug FROM subjects WHERE id = ?`, id).Scan(&slug)
+	return slug
 }
 
 // Enroll adds cards to the user's learning list (no-op for cards already there).

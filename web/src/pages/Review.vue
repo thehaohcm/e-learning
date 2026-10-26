@@ -68,6 +68,9 @@
               <div v-if="soundLocked && autoSpeak && isEnglish" class="small text-warning mt-1">
                 <i class="bi bi-volume-mute"></i> Click anywhere or press a key to turn on sound
               </div>
+              <div v-if="item.card.payload.group" class="text-muted small mt-1">
+                <i class="bi bi-pencil"></i> {{ item.card.payload.group }} · how do you write it in English?
+              </div>
               <div v-if="item.card.payload.ipa || item.card.payload.pos" class="text-muted small mt-1">
                 {{ item.card.payload.ipa }}
                 <span v-if="item.card.payload.pos" class="ms-1 fst-italic">{{ item.card.payload.pos }}</span>
@@ -97,7 +100,7 @@
             <!-- ASK: multiple choice -->
             <template v-if="phase === 'ask' && choices.length && hideOptions">
               <p class="text-center text-muted small mb-2">
-                {{ item.card.kind === 'mcq' ? 'Think of the answer first.' : 'What does it mean? Say it to yourself first.' }}
+                {{ item.card.kind === 'mcq' ? 'Think of the answer first.' : item.card.payload.group ? 'Think of the English sentence first.' : 'What does it mean? Say it to yourself first.' }}
               </p>
               <div class="d-flex gap-2">
                 <button type="button" class="btn btn-outline-secondary flex-fill py-2" @click="dontKnow">
@@ -109,7 +112,7 @@
               </div>
             </template>
             <template v-else-if="phase === 'ask' && choices.length">
-              <p class="text-center text-muted small mb-2">{{ item.card.kind === 'mcq' ? 'Choose the best answer' : 'What does it mean?' }}</p>
+              <p class="text-center text-muted small mb-2">{{ item.card.kind === 'mcq' ? 'Choose the best answer' : item.card.payload.group ? 'Which one says it?' : 'What does it mean?' }}</p>
               <button v-for="(c, i) in choices" :key="c.id" type="button"
                 class="btn btn-outline-primary w-100 text-start mb-2 py-2 choice"
                 @click="pick(c.id)">
@@ -248,6 +251,7 @@ import ClozeRound from '../components/common/ClozeRound.vue'
 import { RATE_REPLAY, RATE_SLOW, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import { RATINGS, stateLabel } from '../types'
 import type { QueueItem } from '../types'
+import { loadSubjects, shortName, subject, subjectId } from '../composables/useSubject'
 
 type Mode = 'choose' | 'self'
 
@@ -284,8 +288,11 @@ async function afterCloze() {
 const item = computed(() => queue.value[idx.value] ?? null)
 const isEnglish = computed(() => item.value?.card.kind === 'vocab' || item.value?.card.kind === 'phrasal')
 const progressPct = computed(() => (queue.value.length ? Math.round((idx.value / queue.value.length) * 100) : 0))
-const kindLabel = computed(() => ({ vocab: 'Word', phrasal: 'Phrasal verb', concept: 'Concept', mcq: 'Question' }[item.value?.card.kind ?? 'vocab']))
-const scopeLabel = computed(() => (route.query.deck_id ? 'This deck' : route.query.subject_id ? 'This subject' : 'All subjects'))
+const kindLabel = computed(() =>
+  item.value?.card.payload.group ? 'Writing phrase'
+    : ({ vocab: 'Word', phrasal: 'Phrasal verb', concept: 'Concept', mcq: 'Question' }[item.value?.card.kind ?? 'vocab']))
+const scopeLabel = computed(() =>
+  route.query.deck_id ? 'This deck' : subject.value ? shortName(subject.value.slug, subject.value.name) : 'All subjects')
 
 /** Choices for the current card: mcq cards always use their own; others only in "choose" mode. */
 const choices = computed<{ id: number; text: string }[]>(() => {
@@ -402,7 +409,7 @@ const addingMore = ref(false)
 async function learnMore(n: number) {
   addingMore.value = true
   try {
-    await api.post('/study/extra-new', { count: n })
+    await api.post('/study/extra-new', { count: n, subject_id: topicParam() || subjectId.value || undefined })
     await load()
   } catch (e) {
     error.value = errorMessage(e)
@@ -425,11 +432,18 @@ function startOfDay(d: Date): number {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime()
 }
 
+/** The topic studied: from the link (?subject_id), else the one chosen in the menu (a deck link has its own). */
+function topicParam(): number | undefined {
+  if (route.query.deck_id) return undefined
+  return Number(route.query.subject_id) || subjectId.value || undefined
+}
+
 async function load() {
   loaded.value = false
   error.value = ''
   try {
-    const params = { deck_id: route.query.deck_id, subject_id: route.query.subject_id, limit: 20 }
+    await loadSubjects()
+    const params = { deck_id: route.query.deck_id, subject_id: topicParam(), limit: 20 }
     const { data } = await api.get('/study/queue', { params })
     queue.value = data
     idx.value = 0
@@ -437,7 +451,7 @@ async function load() {
     if (!data.length) {
       // explain why there is nothing (daily limit reached? next card due when?)
       try {
-        empty.value = (await api.get('/stats')).data
+        empty.value = (await api.get('/stats', { params: { subject_id: topicParam() } })).data
       } catch { /* the generic message is shown */ }
     }
   } catch (e) {
@@ -545,6 +559,7 @@ function onKey(e: KeyboardEvent) {
 }
 
 watch(() => route.fullPath, load)
+watch(subjectId, (id, old) => { if (old && id !== old && !route.query.deck_id) load() })
 onMounted(() => {
   load()
   window.addEventListener('keydown', onKey)

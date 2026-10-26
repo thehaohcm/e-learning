@@ -43,7 +43,11 @@
     <div v-else-if="card.kind === 'concept'" class="p-2 rounded bg-light">
       <div class="fw-semibold fs-5">{{ card.payload.back }}</div>
       <div v-if="card.payload.note_vi" class="text-muted mt-1">{{ card.payload.note_vi }}</div>
-      <div v-if="card.payload.example" class="small mt-1"><i class="bi bi-calculator"></i> {{ card.payload.example }}</div>
+      <template v-if="card.payload.group">
+        <div v-if="card.payload.example" class="small mt-1 fst-italic" style="white-space: pre-line">“{{ card.payload.example }}”</div>
+        <div v-if="card.payload.example_vi" class="small text-muted" style="white-space: pre-line">{{ card.payload.example_vi }}</div>
+      </template>
+      <div v-else-if="card.payload.example" class="small mt-1"><i class="bi bi-calculator"></i> {{ card.payload.example }}</div>
     </div>
 
     <!-- mcq -->

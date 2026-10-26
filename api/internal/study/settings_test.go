@@ -34,11 +34,22 @@ func TestStreak(t *testing.T) {
 
 func TestNewLimitExtraOnlyToday(t *testing.T) {
 	s := ParseSettings([]byte(`{"daily_new": 10, "extra_new_date": "2026-10-22", "extra_new": 5}`))
-	if s.NewLimit("2026-10-22") != 15 || s.NewLimit("2026-10-23") != 10 {
-		t.Fatalf("got %d / %d", s.NewLimit("2026-10-22"), s.NewLimit("2026-10-23"))
+	if s.NewLimit("english", "2026-10-22") != 15 || s.NewLimit("english", "2026-10-23") != 10 || s.NewLimit("pmp", "2026-10-22") != 10 {
+		t.Fatalf("got %d / %d", s.NewLimit("english", "2026-10-22"), s.NewLimit("english", "2026-10-23"))
 	}
-	if s := ParseSettings([]byte(`{"extra_new": 9999}`)); s.ExtraNew != 0 {
-		t.Fatalf("not capped: %d", s.ExtraNew)
+	if s := ParseSettings([]byte(`{"extra_new": 9999}`)); s.ExtraNew != 0 || len(s.ExtraNewBySubject) != 0 {
+		t.Fatalf("not capped: %d %v", s.ExtraNew, s.ExtraNewBySubject)
+	}
+}
+
+func TestDailyNewBySubject(t *testing.T) {
+	s := ParseSettings([]byte(`{"daily_new": 10, "daily_new_by_subject": {"pmp": 5, "x": 999}}`))
+	if s.DailyNewFor("pmp") != 5 || s.DailyNewFor("english") != 10 || s.DailyNewFor("x") != 10 {
+		t.Fatalf("got %+v", s.DailyNewBySubject)
+	}
+	m, err := s.Merge([]byte(`{"daily_new_by_subject": {"english": 15}}`))
+	if err != nil || m.DailyNewFor("english") != 15 || m.DailyNewFor("pmp") != 5 {
+		t.Fatalf("merge %+v %v", m.DailyNewBySubject, err)
 	}
 }
 

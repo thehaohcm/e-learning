@@ -39,10 +39,15 @@ type PhrasalPayload struct {
 }
 
 // ConceptPayload is a generic term/definition card (PMP terms, formulas, ...).
+// Writing phrases are concept cards too: front = what to say (Vietnamese),
+// back = the English frame, with an example and a group ("Lý do", "Email: kết thư").
 type ConceptPayload struct {
-	Back    string `json:"back"`
-	NoteVi  string `json:"note_vi,omitempty"`
-	Example string `json:"example,omitempty"`
+	Back      string `json:"back"`
+	NoteVi    string `json:"note_vi,omitempty"`
+	Example   string `json:"example,omitempty"`
+	ExampleVi string `json:"example_vi,omitempty"`
+	Group     string `json:"group,omitempty"` // shown like a part of speech; wrong options come from the same group first
+	Order     int    `json:"order,omitempty"` // position in the phrase bank
 }
 
 // MCQPayload is a multiple-choice question; the card front is the question.
@@ -179,7 +184,7 @@ func ToCompact(c models.Card) Compact {
 	case models.KindConcept:
 		var p ConceptPayload
 		_ = json.Unmarshal(c.Payload, &p)
-		out.Back, out.MeaningVi, out.ExampleEn = p.Back, p.NoteVi, p.Example
+		out.Back, out.MeaningVi, out.ExampleEn, out.ExampleVi, out.POS = p.Back, p.NoteVi, p.Example, p.ExampleVi, p.Group
 	case models.KindMCQ:
 		var p MCQPayload
 		_ = json.Unmarshal(c.Payload, &p)

@@ -29,6 +29,8 @@ export interface Card {
     back?: string
     note_vi?: string
     example?: string
+    example_vi?: string // writing phrases (concept cards)
+    group?: string // writing phrases: "Lý do", "Email: kết thư", …
     choices?: string[]
     answer?: number
     explanation?: string

@@ -282,9 +282,15 @@ static void answer_box(lv_obj_t *p, card_t *c)
     lv_obj_set_style_pad_row(box, 4, 0);
     lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
     lv_obj_remove_flag(box, LV_OBJ_FLAG_SCROLLABLE);
-    if (c->meaning_vi) ui_label(box, c->meaning_vi, font_bold, COL_PRIMARY, -1);
-    if (c->meaning_en) ui_label(box, c->meaning_en, font_small, COL_MUTED, -1);
-    if (c->back) ui_label(box, c->back, font_body, COL_TEXT, -1);
+    if (!strcmp(c->kind, "concept") && c->back) {
+        // term / writing frame: the answer first, its note under it
+        ui_label(box, c->back, font_bold, COL_PRIMARY, -1);
+        if (c->meaning_vi) ui_label(box, c->meaning_vi, font_small, COL_MUTED, -1);
+    } else {
+        if (c->meaning_vi) ui_label(box, c->meaning_vi, font_bold, COL_PRIMARY, -1);
+        if (c->meaning_en) ui_label(box, c->meaning_en, font_small, COL_MUTED, -1);
+        if (c->back) ui_label(box, c->back, font_body, COL_TEXT, -1);
+    }
     if (c->example_en) ui_label(box, c->example_en, font_body, COL_TEXT, -1);
     if (c->example_vi) ui_label(box, c->example_vi, font_small, COL_MUTED, -1);
 }

@@ -26,3 +26,15 @@ func TestStudyReminder(t *testing.T) {
 		t.Fatalf("%q", m.Body)
 	}
 }
+
+func TestStudyReminderPerSubject(t *testing.T) {
+	m, ok := StudyReminder(study.Stats{DueNow: 11, Subjects: []study.SubjectStats{
+		{Slug: "english", Name: "English (TOEIC / IELTS)", Due: 8}, {Slug: "pmp", Name: "PMI PMP", Due: 3}}})
+	if !ok || m.Body != "8 English · 3 PMP to review" {
+		t.Fatalf("got %q", m.Body)
+	}
+	m, _ = StudyReminder(study.Stats{DueNow: 3, Subjects: []study.SubjectStats{{Slug: "english", Due: 0}, {Slug: "pmp", Due: 3}}})
+	if m.Body != "3 cards to review" {
+		t.Fatalf("one topic: %q", m.Body)
+	}
+}

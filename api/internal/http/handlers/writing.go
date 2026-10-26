@@ -44,7 +44,7 @@ func (h *Handler) evaluateWriting(id int64, prompt, text string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	now := time.Now().UTC()
-	fb, err := h.AI.EvaluateWriting(ctx, prompt, text)
+	fb, err := h.AI.EvaluateWriting(ctx, prompt, text, h.phraseLines())
 	if err != nil {
 		log.Printf("[ai] writing %d: %v", id, err)
 		msg := "AI evaluation failed, please submit again"

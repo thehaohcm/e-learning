@@ -27,15 +27,21 @@ func TestDeviceSettings(t *testing.T) {
 
 func TestExtraNewLeft(t *testing.T) {
 	s := DefaultSettings()
-	if s.ExtraNewLeft("2026-10-23") != MaxExtraNew {
+	if s.ExtraNewLeft("english", "2026-10-23") != MaxExtraNew {
 		t.Fatal("fresh day")
 	}
-	s.ExtraNewDate, s.ExtraNew = "2026-10-23", 15
-	if s.ExtraNewLeft("2026-10-23") != 5 || s.ExtraNewLeft("2026-10-24") != MaxExtraNew {
+	s.ExtraNewDate, s.ExtraNewBySubject = "2026-10-23", map[string]int{"english": 15}
+	if s.ExtraNewLeft("english", "2026-10-23") != 5 || s.ExtraNewLeft("english", "2026-10-24") != MaxExtraNew ||
+		s.ExtraNewLeft("pmp", "2026-10-23") != MaxExtraNew {
 		t.Fatal("left")
 	}
-	s.ExtraNew = 25
-	if s.ExtraNewLeft("2026-10-23") != 0 {
+	s.ExtraNewBySubject["english"] = 25
+	if s.ExtraNewLeft("english", "2026-10-23") != 0 {
 		t.Fatal("never negative")
+	}
+	// stored before topics had their own: the old value is English
+	old := ParseSettings([]byte(`{"extra_new_date":"2026-10-23","extra_new":5}`))
+	if old.ExtraNewLeft("english", "2026-10-23") != MaxExtraNew-5 || old.ExtraNewLeft("pmp", "2026-10-23") != MaxExtraNew {
+		t.Fatalf("old: %+v", old)
 	}
 }

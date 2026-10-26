@@ -1,6 +1,7 @@
 package study
 
 import (
+	"slices"
 	"database/sql"
 	"time"
 
@@ -23,6 +24,7 @@ type Stats struct {
 	NewToday      int            `json:"new_today"`       // new cards started today
 	NewLimitToday int            `json:"new_limit_today"` // daily setting + extra added for today
 	NextDueAt     *time.Time     `json:"next_due_at"`     // next card coming back (any deck), nil if none
+	LastReviewAt  *time.Time     `json:"last_review_at"`  // last answer on the web or a device, nil if never
 	ReviewsToday  int            `json:"reviews_today"`
 	CorrectToday  int            `json:"correct_today"`
 	StreakDays    int            `json:"streak_days"`
@@ -37,7 +39,9 @@ type DayCount struct {
 	Count int    `json:"count"`
 }
 
-func (s *Service) Stats(userID int64, now time.Time) (Stats, error) {
+// Stats for the given topics (none = all topics). Each topic has its own
+// daily new-card limit; NewLimitToday/NewLeftToday add them up.
+func (s *Service) Stats(userID int64, now time.Time, subjectIDs ...int64) (Stats, error) {
 	st := Stats{Subjects: []SubjectStats{}}
 	u, settings, err := s.loadUser(userID)
 	if err != nil {
@@ -45,7 +49,16 @@ func (s *Service) Stats(userID int64, now time.Time) (Stats, error) {
 	}
 	loc := UserLocation(u.Timezone)
 	today := startOfDay(now, loc)
+	day := dayKey(now, loc)
+	in := func(id int64) bool { return len(subjectIDs) == 0 || slices.Contains(subjectIDs, id) }
+	// review_logs of the topics only ("" = all)
+	logScope, logArgs := "", []any{}
+	if len(subjectIDs) > 0 {
+		logScope = " AND card_id IN (SELECT c.id FROM cards c JOIN decks d ON d.id = c.deck_id WHERE d.subject_id IN ?)"
+		logArgs = append(logArgs, subjectIDs)
+	}
 
+	var all []SubjectStats
 	if err := s.DB.Raw(`
 		SELECT sub.id AS subject_id, sub.slug, sub.name,
 		       COUNT(c.id) AS total,
@@ -57,41 +70,54 @@ func (s *Service) Stats(userID int64, now time.Time) (Stats, error) {
 		LEFT JOIN cards c ON c.deck_id = d.id
 		LEFT JOIN user_cards uc ON uc.card_id = c.id AND uc.user_id = ?
 		GROUP BY sub.id ORDER BY sub.sort_order, sub.id`,
-		now, srs.MasteredStabilityDays, userID, userID).Scan(&st.Subjects).Error; err != nil {
+		now, srs.MasteredStabilityDays, userID, userID).Scan(&all).Error; err != nil {
 		return st, err
 	}
-	for _, x := range st.Subjects {
+	for _, x := range all {
+		if !in(x.SubjectID) {
+			continue
+		}
+		st.Subjects = append(st.Subjects, x)
 		st.DueNow += x.Due
 		st.Learning += x.Learning
 		st.Mastered += x.Mastered
+		introduced, err := s.NewIntroducedToday(userID, loc, now, x.SubjectID)
+		if err != nil {
+			return st, err
+		}
+		limit := settings.NewLimit(x.Slug, day)
+		st.NewToday += introduced
+		st.NewLimitToday += limit
+		st.NewLeftToday += max(0, limit-introduced)
 	}
 
-	introduced, err := s.NewIntroducedToday(userID, loc, now)
-	if err != nil {
-		return st, err
+	ucScope, ucArgs := "", []any{}
+	if len(subjectIDs) > 0 {
+		ucScope = " AND uc.card_id IN (SELECT c.id FROM cards c JOIN decks d ON d.id = c.deck_id WHERE d.subject_id IN ?)"
+		ucArgs = append(ucArgs, subjectIDs)
 	}
-	st.NewToday = introduced
-	st.NewLimitToday = settings.NewLimit(dayKey(now, loc))
-	st.NewLeftToday = max(0, st.NewLimitToday-introduced)
-
 	var next sql.NullTime
-	_ = s.DB.Raw(`SELECT MIN(due) FROM user_cards WHERE user_id = ? AND NOT suspended AND state <> 0 AND due > ?`, userID, now).
-		Row().Scan(&next)
+	_ = s.DB.Raw(`SELECT MIN(uc.due) FROM user_cards uc WHERE uc.user_id = ? AND NOT uc.suspended AND uc.state <> 0 AND uc.due > ?`+ucScope,
+		append([]any{userID, now}, ucArgs...)...).Row().Scan(&next)
 	if next.Valid {
 		t := next.Time.UTC()
 		st.NextDueAt = &t
 	}
 
+	var last struct{ At *time.Time }
+	s.DB.Raw(`SELECT MAX(reviewed_at) AS at FROM review_logs WHERE user_id = ?`+logScope, append([]any{userID}, logArgs...)...).Scan(&last)
+	st.LastReviewAt = last.At
+
 	s.DB.Raw(`SELECT COUNT(*) AS n, COUNT(*) FILTER (WHERE rating >= 3) AS ok
-	          FROM review_logs WHERE user_id = ? AND reviewed_at >= ?`, userID, today).
+	          FROM review_logs WHERE user_id = ? AND reviewed_at >= ?`+logScope, append([]any{userID, today}, logArgs...)...).
 		Row().Scan(&st.ReviewsToday, &st.CorrectToday)
 
 	// Days (in the user's time zone) with at least one review, most recent first.
 	var days []time.Time
 	if err := s.DB.Raw(`
 		SELECT DISTINCT (reviewed_at AT TIME ZONE ?)::date AS d
-		FROM review_logs WHERE user_id = ? AND reviewed_at >= ?
-		ORDER BY d DESC`, loc.String(), userID, today.AddDate(0, 0, -400)).Scan(&days).Error; err != nil {
+		FROM review_logs WHERE user_id = ? AND reviewed_at >= ?`+logScope+`
+		ORDER BY d DESC`, append([]any{loc.String(), userID, today.AddDate(0, 0, -400)}, logArgs...)...).Scan(&days).Error; err != nil {
 		return st, err
 	}
 	st.StreakDays = streak(days, today)
@@ -102,8 +128,8 @@ func (s *Service) Stats(userID int64, now time.Time) (Stats, error) {
 	}
 	s.DB.Raw(`
 		SELECT (reviewed_at AT TIME ZONE ?)::date AS d, COUNT(*) AS n
-		FROM review_logs WHERE user_id = ? AND reviewed_at >= ?
-		GROUP BY d`, loc.String(), userID, today.AddDate(0, 0, -13)).Scan(&perDay)
+		FROM review_logs WHERE user_id = ? AND reviewed_at >= ?`+logScope+`
+		GROUP BY d`, append([]any{loc.String(), userID, today.AddDate(0, 0, -13)}, logArgs...)...).Scan(&perDay)
 	counts := map[string]int{}
 	for _, p := range perDay {
 		counts[p.D.Format("2006-01-02")] = p.N

@@ -5,7 +5,7 @@
         <h1 class="fw-bold mb-1">Hi{{ auth.user?.display_name ? `, ${auth.user.display_name}` : '' }} 👋</h1>
         <p class="text-muted mb-0">{{ headline }}</p>
       </div>
-      <router-link to="/review" class="btn btn-warning btn-lg shadow-sm" :class="{ disabled: !stats }">
+      <router-link :to="studyLink" class="btn btn-warning btn-lg shadow-sm" :class="{ disabled: !stats }">
         <i class="bi bi-arrow-repeat me-1"></i> Study now
         <span v-if="stats" class="badge bg-dark ms-1">{{ stats.due_now + stats.new_left_today }}</span>
       </router-link>
@@ -25,6 +25,8 @@
       </div>
     </div>
 
+    <ProgressCard v-if="stats && subjectId" :key="subjectId" :subject-id="subjectId" />
+
     <div v-if="stats" class="card border-0 shadow-sm mb-4">
       <div class="card-body">
         <h6 class="fw-bold mb-3">Reviews in the last 14 days</h6>
@@ -37,7 +39,7 @@
       </div>
     </div>
 
-    <div v-for="s in subjects" :key="s.id" class="mb-4">
+    <div v-for="s in shown" :key="s.id" class="mb-4">
       <div class="d-flex justify-content-between align-items-center mb-2">
         <div>
           <h4 class="fw-bold mb-0">{{ s.name }}</h4>
@@ -68,10 +70,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api, errorMessage } from '../api'
 import { auth } from '../auth'
 import type { Subject } from '../types'
+import ProgressCard from '../components/ProgressCard.vue'
+import { loadSubjects, shortName, subject, subjectId, subjects as allSubjects } from '../composables/useSubject'
 
 interface Stats {
   due_now: number
@@ -86,14 +90,17 @@ interface Stats {
 }
 
 const stats = ref<Stats | null>(null)
-const subjects = ref<Subject[]>([])
 const error = ref('')
+// only the topic chosen in the menu
+const shown = computed<Subject[]>(() => allSubjects.value.filter((x) => x.id === subjectId.value))
+const studyLink = computed(() => (subjectId.value ? `/review?subject_id=${subjectId.value}` : '/review'))
 
 const headline = computed(() => {
   if (!stats.value) return 'Loading your progress…'
   const s = stats.value
-  if (s.due_now === 0 && s.new_left_today === 0) return 'All done for today. Nice work!'
-  return `${s.due_now} card(s) to review and ${s.new_left_today} new card(s) left today.`
+  const topic = subject.value ? shortName(subject.value.slug, subject.value.name) + ': ' : ''
+  if (s.due_now === 0 && s.new_left_today === 0) return `${topic}all done for today. Nice work!`
+  return `${topic}${s.due_now} card(s) to review and ${s.new_left_today} new card(s) left today.`
 })
 
 const tiles = computed(() => {
@@ -110,13 +117,15 @@ const maxDay = computed(() => Math.max(1, ...(stats.value?.reviews_last_14_days.
 const barHeight = (n: number) => (n ? Math.max(4, Math.round((n / maxDay.value) * 70)) : 4)
 const subjectStats = (id: number) => stats.value?.subjects.find((x) => x.subject_id === id)
 
-onMounted(async () => {
+async function load() {
+  await loadSubjects(true) // fresh deck counts
+  if (!subjectId.value) return
   try {
-    const [st, subs] = await Promise.all([api.get('/stats'), api.get('/subjects')])
-    stats.value = st.data
-    subjects.value = subs.data
+    stats.value = (await api.get('/stats', { params: { subject_id: subjectId.value } })).data
   } catch (e) {
     error.value = errorMessage(e)
   }
-})
+}
+watch(subjectId, (id, old) => { if (id && id !== old) load() })
+onMounted(load)
 </script>

@@ -37,6 +37,14 @@ func StartReminders(ctx context.Context, db *gorm.DB, store *push.Store) {
 	}
 }
 
+// RecentGap: no reminder for someone who answered a card (web or device) this recently.
+const RecentGap = time.Hour
+
+// RecentlyStudied reports whether the user studied within RecentGap of now.
+func RecentlyStudied(st study.Stats, now time.Time) bool {
+	return st.LastReviewAt != nil && now.Sub(*st.LastReviewAt) < RecentGap
+}
+
 // SendDueReminders handles reminder slots at now and one minute before (a late
 // tick never skips a reminder; push_reminders_sent prevents doubles).
 func SendDueReminders(ctx context.Context, db *gorm.DB, store *push.Store, now time.Time) {
@@ -70,6 +78,10 @@ func SendDueReminders(ctx context.Context, db *gorm.DB, store *push.Store, now t
 			st, err := svc.Stats(u.ID, now)
 			if err != nil {
 				log.Printf("[reminders] stats user %d: %v", u.ID, err)
+				continue
+			}
+			if RecentlyStudied(st, now) {
+				log.Printf("[reminders] user %d slot %s: studied in the last %v, skipped", u.ID, slot, RecentGap)
 				continue
 			}
 			msg, ok := push.StudyReminder(st)

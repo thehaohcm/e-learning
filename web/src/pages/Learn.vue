@@ -3,13 +3,11 @@
     <div class="d-flex flex-wrap gap-2 align-items-end mb-3">
       <div class="flex-grow-1">
         <h2 class="fw-bold mb-1"><i class="bi bi-collection"></i> {{ deck?.name ?? (isAll ? 'All decks' : 'Browse cards') }}</h2>
-        <small class="text-muted">{{ isAll ? 'Search words, Vietnamese meanings and PMP terms in every deck.' : deck?.description }}</small>
+        <small class="text-muted">{{ isAll ? `Search every ${topicName} deck.` : deck?.description }}</small>
       </div>
       <select v-model.number="deckId" class="form-select w-auto" @change="onDeckChange">
-        <option :value="ALL">🔍 All decks</option>
-        <optgroup v-for="s in subjects" :key="s.id" :label="s.name">
-          <option v-for="d in s.decks" :key="d.id" :value="d.id">{{ d.name }} ({{ d.card_count }})</option>
-        </optgroup>
+        <option :value="ALL">🔍 All {{ topicName }} decks</option>
+        <option v-for="d in subjects[0]?.decks ?? []" :key="d.id" :value="d.id">{{ d.name }} ({{ d.card_count }})</option>
       </select>
     </div>
 
@@ -71,7 +69,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
 import { auth } from '../auth'
@@ -79,12 +77,15 @@ import FlashCard from '../components/flashcard/FlashCard.vue'
 import CardForm from '../components/CardForm.vue'
 import { RATE_REPLAY, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import type { CardWithProgress, Subject } from '../types'
+import { loadSubjects, shortName, subject, subjectId } from '../composables/useSubject'
 
 const route = useRoute()
 const router = useRouter()
 const { speakEnglish } = useSpeechSynthesis()
 
-const subjects = ref<Subject[]>([])
+// only the topic chosen in the menu
+const subjects = computed<Subject[]>(() => (subject.value ? [subject.value] : []))
+const topicName = computed(() => (subject.value ? shortName(subject.value.slug, subject.value.name) : ''))
 const ALL = -1 // "All decks": search everything (the old Search page)
 const deckId = ref<number>(route.query.deck_id === 'all' ? ALL : Number(route.query.deck_id) || 0)
 const isAll = computed(() => deckId.value === ALL)
@@ -113,7 +114,7 @@ async function load(p = 1) {
   if (!deckId.value) return
   loading.value = true
   try {
-    const params = { deck_id: isAll.value ? undefined : deckId.value, q: search.value || undefined, page: p, limit }
+    const params = { deck_id: isAll.value ? undefined : deckId.value, subject_id: isAll.value ? subjectId.value || undefined : undefined, q: search.value || undefined, page: p, limit }
     const { data } = await api.get('/cards', { params })
     cards.value = data.data
     total.value = data.total
@@ -172,11 +173,22 @@ function onCreated() {
   load(page.value)
 }
 
+/** The deck asked for when it belongs to the topic, else the topic's first deck ("all" stays). */
+function deckOfTopic(want: number): number {
+  const decks = subject.value?.decks ?? []
+  return want === ALL || decks.some((d) => d.id === want) ? want : decks[0]?.id ?? 0
+}
+
+watch(subjectId, (id, old) => {
+  if (!old || id === old) return
+  deckId.value = deckOfTopic(deckId.value === ALL ? ALL : 0)
+  load(1)
+})
+
 onMounted(async () => {
   try {
-    const { data } = await api.get('/subjects')
-    subjects.value = data
-    if (!deckId.value) deckId.value = data[0]?.decks[0]?.id ?? 0
+    await loadSubjects()
+    deckId.value = deckOfTopic(deckId.value)
     await load(1)
   } catch (e) {
     flash(errorMessage(e), false)

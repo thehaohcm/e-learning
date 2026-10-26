@@ -67,7 +67,61 @@
             <textarea v-model="prompt" class="form-control mb-3" rows="2"
               placeholder="E.g. Describe your daily work routine (IELTS Task 2 style questions work well too)"></textarea>
           </template>
-          <label class="form-label fw-semibold">Your writing</label>
+          <div class="d-flex justify-content-between align-items-center mb-2">
+            <label class="form-label fw-semibold mb-0">Your writing</label>
+            <button type="button" class="btn btn-sm" :class="bankOpen ? 'btn-primary' : 'btn-outline-primary'" @click="toggleBank">
+              <i class="bi bi-journal-bookmark"></i> Phrase bank
+            </button>
+          </div>
+
+          <!-- phrase bank: what you want to say → the English frame (click to add it) -->
+          <div v-if="bankOpen" class="bank border rounded p-2 mb-2">
+            <div v-if="bankLoading" class="small text-muted"><span class="spinner-border spinner-border-sm me-1"></span>Loading…</div>
+            <div v-else-if="bankError" class="small text-danger">{{ bankError }}</div>
+            <template v-else>
+              <div class="d-flex flex-wrap gap-1 mb-2">
+                <input v-model="bankQuery" class="form-control form-control-sm bank-search" placeholder="Search: lý do, however, kết thư…" />
+                <select v-model="bankGroup" class="form-select form-select-sm w-auto">
+                  <option value="">All ({{ bankTotal }})</option>
+                  <option v-for="g in bankGroups" :key="g.name" :value="g.name">{{ g.name }} ({{ g.items.length }})</option>
+                </select>
+              </div>
+              <div class="bank-list">
+                <template v-for="g in shownGroups" :key="g.name">
+                  <div class="small fw-bold text-muted mt-1">{{ g.name }}</div>
+                  <div v-for="ph in g.items" :key="ph.id" class="bank-item py-1">
+                    <div class="d-flex align-items-start gap-2">
+                      <div class="flex-grow-1 min-w-0 small">
+                        <span class="text-muted">{{ ph.vi }}</span>
+                        <i class="bi bi-arrow-right mx-1 text-muted"></i>
+                        <a href="#" class="fw-semibold" title="Add to your text" @click.prevent="insert(frameText(ph.pattern))">{{ ph.pattern }}</a>
+                        <button type="button" class="btn btn-link btn-sm p-0 ms-1 align-baseline" :title="openPhrase === ph.id ? 'Hide' : 'Example'"
+                          @click="openPhrase = openPhrase === ph.id ? 0 : ph.id">
+                          <i class="bi" :class="openPhrase === ph.id ? 'bi-chevron-up' : 'bi-info-circle'"></i>
+                        </button>
+                        <div v-if="openPhrase === ph.id" class="mt-1 ps-2 border-start">
+                          <div v-if="ph.note_vi" class="text-muted">{{ ph.note_vi }}</div>
+                          <div class="fst-italic" style="white-space: pre-line">“{{ ph.example }}”</div>
+                          <div class="text-muted" style="white-space: pre-line">{{ ph.example_vi }}</div>
+                        </div>
+                      </div>
+                      <i v-if="ph.in_study" class="bi bi-check2-circle text-success" title="In Study"></i>
+                    </div>
+                  </div>
+                </template>
+                <div v-if="!shownGroups.length" class="small text-muted">No frame matches.</div>
+              </div>
+              <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2 pt-2 border-top small">
+                <span class="text-muted">Click a frame to add it where the cursor is.</span>
+                <span v-if="bankInStudy >= bankTotal" class="text-success"><i class="bi bi-check2-circle"></i> All {{ bankTotal }} in Study</span>
+                <button v-else type="button" class="btn btn-sm btn-success" :disabled="bankBusy" @click="studyBank">
+                  <i class="bi bi-plus-circle"></i> Learn these in Study ({{ bankInStudy }}/{{ bankTotal }})
+                </button>
+              </div>
+              <div v-if="bankInfo" class="small text-success mt-1">{{ bankInfo }}</div>
+            </template>
+          </div>
+
           <textarea ref="textBox" v-model="text" class="form-control" rows="8" placeholder="Write here…"></textarea>
           <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mt-2">
             <small :class="countClass">
@@ -93,8 +147,11 @@
             <div class="row g-2 mb-3 text-center">
               <div class="col-6 col-md-3" v-for="s in scores" :key="s.label">
                 <div class="p-2 rounded bg-light">
-                  <div class="fs-4 fw-bold" :class="`text-${s.color}`">{{ Math.round(s.value ?? 0) }}</div>
+                  <div class="fs-4 fw-bold" :class="`text-${s.color}`">
+                    {{ Math.round(s.value ?? 0) }}<small class="fs-6 fw-normal text-muted">/100</small>
+                  </div>
                   <small class="text-muted">{{ s.label }}</small>
+                  <div v-if="s.label === 'Overall'" class="small fw-semibold" :class="scoreLevel(s.value).cls">{{ scoreLevel(s.value).text }}</div>
                 </div>
               </div>
             </div>
@@ -109,6 +166,18 @@
                 <div class="small text-muted">{{ e.explanation_vi }}</div>
               </li>
             </ul>
+
+            <template v-if="current.feedback?.phrase_tips?.length">
+              <h6 class="fw-bold mt-3"><i class="bi bi-journal-bookmark"></i> Use a frame</h6>
+              <ul class="list-unstyled">
+                <li v-for="(t, i) in current.feedback?.phrase_tips" :key="i" class="mb-2">
+                  <span v-if="t.original" class="text-muted">{{ t.original }}</span>
+                  <i v-if="t.original" class="bi bi-arrow-right mx-1"></i>
+                  <span class="text-success fw-semibold">{{ t.rewrite }}</span>
+                  <div class="small"><span class="badge bg-primary-subtle text-primary-emphasis">{{ t.pattern }}</span></div>
+                </li>
+              </ul>
+            </template>
 
             <h6 class="fw-bold mt-3">Rewrites</h6>
             <ul class="nav nav-pills mb-2 small">
@@ -135,7 +204,7 @@
             <span class="text-truncate me-2">{{ h.prompt }}</span>
             <span>
               <small class="text-muted me-2">{{ new Date(h.created_at).toLocaleDateString() }}</small>
-              <span v-if="h.overall_score != null" class="badge bg-success">{{ Math.round(h.overall_score) }}</span>
+              <span v-if="h.overall_score != null" class="badge bg-success">{{ Math.round(h.overall_score) }}/100</span>
               <span v-else class="badge bg-secondary">{{ h.status }}</span>
             </span>
           </button>
@@ -179,6 +248,7 @@ interface Submission {
     summary_vi?: string
     errors?: { original: string; correction: string; explanation_vi: string }[]
     rewrites?: { level: number; text: string }[]
+    phrase_tips?: { original: string; pattern: string; rewrite: string }[]
   }
 }
 
@@ -260,6 +330,99 @@ async function insert(phrase: string) {
 }
 
 watch(readingId, loadTask)
+
+// ---------------------------------------------------------------- phrase bank
+interface Phrase { id: number; vi: string; pattern: string; note_vi?: string; example?: string; example_vi?: string; in_study: boolean }
+interface PhraseGroup { name: string; items: Phrase[] }
+
+const bankOpen = ref(storageGet('elearn.phrasebank') === 'true')
+const bankGroups = ref<PhraseGroup[]>([])
+const bankTotal = ref(0)
+const bankInStudy = ref(0)
+const bankLoading = ref(false)
+const bankBusy = ref(false)
+const bankError = ref('')
+const bankInfo = ref('')
+const bankQuery = ref('')
+const bankGroup = ref('')
+const openPhrase = ref(0)
+
+function storageGet(k: string) {
+  try { return localStorage.getItem(k) } catch { return null }
+}
+function storageSet(k: string, v: string) {
+  try { localStorage.setItem(k, v) } catch { /* ignore */ }
+}
+
+/** Lower case, no Vietnamese accents: "ket thu" finds "Kết thư". */
+const fold = (s: string) => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd')
+
+const shownGroups = computed(() => {
+  const q = fold(bankQuery.value.trim())
+  return bankGroups.value
+    .filter((g) => !bankGroup.value || g.name === bankGroup.value)
+    .map((g) => ({
+      name: g.name,
+      items: !q ? g.items : g.items.filter((p) => fold(`${g.name} ${p.vi} ${p.pattern} ${p.example ?? ''}`).includes(q)),
+    }))
+    .filter((g) => g.items.length)
+})
+
+async function loadBank() {
+  if (bankGroups.value.length || bankLoading.value) return
+  bankLoading.value = true
+  bankError.value = ''
+  try {
+    const { data } = await api.get('/writing/phrases')
+    bankGroups.value = data.groups ?? []
+    bankTotal.value = data.total ?? 0
+    bankInStudy.value = data.in_study ?? 0
+  } catch (e) {
+    bankError.value = errorMessage(e)
+  } finally {
+    bankLoading.value = false
+  }
+}
+
+function toggleBank() {
+  bankOpen.value = !bankOpen.value
+  storageSet('elearn.phrasebank', String(bankOpen.value))
+  if (bankOpen.value) loadBank()
+}
+
+/** The frame as text to start from: "I would be grateful if you could + V" → "I would be grateful if you could ". */
+function frameText(pattern: string): string {
+  let t = pattern.replace(/^…\s*/, '')
+  const plus = t.indexOf(' + ')
+  if (plus > 0) t = t.slice(0, plus)
+  t = t.replace(/\s*…\s*$/, '').trimEnd()
+  return t + ' '
+}
+
+async function studyBank() {
+  bankBusy.value = true
+  bankInfo.value = ''
+  try {
+    const { data } = await api.post('/writing/phrases/study')
+    bankGroups.value = bankGroups.value.map((g) => ({ ...g, items: g.items.map((p) => ({ ...p, in_study: true })) }))
+    bankInStudy.value = bankTotal.value
+    bankInfo.value = data.added
+      ? `${data.added} frames added to Study: they come with your new cards each day (deck “Writing phrases”).`
+      : 'Already in Study.'
+  } catch (e) {
+    bankError.value = errorMessage(e)
+  } finally {
+    bankBusy.value = false
+  }
+}
+/** What a score (0-100) means; the AI is given the same bands. */
+function scoreLevel(v?: number | null): { text: string; cls: string } {
+  const n = Math.round(v ?? 0)
+  if (n >= 80) return { text: 'Good', cls: 'text-success' }
+  if (n >= 60) return { text: 'Fair', cls: 'text-primary' }
+  if (n >= 40) return { text: 'Needs work', cls: 'text-warning' }
+  return { text: 'Redo', cls: 'text-danger' }
+}
 const scores = computed(() => [
   { label: 'Overall', value: current.value?.overall_score, color: 'info' },
   { label: 'Grammar', value: current.value?.grammar_score, color: 'primary' },
@@ -309,6 +472,15 @@ async function loadHistory() {
 onMounted(() => {
   loadHistory()
   loadTask()
+  if (bankOpen.value) loadBank()
 })
 onUnmounted(() => clearTimeout(timer))
 </script>
+
+<style scoped>
+.bank { background: #f8fafc; }
+.bank-list { max-height: 320px; overflow-y: auto; }
+.bank-item + .bank-item { border-top: 1px dashed #e2e8f0; }
+.bank-search { flex: 1 1 180px; }
+.min-w-0 { min-width: 0; }
+</style>

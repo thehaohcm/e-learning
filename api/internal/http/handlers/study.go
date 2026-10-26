@@ -103,8 +103,17 @@ func (h *Handler) QuizAnswer(c *gin.Context) {
 	c.JSON(http.StatusOK, res)
 }
 
+// subjectsQuery: ?subject_id=2 → [2]; none → all topics.
+func subjectsQuery(c *gin.Context) []int64 {
+	if id := queryInt64(c, "subject_id"); id > 0 {
+		return []int64{id}
+	}
+	return nil
+}
+
+// Stats: GET /api/stats[?subject_id=] (one topic, or all).
 func (h *Handler) Stats(c *gin.Context) {
-	st, err := h.Study.Stats(userID(c), time.Now().UTC())
+	st, err := h.Study.Stats(userID(c), time.Now().UTC(), subjectsQuery(c)...)
 	if err != nil {
 		internal(c, err)
 		return
@@ -112,22 +121,40 @@ func (h *Handler) Stats(c *gin.Context) {
 	c.JSON(http.StatusOK, st)
 }
 
-// ExtraNew: POST /api/study/extra-new {"count":5} lets the user learn more new
-// cards today than the daily setting (only for today).
+// Progress: GET /api/stats/progress[?subject_id=] — how well the cards are known (groups,
+// percentages, per subject) and the most forgotten ones.
+func (h *Handler) Progress(c *gin.Context) {
+	p, err := h.Study.Progress(userID(c), time.Now().UTC(), subjectsQuery(c)...)
+	if err != nil {
+		internal(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, p)
+}
+
+// ExtraNew: POST /api/study/extra-new {"count":5, "subject_id":2} lets the user
+// learn more new cards of a topic today than the daily setting (only for today).
+// No topic: English.
 func (h *Handler) ExtraNew(c *gin.Context) {
 	var req struct {
-		Count int `json:"count"`
+		Count     int   `json:"count"`
+		SubjectID int64 `json:"subject_id"`
 	}
 	_ = c.ShouldBindJSON(&req)
 	if req.Count <= 0 || req.Count > 50 {
 		req.Count = 5
 	}
 	now := time.Now().UTC()
-	if _, err := h.Study.AddExtraNew(userID(c), req.Count, now); err != nil {
+	slug := ""
+	var subs []int64
+	if req.SubjectID > 0 {
+		slug, subs = h.Study.SubjectSlug(req.SubjectID), []int64{req.SubjectID}
+	}
+	if _, err := h.Study.AddExtraNew(userID(c), slug, req.Count, now); err != nil {
 		internal(c, err)
 		return
 	}
-	st, err := h.Study.Stats(userID(c), now)
+	st, err := h.Study.Stats(userID(c), now, subs...)
 	if err != nil {
 		internal(c, err)
 		return
