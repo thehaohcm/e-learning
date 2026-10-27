@@ -8,7 +8,7 @@ import (
 
 // WritingTask is a short writing exercise based on a reading or conversation.
 type WritingTask struct {
-	Type          string   `json:"type"`           // email_reply | message | opinion | summary
+	Type          string   `json:"type"`           // email_reply | message | opinion | summary | comment_reply
 	InstructionEn string   `json:"instruction_en"` // what to write, in English (sent to the evaluator)
 	InstructionVi string   `json:"instruction_vi"`
 	MinWords      int      `json:"min_words"`
@@ -41,9 +41,10 @@ Title: %s
 """
 Vocabulary of the text: %s
 
-Write ONE short writing task that makes the learner respond to this text, like TOEIC Writing or IELTS:
-- an email/notice/ad -> reply to it ("email_reply"); a conversation -> a message as one speaker, e.g. confirming what was agreed ("message");
+Write ONE short writing task that makes the learner respond to this text. Pick the task type that best fits the text and keep the register matching:
+- an email/notice/ad -> reply to it ("email_reply", professional); a conversation -> a message as one speaker, e.g. confirming what was agreed ("message", everyday);
   an article/report -> give and support an opinion ("opinion") or summarise for a colleague ("summary").
+- If the text is a conversation or an everyday/opinion topic, you MAY instead ask for a short CASUAL online comment replying to it, as if posting on a forum, Reddit or social media ("comment_reply"). For this type use an informal, friendly register (contractions, relaxed tone) — the instruction, useful_phrases and sample_answer must all be casual, never formal.
 - Clear and concrete: who writes to whom and 2-3 points to include.
 - Length: %d-%d words.
 - "required_words": 3 words from the vocabulary list (exactly as listed) that fit the task naturally.
@@ -56,7 +57,7 @@ Return JSON: {"type":"email_reply","instruction_en":"...","instruction_vi":"(the
 		kind, level, title, truncate(text, 4000), strings.Join(vocab, ", "), wr[0], wr[1], wr[0], wr[1])
 
 	var t WritingTask
-	if err := c.chatJSON(ctx, "You are an experienced TOEIC and IELTS writing teacher. Reply with a single JSON object only.", prompt, 0.6, &t); err != nil {
+	if err := c.chatJSON(ctx, "You are an experienced English writing teacher who sets tasks in the right register — workplace email, everyday message, casual online comment, or academic essay. Reply with a single JSON object only.", prompt, 0.6, &t); err != nil {
 		return nil, err
 	}
 	t.InstructionEn, t.InstructionVi = strings.TrimSpace(t.InstructionEn), strings.TrimSpace(t.InstructionVi)
@@ -106,6 +107,10 @@ var templateHelp = map[string]struct {
 		[]string{"Nêu quan điểm của bạn", "Lý do 1 + ví dụ", "Lý do 2 + ví dụ", "Kết luận, nhắc lại quan điểm"},
 		[]UsefulPhrase{{"In my view,…", "Theo quan điểm của tôi,…"}, {"The main reason is that…", "Lý do chính là…"}, {"For example,…", "Ví dụ,…"}, {"On the other hand,…", "Mặt khác,…"}, {"To sum up,…", "Tóm lại,…"}},
 	},
+	"comment_reply": {
+		[]string{"Phản ứng ngắn với nội dung (đồng ý / không / thấy thú vị)", "Nêu ý kiến của bạn + 1 lý do", "Thêm ví dụ hoặc trải nghiệm cá nhân", "Kết thoải mái hoặc hỏi lại người đọc"},
+		[]UsefulPhrase{{"Honestly,…", "Thật ra thì,…"}, {"To be fair,…", "Nói công bằng thì,…"}, {"I totally get that, but…", "Mình hiểu mà, nhưng…"}, {"That said,…", "Dù vậy,…"}, {"What do you guys think?", "Mọi người nghĩ sao?"}},
+	},
 }
 
 // normalize keeps sensible word limits and required words taken from the vocabulary.
@@ -146,7 +151,7 @@ func (t *WritingTask) normalize(kind, level string, vocab []string) {
 	}
 	t.RequiredWords = req
 	switch t.Type {
-	case "email_reply", "message", "opinion", "summary":
+	case "email_reply", "message", "opinion", "summary", "comment_reply":
 	default:
 		if kind == "conversation" {
 			t.Type = "message"

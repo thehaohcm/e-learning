@@ -17,6 +17,9 @@
           <button v-if="isEnglish" @click="$emit('speak', card.front)" class="btn btn-outline-secondary btn-sm" title="Listen">
             <i class="bi bi-volume-up"></i>
           </button>
+          <button v-if="canEdit" @click="$emit('edit')" class="btn btn-outline-secondary btn-sm" title="Edit card (admin)">
+            <i class="bi bi-pencil"></i>
+          </button>
           <button v-if="canDelete" @click="$emit('remove')" class="btn btn-outline-danger btn-sm" title="Delete card (admin)">
             <i class="bi bi-trash"></i>
           </button>
@@ -46,8 +49,8 @@ import Pronunciation from '../Pronunciation.vue'
 import type { CardWithProgress } from '../../types'
 import { stateLabel } from '../../types'
 
-const props = defineProps<{ card: CardWithProgress; canDelete?: boolean }>()
-defineEmits<{ speak: [text: string]; speakSentence: [en: string]; add: []; remove: [] }>()
+const props = defineProps<{ card: CardWithProgress; canDelete?: boolean; canEdit?: boolean }>()
+defineEmits<{ speak: [text: string]; speakSentence: [en: string]; add: []; remove: []; edit: [] }>()
 
 const isEnglish = computed(() => props.card.kind === 'vocab' || props.card.kind === 'phrasal')
 const youglishUrl = computed(() => `https://youglish.com/pronounce/${encodeURIComponent(props.card.front)}/english`)

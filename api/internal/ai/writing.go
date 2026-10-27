@@ -72,9 +72,11 @@ Return JSON:
   "rewrites": [
     {"level": 1, "text": "simple, correct version"},
     {"level": 2, "text": "natural everyday version"},
-    {"level": 3, "text": "advanced IELTS 7+ version"}
+    {"level": 3, "text": "polished, native-level version in the SAME register as the task"}
   ]
 }
+Register: judge the writing against the register and purpose the task calls for — a workplace email, a casual online comment/message, or an academic essay — NOT one fixed exam style. If the task is casual, do NOT lower any score for informal wording, contractions, or appropriate slang; only flag actual errors or wording that is wrong for the register. If the task is formal, flag wording that is too casual. The level-3 rewrite must stay in the task's register (polished but still informal for a casual task, formal for a formal task), never forced into academic style.
+
 Scoring (every score 0-100, the same scale each time):
 - 80-100 good: does the whole task, almost no errors, natural and varied wording.
 - 60-79 fair: does the task, some errors that do not block the meaning.
@@ -86,7 +88,7 @@ words to use and the text has fewer words, or does not use a required word (any 
 List at most 8 of the most important errors. Keep the learner's meaning.%s`, prompt, text, bank)
 
 	var fb WritingFeedback
-	if err := c.chatJSON(ctx, "You are a strict but encouraging IELTS writing examiner. Reply with a single JSON object only.", user, 0.3, &fb); err != nil {
+	if err := c.chatJSON(ctx, "You are an experienced, encouraging English writing teacher. You judge writing against the register and purpose the task calls for (workplace email, casual online comment, or academic essay), not one fixed exam style. Reply with a single JSON object only.", user, 0.3, &fb); err != nil {
 		return nil, err
 	}
 	clamp := func(v float64) float64 {

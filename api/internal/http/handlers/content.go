@@ -363,14 +363,32 @@ func (h *Handler) GenerateCards(c *gin.Context) {
 	var subject models.Subject
 	h.DB.First(&subject, deck.SubjectID)
 
-	var existing []string
-	h.DB.Model(&models.Card{}).Where("deck_id = ?", deck.ID).Order("id DESC").Limit(300).Pluck("front", &existing)
-
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 170*time.Second)
 	defer cancel()
-	generated, err := h.AI.GenerateCards(ctx, ai.DeckContext{
+
+	if req.Model != "" && !h.chatModelAllowed(ctx, req.Model) {
+		abort(c, http.StatusBadRequest, "model not allowed")
+		return
+	}
+
+	deckCtx := ai.DeckContext{
 		SubjectName: subject.Name, DeckName: deck.Name, Description: deck.Description, Kind: deck.DefaultKind,
-	}, req.Count, existing)
+	}
+
+	var generated []ai.GeneratedCard
+	var err error
+	if len(req.Terms) > 0 {
+		// fill a specific batch of concepts (used by "Fill whole course")
+		terms := req.Terms
+		if len(terms) > 15 {
+			terms = terms[:15]
+		}
+		generated, err = h.AI.GenerateCardsFor(ctx, req.Model, deckCtx, terms)
+	} else {
+		var existing []string
+		h.DB.Model(&models.Card{}).Where("deck_id = ?", deck.ID).Order("id DESC").Limit(300).Pluck("front", &existing)
+		generated, err = h.AI.GenerateCards(ctx, deckCtx, req.Count, existing)
+	}
 	if err != nil {
 		log.Printf("[ai] generate deck=%d: %v", deck.ID, err)
 		abort(c, http.StatusBadGateway, "AI generation failed, please try again")
@@ -395,4 +413,66 @@ func (h *Handler) GenerateCards(c *gin.Context) {
 		created = append(created, card)
 	}
 	c.JSON(http.StatusOK, gin.H{"created": len(created), "skipped": skipped, "cards": created})
+}
+
+// defaultCeiling is the default max number of cards aimed for in one deck when
+// filling the whole course, to keep AI generation bounded.
+const defaultCeiling = 150
+
+// OutlineDeck asks the AI for the full list of concepts of a deck (its finite
+// syllabus), minus the ones that already exist, so the client can fill the deck
+// to completion with a visible target. Admin only.
+func (h *Handler) OutlineDeck(c *gin.Context) {
+	id, ok := paramID(c, "id")
+	if !ok {
+		return
+	}
+	if !h.AI.Enabled() {
+		abort(c, http.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
+		return
+	}
+	var req dto.OutlineRequest
+	_ = c.ShouldBindJSON(&req)
+	ceiling := req.Ceiling
+	if ceiling <= 0 {
+		ceiling = defaultCeiling
+	}
+	ceiling = min(ceiling, 400)
+
+	var deck models.Deck
+	if err := h.DB.First(&deck, id).Error; err != nil {
+		notFoundOr500(c, err, "deck")
+		return
+	}
+	var subject models.Subject
+	h.DB.First(&subject, deck.SubjectID)
+
+	var existing []string
+	h.DB.Model(&models.Card{}).Where("deck_id = ?", deck.ID).Order("id").Pluck("front", &existing)
+
+	remaining := ceiling - len(existing)
+	if remaining <= 0 {
+		// hit the safety ceiling — stop, but the real scope may hold even more
+		c.JSON(http.StatusOK, gin.H{"terms": []string{}, "existing": len(existing), "ceiling": ceiling, "capped": true, "scope_complete": false})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 170*time.Second)
+	defer cancel()
+	if req.Model != "" && !h.chatModelAllowed(ctx, req.Model) {
+		abort(c, http.StatusBadRequest, "model not allowed")
+		return
+	}
+
+	terms, err := h.AI.OutlineDeck(ctx, req.Model, ai.DeckContext{
+		SubjectName: subject.Name, DeckName: deck.Name, Description: deck.Description, Kind: deck.DefaultKind,
+	}, remaining, existing)
+	if err != nil {
+		log.Printf("[ai] outline deck=%d: %v", deck.ID, err)
+		abort(c, http.StatusBadGateway, "AI outline failed, please try again")
+		return
+	}
+	// No more terms while still under the ceiling means the AI has laid out the
+	// deck's whole scope — nothing left to generate.
+	c.JSON(http.StatusOK, gin.H{"terms": terms, "existing": len(existing), "ceiling": ceiling, "capped": false, "scope_complete": len(terms) == 0})
 }

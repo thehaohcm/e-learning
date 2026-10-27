@@ -170,6 +170,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		a.POST("/decks", h.CreateDeck)
 		a.PUT("/decks/:id", h.UpdateDeck)
 		a.POST("/decks/:id/generate", h.GenerateCards)
+		a.POST("/decks/:id/outline", h.OutlineDeck)
 		a.POST("/cards", h.CreateCard)
 		a.PUT("/cards/:id", h.UpdateCard)
 		a.DELETE("/cards/:id", h.DeleteCard)

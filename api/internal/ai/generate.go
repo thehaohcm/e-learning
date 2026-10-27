@@ -33,8 +33,9 @@ func generationPrompt(d DeckContext, count int, avoid []string) (string, error) 
 
 	switch d.Kind {
 	case "vocab":
-		fmt.Fprintf(&b, `Generate exactly %d English words useful for TOEIC/IELTS at B1-C1 level for Vietnamese learners.
-Prefer words used in work and daily life. Examples must be short, natural and easy to understand.
+		fmt.Fprintf(&b, `Generate exactly %d English words for Vietnamese learners, at roughly B1-C1 level.
+Choose words and a register that fit THIS deck's goal — follow the deck name and description above (e.g. workplace/TOEIC, academic/IELTS, or casual everyday/forum). Prefer words the learner will actually meet for that goal.
+Examples must be short, natural, and written in the same register as the deck (a workplace email, an everyday chat, etc.), easy to understand.
 Return JSON: {"cards": [
   {"front": "word", "payload": {"ipa": "/.../", "pos": "noun|verb|adjective|...", "topic": "business",
       %s}}

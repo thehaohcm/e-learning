@@ -64,7 +64,15 @@ type CardRequest struct {
 }
 
 type GenerateRequest struct {
-	Count int `json:"count"`
+	Count int      `json:"count"`
+	Terms []string `json:"terms"` // when set, generate a card for each of these exact terms
+	Model string   `json:"model"` // optional chat-model override
+}
+
+// OutlineRequest asks the AI for the full list of concepts of a deck.
+type OutlineRequest struct {
+	Ceiling int    `json:"ceiling"` // max total cards wanted in the deck (default 150)
+	Model   string `json:"model"`
 }
 
 // ---------------------------------------------------------------- study

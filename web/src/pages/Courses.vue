@@ -71,49 +71,80 @@
             <button v-if="edit.id !== s.id" class="btn btn-sm btn-outline-secondary" @click="startEdit(s)"><i class="bi bi-pencil"></i></button>
           </div>
 
-          <!-- decks -->
-          <table class="table table-sm align-middle mt-3 mb-2">
-            <thead><tr class="small text-muted"><th>Deck</th><th>Kind</th><th class="text-end">Cards</th><th></th></tr></thead>
-            <tbody>
-              <tr v-for="d in s.decks" :key="d.id">
-                <td>
-                  <template v-if="dedit.id === d.id">
-                    <input v-model="dedit.name" class="form-control form-control-sm d-inline-block" style="width: 14rem" />
-                    <input v-model="dedit.description" class="form-control form-control-sm mt-1" placeholder="Description" />
-                  </template>
-                  <template v-else>
-                    <span class="fw-semibold">{{ d.name }}</span> <small class="text-muted">/{{ d.slug }}</small>
-                    <div class="small text-muted">{{ d.description }}</div>
-                  </template>
-                </td>
-                <td>
-                  <select v-if="dedit.id === d.id" v-model="dedit.default_kind" class="form-select form-select-sm">
+          <!-- decks: a flex list that wraps on narrow screens (no fixed-width table) -->
+          <div class="decks mt-3 mb-2">
+            <div v-for="d in s.decks" :key="d.id" class="deck-row d-flex flex-wrap align-items-center gap-2 py-2 border-top">
+              <template v-if="dedit.id === d.id">
+                <div class="flex-grow-1 min-w-0 d-flex flex-column gap-1">
+                  <input v-model="dedit.name" class="form-control form-control-sm" placeholder="Deck name" />
+                  <input v-model="dedit.description" class="form-control form-control-sm" placeholder="Description" />
+                  <select v-model="dedit.default_kind" class="form-select form-select-sm w-auto">
                     <option v-for="k in KINDS" :key="k" :value="k">{{ k }}</option>
                   </select>
-                  <span v-else class="badge text-bg-light border">{{ d.default_kind }}</span>
-                </td>
-                <td class="text-end">{{ d.card_count }}</td>
-                <td class="text-end text-nowrap">
-                  <template v-if="dedit.id === d.id">
-                    <button class="btn btn-sm btn-success py-0" :disabled="busy" @click="saveDeck(s, d)">Save</button>
-                    <button class="btn btn-sm btn-link py-0" @click="dedit.id = 0">Cancel</button>
-                  </template>
-                  <template v-else>
-                    <div class="input-group input-group-sm d-inline-flex w-auto align-middle me-1">
-                      <input v-model.number="genCount[d.id]" type="number" min="1" max="20" class="form-control" style="width: 4rem" />
-                      <button class="btn btn-outline-primary" :disabled="genBusy === d.id" title="Generate cards with AI" @click="generate(s, d)">
-                        <span v-if="genBusy === d.id" class="spinner-border spinner-border-sm"></span>
-                        <template v-else><i class="bi bi-stars"></i> AI</template>
-                      </button>
-                    </div>
-                    <router-link class="btn btn-sm btn-outline-secondary py-0" :to="`/learn?deck_id=${d.id}`" title="Browse / add cards"><i class="bi bi-collection"></i></router-link>
-                    <button class="btn btn-sm btn-outline-secondary py-0 ms-1" @click="startDeckEdit(d)"><i class="bi bi-pencil"></i></button>
-                  </template>
-                </td>
-              </tr>
-              <tr v-if="!s.decks.length"><td colspan="4" class="text-muted small">No decks yet — add one below.</td></tr>
-            </tbody>
-          </table>
+                </div>
+                <div class="d-flex gap-1 flex-shrink-0">
+                  <button class="btn btn-sm btn-success" :disabled="busy" @click="saveDeck(s, d)">Save</button>
+                  <button class="btn btn-sm btn-link" @click="dedit.id = 0">Cancel</button>
+                </div>
+              </template>
+              <template v-else>
+                <div class="flex-grow-1 min-w-0">
+                  <div><span class="fw-semibold">{{ d.name }}</span> <small class="text-muted">/{{ d.slug }}</small></div>
+                  <div v-if="d.description" class="small text-muted">{{ d.description }}</div>
+                </div>
+                <span class="badge text-bg-light border flex-shrink-0">{{ d.default_kind }}</span>
+                <span class="small text-muted text-nowrap flex-shrink-0">{{ d.card_count }} cards</span>
+                <div class="d-flex align-items-center gap-1 flex-shrink-0 ms-auto">
+                  <div class="input-group input-group-sm w-auto">
+                    <input v-model.number="genCount[d.id]" type="number" min="1" max="20" class="form-control" style="width: 3.5rem" />
+                    <button class="btn btn-outline-primary" :disabled="genBusy === d.id" title="Generate cards with AI" @click="generate(s, d)">
+                      <span v-if="genBusy === d.id" class="spinner-border spinner-border-sm"></span>
+                      <template v-else><i class="bi bi-stars"></i> AI</template>
+                    </button>
+                  </div>
+                  <router-link class="btn btn-sm btn-outline-secondary" :to="`/learn?deck_id=${d.id}`" title="Browse / add cards"><i class="bi bi-collection"></i></router-link>
+                  <button class="btn btn-sm btn-outline-secondary" title="Edit deck" @click="startDeckEdit(d)"><i class="bi bi-pencil"></i></button>
+                </div>
+              </template>
+            </div>
+            <div v-if="!s.decks.length" class="text-muted small py-2 border-top">No decks yet — add one below.</div>
+          </div>
+
+          <!-- AI: fill the whole course -->
+          <div v-if="auth.isAdmin && s.decks.length" class="border-top pt-2 mb-2">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+              <button class="btn btn-sm btn-warning" :disabled="fill.running" @click="fillCourse(s)">
+                <i class="bi bi-stars"></i> AI: gen toàn bộ course
+              </button>
+              <template v-if="!fill.running">
+                <select v-if="fillModels.length" v-model="fill.model" class="form-select form-select-sm w-auto">
+                  <option value="">Model mặc định</option>
+                  <option v-for="m in fillModels" :key="m" :value="m">{{ m }}</option>
+                </select>
+                <div class="input-group input-group-sm w-auto">
+                  <span class="input-group-text">Trần/deck</span>
+                  <input v-model.number="fill.ceiling" type="number" min="10" max="400" class="form-control" style="width: 5rem" />
+                </div>
+              </template>
+              <button v-if="fill.running && fill.subjectId === s.id" class="btn btn-sm btn-outline-danger" @click="fill.stop = true">
+                <i class="bi bi-stop-circle"></i> Dừng
+              </button>
+            </div>
+            <p class="small text-muted mb-0 mt-1">
+              AI liệt kê toàn bộ khái niệm của từng deck rồi tự tạo đến khi phủ hết (hoặc đạt trần). Chạy lại chỉ tạo phần còn thiếu. Nên xem lại ở Browse và sửa thẻ sai.
+            </p>
+            <div v-if="fill.subjectId === s.id && (fill.running || fill.log.length)" class="mt-2 small">
+              <div v-if="fill.running" class="d-flex align-items-center gap-2 text-primary">
+                <span class="spinner-border spinner-border-sm"></span>
+                <span>{{ fill.status }}</span>
+                <span class="text-muted">· đã tạo {{ fill.created }} thẻ</span>
+              </div>
+              <div v-else class="fw-semibold">{{ fill.status }} · {{ fill.created }} thẻ mới</div>
+              <ul v-if="fill.log.length" class="mb-0 mt-1 ps-3">
+                <li v-for="(l, i) in fill.log" :key="i" class="text-muted">{{ l }}</li>
+              </ul>
+            </div>
+          </div>
 
           <!-- new deck -->
           <div v-if="newDeckFor === s.id" class="row g-2 border-top pt-2">
@@ -144,6 +175,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { api, errorMessage } from '../api'
+import { auth } from '../auth'
 import { loadSubjects } from '../composables/useSubject'
 import type { CardKind, Subject } from '../types'
 
@@ -165,6 +197,14 @@ const genCount = reactive<Record<number, number>>({})
 const edit = reactive({ id: 0, name: '', description: '', sort_order: 0 })
 const dedit = reactive({ id: 0, name: '', description: '', default_kind: 'concept' as CardKind })
 
+// "Fill whole course": AI lays out the deck's full scope, then generates until
+// covered. One run at a time, across every deck of the chosen course.
+const fillModels = ref<string[]>([])
+const fill = reactive({
+  subjectId: 0, running: false, stop: false,
+  model: '', ceiling: 150, deck: '', created: 0, status: '', log: [] as string[],
+})
+
 function slugify(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/g, 'd')
     .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 64)
@@ -181,6 +221,7 @@ async function load() {
   try {
     subjects.value = (await api.get('/subjects')).data ?? []
     for (const s of subjects.value) for (const d of s.decks) if (!(d.id in genCount)) genCount[d.id] = 10
+    if (!fillModels.value.length) fillModels.value = (await api.get('/chat-models').catch(() => ({ data: {} }))).data.models ?? []
   } catch (e) {
     flash(errorMessage(e), false)
   } finally {
@@ -265,6 +306,58 @@ async function generate(_s: Subject, d: Subject['decks'][number]) {
     flash(errorMessage(e), false)
   } finally {
     genBusy.value = 0
+  }
+}
+
+/**
+ * Fill an entire course with AI, deck by deck: ask the AI for the deck's full
+ * scope (a finite list of concepts), then generate cards in small batches until
+ * the scope is covered or the per-deck ceiling is reached. Resumable: it only
+ * generates what's missing, and stops a deck when a round adds nothing new.
+ */
+async function fillCourse(s: Subject) {
+  if (fill.running) return
+  Object.assign(fill, { subjectId: s.id, running: true, stop: false, created: 0, deck: '', status: 'Bắt đầu…', log: [] as string[] })
+  const model = fill.model || undefined
+  const ceiling = Math.max(10, Math.min(400, fill.ceiling || 150))
+  try {
+    for (const d of s.decks) {
+      if (fill.stop) break
+      fill.deck = d.name
+      let rounds = 0
+      while (!fill.stop && rounds < 40) {
+        rounds++
+        fill.status = `${d.name}: đang lập danh mục…`
+        let data: { terms?: string[]; existing?: number; ceiling?: number; capped?: boolean; scope_complete?: boolean }
+        try {
+          data = (await api.post(`/decks/${d.id}/outline`, { ceiling, model }, { timeout: 180000 })).data
+        } catch (e) {
+          fill.log.push(`⚠️ ${d.name}: lập danh mục lỗi — ${errorMessage(e)}`)
+          break
+        }
+        if (data.scope_complete) { fill.log.push(`✓ ${d.name}: đã phủ hết scope (${data.existing} thẻ)`); break }
+        if (data.capped) { fill.log.push(`• ${d.name}: đạt trần ${data.ceiling} thẻ — tăng trần nếu muốn thêm`); break }
+        const terms = data.terms ?? []
+        if (!terms.length) { fill.log.push(`✓ ${d.name}: không còn mục mới`); break }
+
+        const before = fill.created
+        for (let i = 0; i < terms.length && !fill.stop; i += 12) {
+          const batch = terms.slice(i, i + 12)
+          fill.status = `${d.name}: đang tạo thẻ (${Math.min(i + batch.length, terms.length)}/${terms.length} mục vòng này)…`
+          try {
+            const r = await api.post(`/decks/${d.id}/generate`, { terms: batch, model }, { timeout: 180000 })
+            fill.created += r.data.created ?? 0
+          } catch (e) {
+            fill.log.push(`⚠️ ${d.name}: tạo lỗi — ${errorMessage(e)}`)
+          }
+        }
+        if (fill.created === before) { fill.log.push(`• ${d.name}: không tạo thêm được (có thể trùng/không hợp lệ) — dừng deck này`); break }
+      }
+    }
+    fill.status = fill.stop ? 'Đã dừng.' : 'Hoàn tất toàn bộ course.'
+    await refresh()
+  } finally {
+    fill.running = false
   }
 }
 

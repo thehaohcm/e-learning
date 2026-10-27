@@ -47,15 +47,31 @@
     <div v-if="loading" class="text-center py-5"><div class="spinner-border"></div></div>
     <div v-else-if="cards.length" class="row g-3">
       <div v-for="c in cards" :key="c.id" class="col-md-6 col-lg-4">
-        <FlashCard :card="c" :can-delete="auth.isAdmin"
+        <FlashCard :card="c" :can-delete="auth.isAdmin" :can-edit="auth.isAdmin"
           @speak="(t: string) => speakEnglish(t, RATE_REPLAY)"
           @speak-sentence="(en: string) => speakEnglish(en, RATE_REPLAY)"
-          @add="enroll([c.id])" @remove="remove(c)" />
+          @add="enroll([c.id])" @remove="remove(c)" @edit="startEdit(c)" />
       </div>
     </div>
     <div v-else class="text-center py-5 text-muted">
       <i class="bi bi-inbox display-4"></i>
       <p class="mt-2">No cards found.</p>
+    </div>
+
+    <!-- edit card (admin) -->
+    <div v-if="editCard" class="edit-overlay" @click.self="editCard = null">
+      <div class="card border-0 shadow-lg edit-dialog">
+        <div class="card-header bg-white d-flex align-items-center gap-2">
+          <i class="bi bi-pencil-square text-primary"></i>
+          <span class="fw-bold">Edit card</span>
+          <small class="text-muted">· {{ editCard.kind }}</small>
+          <button type="button" class="btn-close ms-auto" aria-label="Close" @click="editCard = null"></button>
+        </div>
+        <div class="card-body">
+          <CardForm :key="editCard.id" :kind="editCard.kind" :deck-id="editCard.deck_id" :card="editCard"
+            @saved="onSaved" @cancel="editCard = null" />
+        </div>
+      </div>
     </div>
 
     <nav v-if="pages > 1" class="d-flex justify-content-center mt-4">
@@ -99,6 +115,7 @@ const generating = ref(false)
 const showForm = ref(false)
 const message = ref('')
 const messageOk = ref(true)
+const editCard = ref<CardWithProgress | null>(null)
 
 const deck = computed(() => subjects.value.flatMap((s) => s.decks).find((d) => d.id === deckId.value))
 const pages = computed(() => Math.max(1, Math.ceil(total.value / limit)))
@@ -173,6 +190,16 @@ function onCreated() {
   load(page.value)
 }
 
+function startEdit(c: CardWithProgress) {
+  editCard.value = c
+}
+
+async function onSaved() {
+  editCard.value = null
+  flash('Card updated.')
+  await load(page.value)
+}
+
 /** The deck asked for when it belongs to the topic, else the topic's first deck ("all" stays). */
 function deckOfTopic(want: number): number {
   const decks = subject.value?.decks ?? []
@@ -195,3 +222,22 @@ onMounted(async () => {
   }
 })
 </script>
+
+<style scoped>
+.edit-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1060;
+  background: rgba(15, 23, 42, 0.5);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 1.5rem 1rem;
+  overflow-y: auto;
+}
+.edit-dialog {
+  width: 100%;
+  max-width: 640px;
+  border-radius: 14px;
+}
+</style>

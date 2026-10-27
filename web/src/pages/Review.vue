@@ -231,7 +231,7 @@
       <div class="d-flex flex-wrap gap-2 justify-content-center">
         <button class="btn btn-outline-primary" @click="load"><i class="bi bi-arrow-clockwise"></i> Check again</button>
         <router-link to="/learn" class="btn btn-primary"><i class="bi bi-plus-circle"></i> Add cards</router-link>
-        <router-link to="/reading" class="btn btn-warning"><i class="bi bi-book-half"></i> Read a story with your words</router-link>
+        <router-link v-if="isEnglishSubject" to="/reading" class="btn btn-warning"><i class="bi bi-book-half"></i> Read a story with your words</router-link>
       </div>
     </div>
 
@@ -251,7 +251,7 @@ import ClozeRound from '../components/common/ClozeRound.vue'
 import { RATE_REPLAY, RATE_SLOW, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import { RATINGS, stateLabel } from '../types'
 import type { QueueItem } from '../types'
-import { loadSubjects, shortName, subject, subjectId } from '../composables/useSubject'
+import { isEnglish as isEnglishSubject, loadSubjects, shortName, subject, subjectId } from '../composables/useSubject'
 
 type Mode = 'choose' | 'self'
 

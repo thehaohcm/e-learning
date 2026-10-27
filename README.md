@@ -227,7 +227,8 @@ Từ sai/bỏ qua được gợi ý luyện ở Forgotten words.
 ## Writing: "Write about this" từ Reading
 
 Cuối mỗi bài Reading có thẻ **Write about this** → `/writing?reading_id=…`. Lần đầu mở, **1 request AI**
-soạn đề theo bài (trả lời email/thông báo, tin nhắn sau hội thoại, ý kiến/tóm tắt cho bài báo) kèm
+soạn đề theo bài (trả lời email/thông báo, tin nhắn sau hội thoại, ý kiến/tóm tắt cho bài báo, hoặc
+**bình luận casual** kiểu forum/Reddit — `comment_reply`, văn phong thân mật) kèm
 3 từ bắt buộc lấy từ bài, số từ theo trình độ, **dàn ý** (tiếng Việt), **cụm từ hữu ích** và **bài mẫu**;
 đề được lưu trong bài (`content.writing_task`), lần sau mở ngay. Không có AI: dùng đề mẫu + dàn ý/cụm từ chung.
 Trang Writing hiện đề, đếm từ, từ bắt buộc chuyển xanh khi đã dùng; gợi ý mở dần: Outline → Useful phrases
@@ -235,7 +236,9 @@ Trang Writing hiện đề, đếm từ, từ bắt buộc chuyển xanh khi đ�
 
 Điểm: thang **0–100** cho Overall / Grammar / Vocabulary / Coherence, kèm nhãn Good (80+), Fair (60–79),
 Needs work (40–59), Redo (<40). AI được đưa đúng các mốc này; thiếu số từ hoặc thiếu từ bắt buộc thì
-Overall tối đa 60 (thiếu số từ: server tự giới hạn).
+Overall tối đa 60 (thiếu số từ: server tự giới hạn). **Chấm theo register của đề** (email công sở /
+bình luận casual / essay academic), không cứng IELTS — bài casual không bị trừ điểm vì viết thân mật;
+bản viết lại "nâng cao" cũng giữ đúng văn phong của đề.
 
 ## Cheat sheet (ghi chú tự do theo từng khóa)
 
@@ -267,8 +270,12 @@ ngay trên web, không cần viết migration:
 - Tạo **khóa học mới** (subject): tên, slug (tự sinh từ tên), mô tả, thứ tự. Sửa lại tên/mô tả/thứ tự sau.
 - Trong mỗi khóa: thêm/sửa **deck** (tên, slug, mô tả, loại thẻ mặc định: vocab/phrasal/concept/mcq), xem số thẻ.
 - **Sinh thẻ bằng AI** cho từng deck (nút AI, chọn số lượng ≤20) — nối thêm vào deck, không đụng thẻ cũ và tiến độ.
-- Link sang **Browse** để thêm/sửa thẻ bằng tay.
-- API đã có sẵn (POST/PUT `/subjects`, `/decks`, `/decks/:id/generate`, card CRUD); trang này chỉ là giao diện.
+- **AI: gen toàn bộ course** (nút cho admin, hợp với môn scope hữu hạn như PMP/Pentest): AI liệt kê toàn bộ danh mục
+  khái niệm của từng deck (`POST /decks/:id/outline`), rồi tự sinh theo lô cho đến khi phủ hết scope hoặc đạt **trần/deck**
+  (mặc định 150). Có thanh tiến độ, chọn model, nút Dừng. **Resumable** (chạy lại chỉ sinh phần còn thiếu). Khi AI không
+  còn khái niệm mới (dưới trần) → báo *đã phủ hết scope*; khi chạm trần → báo *đạt trần, tăng trần nếu muốn thêm*.
+- Link sang **Browse** để thêm/sửa thẻ bằng tay (mỗi thẻ có nút ✏️ sửa trực tiếp).
+- API đã có sẵn (POST/PUT `/subjects`, `/decks`, `/decks/:id/generate` [thêm `terms`/`model`], `/decks/:id/outline`, card CRUD).
 - Chưa có **xóa** khóa học/deck trên UI (thao tác này xóa cả tiến độ người học nên để sau).
 
 Khóa mới tạo xong tự xuất hiện ở nút chuyển môn English | PMP | Pentest | … như một môn bình thường.
