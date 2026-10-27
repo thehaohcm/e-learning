@@ -113,7 +113,9 @@ func subjectsQuery(c *gin.Context) []int64 {
 
 // Stats: GET /api/stats[?subject_id=] (one topic, or all).
 func (h *Handler) Stats(c *gin.Context) {
-	st, err := h.Study.Stats(userID(c), time.Now().UTC(), subjectsQuery(c)...)
+	now := time.Now().UTC()
+	_ = h.Study.AutoPace(userID(c), now) // once a day (opt-in); best-effort
+	st, err := h.Study.Stats(userID(c), now, subjectsQuery(c)...)
 	if err != nil {
 		internal(c, err)
 		return

@@ -200,6 +200,7 @@ func (h *Handler) DeviceSync(c *gin.Context) {
 	for i, it := range pool {
 		quiz = append(quiz, quizCard(it, quizCC[i], buildCloze(it, quizCC[i], quizWords, quizForms, true)))
 	}
+	_ = h.Study.AutoPace(uid, now) // once a day (opt-in); so the device triggers it too, not only the web
 	stats, err := h.Study.Stats(uid, now, devSettings.SubjectIDs...) // only the topics shown on this device
 	if err != nil {
 		internal(c, err)

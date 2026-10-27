@@ -916,6 +916,11 @@ static void round_summary(int left)
         lv_obj_set_width(x, lv_pct(100));
         lv_obj_add_event_cb(x, extra_new_clicked, LV_EVENT_CLICKED, NULL);
     }
+    if (!S.quiz) { // study / pop-up summary: a big Home at the bottom (not only the small one on top)
+        lv_obj_t *home = ui_button(b, LV_SYMBOL_HOME "  Home", COL_MUTED, font_bold);
+        lv_obj_set_width(home, lv_pct(100));
+        lv_obj_add_event_cb(home, summary_home_clicked, LV_EVENT_CLICKED, NULL);
+    }
     lv_screen_load_anim(scr, LV_SCR_LOAD_ANIM_FADE_IN, 150, 0, true);
     audio_fx(AUDIO_FX_CORRECT);
 }

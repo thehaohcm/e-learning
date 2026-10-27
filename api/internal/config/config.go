@@ -31,6 +31,9 @@ type Config struct {
 	DeepSeekAPIKey  string
 	DeepSeekBaseURL string
 	DeepSeekModel   string
+	// ChatModels: optional allow-list of model ids the course chat may pick
+	// (comma-separated CHAT_MODELS). Empty = offer whatever the gateway lists.
+	ChatModels []string
 
 	// Text-to-speech for the study device: the "tts" container (empty = off),
 	// the English voice, and how long unused audio is kept before it is deleted.
@@ -67,6 +70,7 @@ func Load() Config {
 		DeepSeekBaseURL: getEnv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"),
 		DeepSeekModel:   getEnv("DEEPSEEK_MODEL", "deepseek-chat"),
 	}
+	cfg.ChatModels = splitList(getEnv("CHAT_MODELS", ""))
 
 	cfg.DictURL = strings.TrimRight(getEnv("DICT_URL", "https://dict.minhqnd.com"), "/")
 	cfg.FirmwareDir = getEnv("FIRMWARE_DIR", "/firmware")

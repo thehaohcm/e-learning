@@ -17,6 +17,8 @@ const router = createRouter({
     { path: '/writing', component: () => import('./pages/Writing.vue') },
     // search is part of Browse now ("All decks")
     { path: '/search', redirect: (to) => ({ path: '/learn', query: { deck_id: 'all', q: to.query.q } }) },
+    { path: '/cheatsheet', component: () => import('./pages/CheatSheet.vue') }, // per-course notes + AI cheat sheet
+    { path: '/courses', component: () => import('./pages/Courses.vue') }, // admin: manage subjects/decks/cards
     { path: '/devices', component: () => import('./pages/Devices.vue') },
     { path: '/share', component: () => import('./pages/Share.vue') }, // PWA share target (Android): ?text=&title=&url=
     { path: '/:pathMatch(.*)*', redirect: '/' },

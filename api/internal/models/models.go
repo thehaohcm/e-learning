@@ -240,3 +240,28 @@ type CardPronunciation struct {
 }
 
 func (CardPronunciation) TableName() string { return "card_pronunciations" }
+
+// CourseNote: a user's free-form note / cheat-sheet item for one subject
+// (Markdown body). Added/edited/deleted by the learner. Migration 0020.
+type CourseNote struct {
+	ID        int64     `gorm:"primaryKey" json:"id"`
+	UserID    int64     `json:"-"`
+	SubjectID int64     `json:"subject_id"`
+	Title     string    `json:"title"`
+	Body      string    `json:"body"`
+	SortOrder int       `json:"sort_order"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+func (CourseNote) TableName() string { return "course_notes" }
+
+// CourseNoteSummary caches one AI cheat sheet per (user, subject).
+type CourseNoteSummary struct {
+	UserID      int64     `json:"-"`
+	SubjectID   int64     `json:"subject_id"`
+	SummaryMd   string    `json:"summary_md"`
+	GeneratedAt time.Time `json:"generated_at"`
+}
+
+func (CourseNoteSummary) TableName() string { return "course_note_summaries" }

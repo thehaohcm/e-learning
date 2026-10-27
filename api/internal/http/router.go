@@ -145,6 +145,16 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/notes/fill", practiceLimit, h.FillNotes)
 		u.POST("/notes/add", practiceLimit, h.AddNotes)
 
+		// per-course free-form notes / cheat sheets (Markdown) + AI summary
+		u.GET("/course-notes", h.ListCourseNotes)
+		u.POST("/course-notes", h.CreateCourseNote)
+		u.PATCH("/course-notes/:id", h.UpdateCourseNote)
+		u.DELETE("/course-notes/:id", h.DeleteCourseNote)
+		u.POST("/course-notes/summarize", practiceLimit, h.SummarizeCourseNotes)
+		u.POST("/course-notes/adopt-summary", h.AdoptSummary)
+		u.POST("/course-notes/ask", practiceLimit, h.AskCourse)
+		u.GET("/chat-models", h.ChatModels)
+
 		u.GET("/writing/phrases", h.WritingPhrases)              // phrase bank (Writing page panel)
 		u.POST("/writing/phrases/study", h.StudyWritingPhrases) // add the whole bank to Study
 		u.POST("/writing", h.SubmitWriting)
@@ -156,7 +166,9 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 	a := api.Group("", h.RequireUser, h.RequireAdmin)
 	{
 		a.POST("/subjects", h.CreateSubject)
+		a.PUT("/subjects/:id", h.UpdateSubject)
 		a.POST("/decks", h.CreateDeck)
+		a.PUT("/decks/:id", h.UpdateDeck)
 		a.POST("/decks/:id/generate", h.GenerateCards)
 		a.POST("/cards", h.CreateCard)
 		a.PUT("/cards/:id", h.UpdateCard)

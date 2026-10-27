@@ -17,8 +17,8 @@
       </div>
       <div class="col-md-6 d-flex gap-2 flex-wrap justify-content-md-end">
         <button class="btn btn-primary" @click="load(1)"><i class="bi bi-search"></i></button>
-        <button class="btn btn-success" @click="addAll" :disabled="!notAdded.length">
-          <i class="bi bi-plus-circle"></i> Add {{ notAdded.length }} on this page
+        <button v-if="notAdded.length" class="btn btn-success" @click="addAll">
+          <i class="bi bi-plus-circle"></i> Add {{ notAdded.length }} to Study
         </button>
         <router-link v-if="deckId > 0" :to="`/review?deck_id=${deckId}`" class="btn btn-warning">
           <i class="bi bi-arrow-repeat"></i> Study deck

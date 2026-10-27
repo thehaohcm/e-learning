@@ -29,7 +29,7 @@
 
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
     <!-- stress questions need syllables: prepared by AI only when the learner asks -->
-    <div v-if="qmode === 'choose' && pron.missing > 0 && pron.canGenerate" class="alert alert-light border small d-flex flex-wrap align-items-center gap-2 py-2">
+    <div v-if="qmode === 'choose' && isEnglish && pron.missing > 0 && pron.canGenerate" class="alert alert-light border small d-flex flex-wrap align-items-center gap-2 py-2">
       <span><i class="bi bi-soundwave text-primary"></i> Pronunciation questions (stress + sounds): {{ pron.total - pron.missing }} / {{ pron.total }} words of this deck are ready.</span>
       <span v-if="pron.error" class="text-danger">{{ pron.error }}</span>
       <button class="btn btn-sm btn-outline-primary ms-auto" :disabled="pron.busy" @click="preparePron">
@@ -138,7 +138,7 @@
             </template>
 
             <template v-else>
-            <button v-if="q.speak && !sayPending" class="btn btn-sm btn-outline-secondary mb-3" @click="speakEnglish(q.speak, RATE_REPLAY).catch(() => {})">
+            <button v-if="q.speak && !sayPending && isEnglish" class="btn btn-sm btn-outline-secondary mb-3" @click="speakEnglish(q.speak, RATE_REPLAY).catch(() => {})">
               <i class="bi bi-volume-up"></i> Play
             </button>
             <!-- say the word first: no model audio, the result is shown only after answering -->
@@ -188,8 +188,8 @@
             <!-- wrong, still trying: the example sentence is the hint -->
             <div v-if="result && !solved" class="mt-3">
               <div class="d-flex flex-wrap align-items-center gap-2">
-                <span class="text-danger fw-bold me-2"><i class="bi bi-x-circle-fill"></i> Not quite, listen to the example and try again</span>
-                <template v-if="hintText">
+                <span class="text-danger fw-bold me-2"><i class="bi bi-x-circle-fill"></i> Not quite{{ isEnglish ? ', listen to the example and' : ',' }} try again</span>
+                <template v-if="hintText && isEnglish">
                   <button class="btn btn-light btn-sm rounded-circle" title="Listen again" @click="speakHint(RATE_REPLAY)">
                     <i class="bi bi-volume-up-fill"></i>
                   </button>
@@ -224,11 +224,11 @@
                 <div>
                   <em>{{ result.card.example_en }}</em><br /><span class="text-muted">{{ result.card.example_vi }}</span>
                 </div>
-                <button class="btn btn-light btn-sm rounded-circle" title="Listen again" @click="speakResolved(RATE_REPLAY)">
+                <button v-if="isEnglish" class="btn btn-light btn-sm rounded-circle" title="Listen again" @click="speakResolved(RATE_REPLAY)">
                   <i class="bi bi-volume-up-fill"></i>
                 </button>
               </div>
-              <SpeakCheck v-if="!result.explanation && result.card.example_en" :text="result.card.example_en" class="mb-3" />
+              <SpeakCheck v-if="isEnglish && !result.explanation && result.card.example_en" :text="result.card.example_en" class="mb-3" />
               <button v-if="idx > 0" class="btn btn-outline-secondary me-2" @click="back"><i class="bi bi-chevron-left"></i> Back</button>
               <button class="btn btn-primary" @click="next">{{ idx < questions.length - 1 ? 'Next' : 'See result' }}</button>
             </div>

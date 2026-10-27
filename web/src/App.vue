@@ -8,7 +8,7 @@
           </div>
           <div>
             <span class="brand-title">E-Learning</span>
-            <small class="brand-subtitle">English · PMP</small>
+            <small class="brand-subtitle">Spaced repetition</small>
           </div>
         </router-link>
         <!-- the topic every page shows -->
@@ -28,10 +28,10 @@
               <!-- Practice: dropdown on desktop, plain list inside the collapsed menu on phones -->
               <li v-if="l.children" class="nav-item dropdown">
                 <button type="button" class="nav-link nav-pill dropdown-toggle border-0 bg-transparent"
-                  :class="{ active: isPractice }" :aria-expanded="practiceOpen" @click.stop="practiceOpen = !practiceOpen">
+                  :class="{ active: isParentActive(l) }" :aria-expanded="openMenu === l.to" @click.stop="toggleMenu(l.to)">
                   <i :class="'bi ' + l.icon + ' me-1'"></i>{{ l.label }}
                 </button>
-                <ul class="dropdown-menu dropdown-menu-dark shadow" :class="{ show: practiceOpen }">
+                <ul class="dropdown-menu dropdown-menu-dark shadow" :class="{ show: openMenu === l.to }">
                   <li v-for="c in l.children" :key="c.to">
                     <router-link class="dropdown-item" :to="c.to" active-class="active" :exact-active-class="c.exact ? 'active' : ''">
                       <i :class="'bi ' + c.icon + ' me-2'"></i>{{ c.label }}
@@ -67,6 +67,9 @@
     <!-- floating word notes (every page, logged in) -->
     <NotesWidget v-if="auth.token && isEnglish" />
 
+    <!-- floating Ask-AI chat (every page, logged in) -->
+    <AskAiWidget v-if="auth.token" />
+
     <footer class="modern-footer">
       <div class="container text-center">
         <div class="d-flex justify-content-center align-items-center gap-2 mb-2">
@@ -86,6 +89,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { auth, logout } from './auth'
 import NotesWidget from './components/NotesWidget.vue'
+import AskAiWidget from './components/AskAiWidget.vue'
 import { isEnglish, loadSubjects, setSubject, shortName, subjectOfDeck, subjects, subjectSlug } from './composables/useSubject'
 import StudyNudge from './components/StudyNudge.vue'
 import { disablePush, syncPush } from './composables/usePwa'
@@ -93,17 +97,35 @@ import { disablePush, syncPush } from './composables/usePwa'
 const router = useRouter()
 const route = useRoute()
 const navOpen = ref(false)
-const practiceOpen = ref(false)
+const openMenu = ref('') // which dropdown (by its `to`) is open, '' = none
+function toggleMenu(to: string) { openMenu.value = openMenu.value === to ? '' : to }
 watch(() => route.fullPath, () => {
   navOpen.value = false
-  practiceOpen.value = false
+  openMenu.value = ''
 })
 
 interface NavLink { to: string; label: string; icon: string; exact?: boolean; children?: NavLink[] }
 // Reading, Writing and the word practice are English only
 const ENGLISH_ONLY = ['/reading', '/writing', '/practice/forgotten', '/practice/check']
-const links = computed<NavLink[]>(() => allLinks.map((l) =>
-  l.children ? { ...l, children: l.children.filter((c) => isEnglish.value || !ENGLISH_ONLY.includes(c.to)) } : l))
+const links = computed<NavLink[]>(() => {
+  const base = allLinks.map((l) =>
+    l.children ? { ...l, children: l.children.filter((c) => isEnglish.value || !ENGLISH_ONLY.includes(c.to)) } : l)
+  // tuck the less-used pages into a "More" menu (Courses only for admins)
+  const more: NavLink = {
+    to: '#more', label: 'More', icon: 'bi-grid-3x3-gap',
+    children: [
+      { to: '/cheatsheet', label: 'Cheat sheet', icon: 'bi-journal-text' },
+      ...(auth.isAdmin ? [{ to: '/courses', label: 'Courses', icon: 'bi-mortarboard' }] : []),
+    ],
+  }
+  const i = base.findIndex((l) => l.to === '/devices')
+  return i >= 0 ? [...base.slice(0, i), more, ...base.slice(i)] : [...base, more]
+})
+
+/** A dropdown parent is highlighted when the current route is one of its children. */
+function isParentActive(l: NavLink): boolean {
+  return (l.children ?? []).some((c) => route.path === c.to || route.path.startsWith(c.to + '/'))
+}
 const allLinks: NavLink[] = [
   { to: '/', label: 'Home', icon: 'bi-speedometer2', exact: true },
   { to: '/review', label: 'Study', icon: 'bi-arrow-repeat' },
@@ -120,11 +142,8 @@ const allLinks: NavLink[] = [
   { to: '/learn', label: 'Browse', icon: 'bi-collection' },
   { to: '/devices', label: 'Settings', icon: 'bi-gear' },
 ]
-const practicePaths = ['/practice', '/quiz', '/reading', '/writing']
-const isPractice = computed(() => practicePaths.some((p) => route.path === p || route.path.startsWith(p + '/')))
-
-// close the Practice dropdown when clicking elsewhere
-function closeMenu() { practiceOpen.value = false }
+// close any open dropdown when clicking elsewhere
+function closeMenu() { openMenu.value = '' }
 onMounted(() => document.addEventListener('click', closeMenu))
 onUnmounted(() => document.removeEventListener('click', closeMenu))
 
@@ -233,13 +252,15 @@ main {
 }
 
 /* Nav Pills */
-.subject-switch .btn { border-radius: 50px; padding: 0.2rem 0.85rem; }
-.subject-switch .btn + .btn { margin-left: 4px; }
+.subject-switch { background: rgba(255,255,255,0.08); border-radius: 50px; padding: 2px; }
+.subject-switch .btn { border-radius: 50px; padding: 0.2rem 0.8rem; font-size: 0.82rem; border: 0; }
+.subject-switch .btn-outline-light { color: rgba(255,255,255,0.75); }
+.subject-switch .btn-outline-light:hover { background: rgba(255,255,255,0.12); color: #fff; }
 .nav-pill {
   border-radius: 50px !important;
-  padding: 0.5rem 1.1rem !important;
-  margin: 0 2px;
-  font-size: 0.9rem;
+  padding: 0.4rem 0.8rem !important;
+  margin: 0 1px;
+  font-size: 0.85rem;
   color: rgba(255,255,255,0.7) !important;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;

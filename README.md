@@ -237,6 +237,47 @@ Trang Writing hiện đề, đếm từ, từ bắt buộc chuyển xanh khi đ�
 Needs work (40–59), Redo (<40). AI được đưa đúng các mốc này; thiếu số từ hoặc thiếu từ bắt buộc thì
 Overall tối đa 60 (thiếu số từ: server tự giới hạn).
 
+## Cheat sheet (ghi chú tự do theo từng khóa)
+
+Trang **Cheat sheet** (menu, theo môn đang chọn) — ghi chú **cá nhân của từng user**, tách khỏi Notes-theo-từ:
+- Thêm/sửa/xóa/di chuyển **từng item**; nội dung viết bằng **Markdown** (# tiêu đề, danh sách, **đậm**, `code`,
+  khối ```code```), hiện bản render kèm xem trước khi gõ.
+- Nút **Make a cheat sheet (AI)**: AI đọc toàn bộ item của khóa → sinh một bản tóm tắt gọn (Markdown), có nút
+  **Regenerate** và **Copy**. Bản AI được lưu lại (cache per user+subject); ghi chú gốc là nguồn chính, AI không đè lên.
+- Markdown render bằng bộ tự viết (`web/src/utils/markdown.ts`), escape HTML trước nên không chạy được script — an toàn.
+- Nút **"Use this as my notes"**: thay toàn bộ ghi chú (lộn xộn) bằng bản AI đã sắp xếp, **tách theo tiêu đề**
+  thành từng item để vẫn sửa được. Thao tác này xóa ghi chú cũ nên có hỏi xác nhận.
+- API: `GET/POST/PATCH/DELETE /course-notes`, `POST /course-notes/summarize`, `POST /course-notes/adopt-summary`. Bảng `course_notes`,
+  `course_note_summaries` (migration 0020).
+
+## Hỏi AI theo khóa (chat trong trang Cheat sheet)
+
+Có nút **Ask AI** nổi (góc dưới-trái, mọi trang khi đã đăng nhập) + khung Ask AI trong trang Cheat sheet —
+dùng chung component `CourseChat`. Hỏi tự do về khái niệm/lệnh/ví dụ của **môn đang chọn**; bám theo nút chuyển môn.
+- AI trả lời bằng **Markdown** (có code block), và được đưa kèm **ghi chú của bạn** trong khóa làm ngữ cảnh.
+- Giữ ngữ cảnh hội thoại (vài lượt gần nhất); chat là tạm thời trong phiên (chưa lưu lại).
+- **Chọn model để hỏi**: ô chọn model lấy từ `/v1/models` của gateway (hoặc danh sách ghim trong `CHAT_MODELS`).
+  "Default" = model mặc định của server. Server chỉ chấp nhận model nằm trong danh sách đó.
+- API: `POST /course-notes/ask` ({subject_id, question, model?, history}), `GET /chat-models`.
+
+## Quản lý khóa học (trang Courses, chỉ admin)
+
+Trang **Courses** (menu chỉ hiện với tài khoản admin — email trong `ADMIN_EMAILS`) để tạo và quản lý khóa học
+ngay trên web, không cần viết migration:
+- Tạo **khóa học mới** (subject): tên, slug (tự sinh từ tên), mô tả, thứ tự. Sửa lại tên/mô tả/thứ tự sau.
+- Trong mỗi khóa: thêm/sửa **deck** (tên, slug, mô tả, loại thẻ mặc định: vocab/phrasal/concept/mcq), xem số thẻ.
+- **Sinh thẻ bằng AI** cho từng deck (nút AI, chọn số lượng ≤20) — nối thêm vào deck, không đụng thẻ cũ và tiến độ.
+- Link sang **Browse** để thêm/sửa thẻ bằng tay.
+- API đã có sẵn (POST/PUT `/subjects`, `/decks`, `/decks/:id/generate`, card CRUD); trang này chỉ là giao diện.
+- Chưa có **xóa** khóa học/deck trên UI (thao tác này xóa cả tiến độ người học nên để sau).
+
+Khóa mới tạo xong tự xuất hiện ở nút chuyển môn English | PMP | Pentest | … như một môn bình thường.
+
+## Quiz cho môn không phải tiếng Anh
+
+Ở các môn không phải English (PMP, Pentest, khóa mới), trang Quiz **ẩn** các phần chỉ dành cho học từ tiếng Anh:
+nút Play (đọc từ), "listen to the example", "Show sentence", phần phát âm/shadowing. Chỉ còn câu hỏi + đáp án + giải thích.
+
 ## Pentesting (môn thứ 3)
 
 Môn **Pentesting** (migration 0019) để học nền tảng cho chứng chỉ HTB CPTS và THM Penetration Tester:
@@ -254,6 +295,18 @@ Môn **Pentesting** (migration 0019) để học nền tảng cho chứng chỉ 
 Nội dung là tài liệu học: nhận biết, phương pháp và cách phòng thủ — không phải hướng dẫn tấn công vào một mục tiêu
 cụ thể. Giống PMP, môn này chỉ tự lấy thẻ mới nếu bạn **tick deck Pentesting trong Settings** (hoặc thêm thẻ tay);
 đặt số thẻ mới/ngày riêng cho nó trong Settings như các môn khác.
+
+## Auto-pace (tự điều chỉnh số thẻ mới/ngày — tùy chọn, mặc định tắt)
+
+Bật trong Settings. Mỗi ngày (lần đầu mở app trong ngày) server xét từng môn:
+- Giữ mức ghi nhớ **Strong** đủ lâu (khoảng 7 ngày liên tục) → **tăng** số thẻ mới/ngày của môn đó **+2** (trần 20).
+- Rơi về **Needs focus** → **giảm −2** (sàn 3).
+- **Okay/mới học** → giữ nguyên, và chuỗi "strong" reset.
+
+Nguyên tắc: dựa trên tín hiệu bền (nhiều ngày, không phải một lần), có trần/sàn, chạy 1 lần/ngày, nạp thẻ
+**theo thứ tự** (không random), và **minh bạch** — mỗi lần đổi ghi một dòng trong Settings
+("2026-10-27 · English 10 → 12/day (memory strong)"). Bạn vẫn chỉnh tay số thẻ/ngày đè lên bất cứ lúc nào.
+Tắt đi thì không bao giờ tự đổi. Ngưỡng Strong/Needs focus dùng chung với khung thống kê Home.
 
 ## Lời khuyên học (trên khung thống kê Home)
 

@@ -154,12 +154,93 @@ func (h *Handler) CreateSubject(c *gin.Context) {
 		bad(c, err)
 		return
 	}
-	s := models.Subject{Slug: strings.ToLower(req.Slug), Name: req.Name, Description: req.Description}
+	s := models.Subject{Slug: strings.ToLower(req.Slug), Name: req.Name, Description: req.Description, SortOrder: req.SortOrder}
 	if err := h.DB.Create(&s).Error; err != nil {
 		abort(c, http.StatusConflict, "subject slug already exists")
 		return
 	}
 	c.JSON(http.StatusCreated, s)
+}
+
+// UpdateSubject: PATCH-like PUT /subjects/:id (name, description, order). Admin only.
+func (h *Handler) UpdateSubject(c *gin.Context) {
+	id, ok := paramID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.UpdateSubjectRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		bad(c, err)
+		return
+	}
+	updates := map[string]any{}
+	if req.Name != nil {
+		updates["name"] = strings.TrimSpace(*req.Name)
+	}
+	if req.Description != nil {
+		updates["description"] = *req.Description
+	}
+	if req.SortOrder != nil {
+		updates["sort_order"] = *req.SortOrder
+	}
+	if len(updates) == 0 {
+		abort(c, http.StatusBadRequest, "nothing to update")
+		return
+	}
+	var s models.Subject
+	if err := h.DB.First(&s, id).Error; err != nil {
+		notFoundOr500(c, err, "subject")
+		return
+	}
+	if err := h.DB.Model(&s).Updates(updates).Error; err != nil {
+		internal(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, s)
+}
+
+// UpdateDeck: PUT /decks/:id (name, description, default_kind, order). Admin only.
+func (h *Handler) UpdateDeck(c *gin.Context) {
+	id, ok := paramID(c, "id")
+	if !ok {
+		return
+	}
+	var req dto.UpdateDeckRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		bad(c, err)
+		return
+	}
+	updates := map[string]any{}
+	if req.Name != nil {
+		updates["name"] = strings.TrimSpace(*req.Name)
+	}
+	if req.Description != nil {
+		updates["description"] = *req.Description
+	}
+	if req.DefaultKind != nil {
+		updates["default_kind"] = *req.DefaultKind
+	}
+	if req.SortOrder != nil {
+		updates["sort_order"] = *req.SortOrder
+	}
+	if len(updates) == 0 {
+		abort(c, http.StatusBadRequest, "nothing to update")
+		return
+	}
+	var d models.Deck
+	if err := h.DB.First(&d, id).Error; err != nil {
+		notFoundOr500(c, err, "deck")
+		return
+	}
+	if d.OwnerID != nil {
+		abort(c, http.StatusForbidden, "personal decks cannot be edited here")
+		return
+	}
+	if err := h.DB.Model(&d).Updates(updates).Error; err != nil {
+		internal(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, d)
 }
 
 func (h *Handler) CreateDeck(c *gin.Context) {
@@ -168,7 +249,7 @@ func (h *Handler) CreateDeck(c *gin.Context) {
 		bad(c, err)
 		return
 	}
-	d := models.Deck{SubjectID: req.SubjectID, Slug: strings.ToLower(req.Slug), Name: req.Name, Description: req.Description, DefaultKind: req.DefaultKind}
+	d := models.Deck{SubjectID: req.SubjectID, Slug: strings.ToLower(req.Slug), Name: req.Name, Description: req.Description, DefaultKind: req.DefaultKind, SortOrder: req.SortOrder}
 	if err := h.DB.Create(&d).Error; err != nil {
 		abort(c, http.StatusConflict, "deck already exists or subject not found")
 		return

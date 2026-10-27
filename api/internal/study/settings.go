@@ -36,6 +36,22 @@ type Settings struct {
 	// Study reminders sent as push notifications to the user's phones and
 	// browsers, at these local times ("08:00", "20:30"). Empty = none.
 	PushTimes []string `json:"push_times"`
+	// Auto-pace: when on, each topic's daily new-card limit is raised a little
+	// after a sustained "strong" memory streak and lowered on "needs focus"
+	// (ordered introduction, never random). Off by default. State below is
+	// managed by the server (AutoPace), not set by the user.
+	AutoPace       bool           `json:"auto_pace"`
+	AutoPaceDate   string         `json:"auto_pace_date,omitempty"`   // last daily evaluation (user's day)
+	AutoPaceStrong map[string]int `json:"auto_pace_strong,omitempty"` // consecutive strong days, per subject slug
+	AutoPaceNotes  []string       `json:"auto_pace_notes,omitempty"`  // recent changes, newest first (for the UI)
+}
+
+// setDailyNew sets a topic's daily new-card limit (used by AutoPace).
+func (s *Settings) setDailyNew(slug string, n int) {
+	if s.DailyNewBySubject == nil {
+		s.DailyNewBySubject = map[string]int{}
+	}
+	s.DailyNewBySubject[slug] = n
 }
 
 // PopupCardChoices: how many cards a device pop-up can show.
@@ -156,6 +172,14 @@ func (s Settings) sanitized() Settings {
 		s.ActiveDeckIDs = []int64{}
 	}
 	s.PushTimes = cleanTimes(s.PushTimes)
+	for k, v := range s.AutoPaceStrong {
+		if v < 0 || v > 60 || k == "" {
+			delete(s.AutoPaceStrong, k)
+		}
+	}
+	if len(s.AutoPaceNotes) > 6 {
+		s.AutoPaceNotes = s.AutoPaceNotes[:6]
+	}
 	return s
 }
 

@@ -116,6 +116,23 @@
           </div>
           <div class="form-text mb-3">No deck ticked at all = English Core Vocabulary. A topic with no deck ticked gets no new cards
             (only the ones you add yourself).</div>
+
+          <!-- auto-pace: adjust the daily new-card limit by how well memory holds -->
+          <div class="mb-3 pb-2 border-bottom">
+            <div class="form-check form-switch">
+              <input id="autopace" v-model="settings.auto_pace" type="checkbox" class="form-check-input" />
+              <label for="autopace" class="form-check-label fw-semibold">Auto-pace new cards</label>
+            </div>
+            <div class="form-text">
+              When on, each topic's “new cards per day” rises slowly (+2) after about a week of <strong>strong</strong> memory,
+              and drops back (−2, down to 3) if too many words start slipping. Checked once a day, in order — never random.
+              You can still set the numbers above by hand at any time.
+            </div>
+            <ul v-if="settings.auto_pace_notes?.length" class="small text-muted mt-1 mb-0 ps-3">
+              <li v-for="(n, i) in settings.auto_pace_notes" :key="i">{{ n }}</li>
+            </ul>
+          </div>
+
           <div class="mb-3">
             <label class="form-label">Time zone</label>
             <input v-model="timezone" class="form-control" placeholder="Asia/Ho_Chi_Minh" />
@@ -139,7 +156,7 @@ import { auth } from '../auth'
 
 interface DeviceSettings { subject_ids: number[]; device_mode: string; reminder_every_min: number | ''; active_from: string; active_to: string; popup_cards: number }
 interface Device { id: number; name: string; firmware: string; last_seen_at: string | null; settings: Partial<DeviceSettings> | null }
-interface Settings { daily_new: number; daily_new_by_subject: Record<string, number>; active_deck_ids: number[]; reminder_every_min: number; active_from: string; active_to: string; tts_speed: number; device_mode: string; push_times: string[]; popup_cards: number }
+interface Settings { daily_new: number; daily_new_by_subject: Record<string, number>; active_deck_ids: number[]; reminder_every_min: number; active_from: string; active_to: string; tts_speed: number; device_mode: string; push_times: string[]; popup_cards: number; auto_pace: boolean; auto_pace_notes?: string[] }
 
 const POPUP_CARDS = [5, 10, 20]
 

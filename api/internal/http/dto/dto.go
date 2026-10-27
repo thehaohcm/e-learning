@@ -31,6 +31,13 @@ type CreateSubjectRequest struct {
 	Slug        string `json:"slug" binding:"required,max=64"`
 	Name        string `json:"name" binding:"required,max=200"`
 	Description string `json:"description"`
+	SortOrder   int    `json:"sort_order"`
+}
+
+type UpdateSubjectRequest struct {
+	Name        *string `json:"name" binding:"omitempty,max=200"`
+	Description *string `json:"description"`
+	SortOrder   *int    `json:"sort_order"`
 }
 
 type CreateDeckRequest struct {
@@ -39,6 +46,14 @@ type CreateDeckRequest struct {
 	Name        string `json:"name" binding:"required,max=200"`
 	Description string `json:"description"`
 	DefaultKind string `json:"default_kind" binding:"required,oneof=vocab phrasal concept mcq"`
+	SortOrder   int    `json:"sort_order"`
+}
+
+type UpdateDeckRequest struct {
+	Name        *string `json:"name" binding:"omitempty,max=200"`
+	Description *string `json:"description"`
+	DefaultKind *string `json:"default_kind" binding:"omitempty,oneof=vocab phrasal concept mcq"`
+	SortOrder   *int    `json:"sort_order"`
 }
 
 type CardRequest struct {

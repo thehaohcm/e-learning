@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -21,6 +22,10 @@ type Client struct {
 	baseURL string
 	model   string
 	http    *http.Client
+
+	mu        sync.Mutex
+	modelList []string  // cached /v1/models ids
+	modelAt   time.Time // when the list was fetched
 }
 
 func NewClient(apiKey, baseURL, model string) *Client {
@@ -61,11 +66,19 @@ type chatResponse struct {
 //   - if the API rejects response_format, it retries once without it;
 //   - if the API streams anyway (SSE "data: ..." lines), the chunks are joined.
 func (c *Client) chatJSON(ctx context.Context, system, user string, temperature float64, out any) error {
+	return c.chatJSONModel(ctx, "", system, user, temperature, out)
+}
+
+// chatJSONModel is chatJSON with an explicit model ("" = the default model).
+func (c *Client) chatJSONModel(ctx context.Context, model, system, user string, temperature float64, out any) error {
 	if !c.Enabled() {
 		return ErrNotConfigured
 	}
+	if model == "" {
+		model = c.model
+	}
 	req := chatRequest{
-		Model: c.model,
+		Model: model,
 		Messages: []chatMessage{
 			{Role: "system", Content: system},
 			{Role: "user", Content: user},
@@ -189,4 +202,57 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n] + "..."
+}
+
+// modelsResponse is the OpenAI-compatible /v1/models shape.
+type modelsResponse struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
+// ListModels returns the model ids the endpoint serves (GET /models), cached
+// for a few minutes. Empty (no error) when the endpoint does not list models.
+func (c *Client) ListModels(ctx context.Context) ([]string, error) {
+	if !c.Enabled() {
+		return nil, ErrNotConfigured
+	}
+	c.mu.Lock()
+	if time.Since(c.modelAt) < 5*time.Minute && c.modelList != nil {
+		ids := c.modelList
+		c.mu.Unlock()
+		return ids, nil
+	}
+	c.mu.Unlock()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("models: HTTP %d", resp.StatusCode)
+	}
+	var mr modelsResponse
+	if err := json.Unmarshal(raw, &mr); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(mr.Data))
+	for _, m := range mr.Data {
+		if id := strings.TrimSpace(m.ID); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	c.mu.Lock()
+	c.modelList = ids
+	c.modelAt = time.Now()
+	c.mu.Unlock()
+	return ids, nil
 }
