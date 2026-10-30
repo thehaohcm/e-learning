@@ -102,6 +102,32 @@ func (c *Client) chatJSONModel(ctx context.Context, model, system, user string, 
 	return nil
 }
 
+// chatText asks for a free-form (non-JSON) answer and returns the assistant
+// text as-is. Use it when the answer is a long body (e.g. a Markdown cheat
+// sheet) that would be fragile to force through a JSON string envelope.
+func (c *Client) chatText(ctx context.Context, model, system, user string, temperature float64) (string, error) {
+	if !c.Enabled() {
+		return "", ErrNotConfigured
+	}
+	if model == "" {
+		model = c.model
+	}
+	req := chatRequest{
+		Model: model,
+		Messages: []chatMessage{
+			{Role: "system", Content: system},
+			{Role: "user", Content: user},
+		},
+		Temperature: temperature,
+		MaxTokens:   8000,
+	}
+	text, _, err := c.complete(ctx, req)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(text), nil
+}
+
 // complete performs one chat completion and returns the assistant text.
 func (c *Client) complete(ctx context.Context, cr chatRequest) (string, int, error) {
 	body, err := json.Marshal(cr)

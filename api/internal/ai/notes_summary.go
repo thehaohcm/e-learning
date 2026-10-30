@@ -39,33 +39,47 @@ func (c *Client) SummarizeNotes(ctx context.Context, courseName string, notes []
 		return "", fmt.Errorf("no notes to summarize")
 	}
 
-	system := "You turn a learner's own study notes into a clean cheat sheet. Reply with a single JSON object only."
+	system := "You turn a learner's own study notes into a clean cheat sheet written in Markdown."
 	user := fmt.Sprintf(`Course: %s
 
 Below are the learner's own notes for this course. Write a concise, well-organized
-**cheat sheet in Markdown** that a learner can review quickly before an exam.
+cheat sheet in Markdown that a learner can review quickly before an exam.
 
 Rules:
 - Only use information present in the notes. Do NOT invent facts, commands or numbers.
 - Group related points under short headings; use bullet points.
 - Keep technical terms, commands and code EXACT; put commands/code in fenced code blocks.
 - Be compact: cut filler, merge duplicates. Keep the learner's language (Vietnamese or English) as written.
-- No preamble or sign-off, just the cheat sheet.
+- No preamble or sign-off, just the cheat sheet itself.
+- Output ONLY the Markdown of the cheat sheet (do not wrap the whole thing in a code block).
 
 Notes:
-%s
+%s`, courseName, b.String())
 
-Return JSON: {"summary_md": "the cheat sheet in Markdown"}`, courseName, b.String())
-
-	var out struct {
-		SummaryMd string `json:"summary_md"`
-	}
-	if err := c.chatJSON(ctx, system, user, 0.3, &out); err != nil {
+	// A long Markdown body (with code fences, quotes, newlines) is fragile inside
+	// a JSON string, so we ask for Markdown directly instead of JSON.
+	md, err := c.chatText(ctx, "", system, user, 0.3)
+	if err != nil {
 		return "", err
 	}
-	s := strings.TrimSpace(out.SummaryMd)
-	if s == "" {
+	md = stripOuterFence(md)
+	if md == "" {
 		return "", fmt.Errorf("AI returned an empty summary")
 	}
-	return s, nil
+	return md, nil
+}
+
+// stripOuterFence removes a single ``` or ```markdown fence that wraps the whole
+// answer, which some models add around the entire output.
+func stripOuterFence(s string) string {
+	s = strings.TrimSpace(s)
+	if !strings.HasPrefix(s, "```") {
+		return s
+	}
+	nl := strings.IndexByte(s, '\n')
+	if nl < 0 || !strings.HasSuffix(s, "```") {
+		return s
+	}
+	inner := strings.TrimSuffix(s[nl+1:], "```")
+	return strings.TrimSpace(inner)
 }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log"
 	"net/http"
 	"regexp"
 	"strings"
@@ -205,7 +206,8 @@ func (h *Handler) SummarizeCourseNotes(c *gin.Context) {
 			abort(c, http.StatusServiceUnavailable, err.Error())
 			return
 		}
-		abort(c, http.StatusBadGateway, "AI could not make the cheat sheet, please try again")
+		log.Printf("[ai] summarize notes user=%d subject=%d notes=%d: %v", uid, req.SubjectID, len(notes), err)
+		abort(c, http.StatusBadGateway, "AI could not make the cheat sheet: "+err.Error())
 		return
 	}
 	now := time.Now().UTC()
