@@ -252,6 +252,9 @@ Trang **Cheat sheet** (menu, theo môn đang chọn) — ghi chú **cá nhân c�
   thành từng item để vẫn sửa được. Thao tác này xóa ghi chú cũ nên có hỏi xác nhận.
 - API: `GET/POST/PATCH/DELETE /course-notes`, `POST /course-notes/summarize`, `POST /course-notes/adopt-summary`. Bảng `course_notes`,
   `course_note_summaries` (migration 0020).
+- **Widget ghi chú nổi** (`CourseNotesWidget.vue`, góc dưới-phải, mọi trang khi đã đăng nhập): gõ/dán note nhanh cho
+  **khóa đang chọn** mà không rời trang (hợp để chép câu lệnh khi đang Browse), lưu chung store với trang Cheat sheet;
+  có danh sách note gần đây + link mở Cheat sheet. Ở môn English nó tự đẩy lên trên để không đè widget "My notes" theo-từ.
 
 ## Hỏi AI theo khóa (chat trong trang Cheat sheet)
 
