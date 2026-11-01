@@ -22,7 +22,7 @@
           <label class="form-check-label" for="listen">Listening mode</label>
         </div>
         <select v-model.number="deckId" class="form-select w-auto" @change="start">
-          <option v-for="d in subject?.decks ?? []" :key="d.id" :value="d.id">{{ d.name }}</option>
+          <option v-for="d in quizDecks" :key="d.id" :value="d.id">{{ d.name }}</option>
         </select>
       </div>
     </div>
@@ -771,8 +771,12 @@ async function preparePron() {
 }
 
 /** A deck of the topic chosen in the menu (the one asked for when it belongs to it). */
+// "lab" cards are command-typing drills with no meaning to quiz on, so the
+// labs deck is excluded here (it never has enough quizzable cards anyway).
+const quizDecks = computed(() => (subject.value?.decks ?? []).filter((d) => d.slug !== 'labs'))
+
 function deckOfTopic(want: number): number {
-  const decks = subject.value?.decks ?? []
+  const decks = quizDecks.value
   return decks.some((d) => d.id === want) ? want : decks[0]?.id ?? 0
 }
 

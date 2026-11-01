@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"mvp-lang-app/internal/models"
@@ -57,9 +58,46 @@ type MCQPayload struct {
 	Explanation string   `json:"explanation,omitempty"`
 }
 
+// LabStep is one step of a lab card. Two kinds of step:
+//
+//   - "command" (default): the learner types a shell command, checked against
+//     Patterns (regexes, case-insensitive, matched anywhere in the trimmed,
+//     whitespace-collapsed input) — any one matching counts as correct.
+//   - "choice": the learner picks from Choices (a "what do you do next?"
+//     decision point); Answer is the correct option's index into Choices.
+//
+// Output, when set, is simulated tool/terminal output shown above the prompt
+// (e.g. a canned nmap result) so the learner reacts to it like a real
+// engagement, without needing a live shell. Checking happens entirely
+// client-side; this is self-practice, not a graded exam.
+type LabStep struct {
+	Output      string   `json:"output,omitempty"`      // simulated command output shown before the prompt
+	Prompt      string   `json:"prompt"`                // scenario/instruction for this step
+	Hint        string   `json:"hint,omitempty"`        // optional nudge, revealed on request
+	Type        string   `json:"type,omitempty"`        // "command" (default) or "choice"
+	Patterns    []string `json:"patterns,omitempty"`    // accepted command regexes (type == "command")
+	Choices     []string `json:"choices,omitempty"`     // answer options (type == "choice")
+	Answer      int      `json:"answer,omitempty"`      // correct index into Choices (type == "choice")
+	Explanation string   `json:"explanation,omitempty"` // shown after a correct answer
+}
+
+// LabPayload is a sequential, hands-on drill (a "lab"): a short scenario plus
+// an ordered list of steps the learner must get right, one at a time, to
+// progress. Mode is a display hint only: "lab" (default) is a focused
+// command-typing drill; "assignment" is a fuller walkthrough that mixes
+// simulated tool output, typed commands and multiple-choice decision points
+// to resemble a real engagement end-to-end.
+type LabPayload struct {
+	Mode       string    `json:"mode,omitempty"`
+	Scenario   string    `json:"scenario,omitempty"`
+	Steps      []LabStep `json:"steps"`
+	Reference  string    `json:"reference,omitempty"`  // optional Markdown study notes shown below the runner, for review
+	Difficulty string    `json:"difficulty,omitempty"` // "co_ban" | "trung_binh" | "nang_cao" -- display hint only
+}
+
 func ValidKind(k string) bool {
 	switch k {
-	case models.KindVocab, models.KindPhrasal, models.KindConcept, models.KindMCQ:
+	case models.KindVocab, models.KindPhrasal, models.KindConcept, models.KindMCQ, models.KindLab:
 		return true
 	}
 	return false
@@ -131,6 +169,64 @@ func Normalize(kind, front string, raw json.RawMessage) (json.RawMessage, error)
 		}
 		p.Choices = choices
 		return json.Marshal(p)
+	case models.KindLab:
+		var p LabPayload
+		if err := json.Unmarshal(raw, &p); err != nil {
+			return nil, fmt.Errorf("invalid lab payload: %w", err)
+		}
+		p.Scenario = strings.TrimSpace(p.Scenario)
+		p.Mode = strings.TrimSpace(p.Mode)
+		p.Reference = strings.TrimSpace(p.Reference)
+		p.Difficulty = strings.TrimSpace(p.Difficulty)
+		var steps []LabStep
+		for _, st := range p.Steps {
+			st.Output = strings.TrimSpace(st.Output)
+			st.Prompt = strings.TrimSpace(st.Prompt)
+			st.Hint = strings.TrimSpace(st.Hint)
+			st.Explanation = strings.TrimSpace(st.Explanation)
+			st.Type = strings.TrimSpace(st.Type)
+			if st.Prompt == "" {
+				continue
+			}
+			if st.Type == "choice" {
+				var choices []string
+				for _, c := range st.Choices {
+					if c = strings.TrimSpace(c); c != "" {
+						choices = append(choices, c)
+					}
+				}
+				if len(choices) < 2 {
+					return nil, fmt.Errorf("lab step %q (type choice) needs at least 2 non-empty choices", st.Prompt)
+				}
+				if st.Answer < 0 || st.Answer >= len(choices) {
+					return nil, fmt.Errorf("lab step %q (type choice) answer index out of range", st.Prompt)
+				}
+				st.Choices, st.Patterns = choices, nil
+			} else {
+				st.Type = "command"
+				var pats []string
+				for _, pat := range st.Patterns {
+					if pat = strings.TrimSpace(pat); pat != "" {
+						pats = append(pats, pat)
+					}
+				}
+				if len(pats) == 0 {
+					continue
+				}
+				for _, pat := range pats {
+					if _, err := regexp.Compile(pat); err != nil {
+						return nil, fmt.Errorf("lab step %q has invalid pattern %q: %w", st.Prompt, pat, err)
+					}
+				}
+				st.Patterns, st.Choices = pats, nil
+			}
+			steps = append(steps, st)
+		}
+		if len(steps) == 0 {
+			return nil, errors.New("lab card needs at least one step with a prompt and (patterns or choices)")
+		}
+		p.Steps = steps
+		return json.Marshal(p)
 	}
 	return nil, fmt.Errorf("unknown card kind %q", kind)
 }
@@ -192,6 +288,10 @@ func ToCompact(c models.Card) Compact {
 		a := p.Answer
 		out.Answer = &a
 		out.Back = p.Explanation
+	case models.KindLab:
+		var p LabPayload
+		_ = json.Unmarshal(c.Payload, &p)
+		out.Back = p.Scenario
 	}
 	return out
 }

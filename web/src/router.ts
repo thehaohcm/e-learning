@@ -12,6 +12,7 @@ const router = createRouter({
     { path: '/quiz', component: () => import('./pages/Quiz.vue') },
     { path: '/reading', component: () => import('./pages/Reading.vue') }, // ?id=
     { path: '/practice', component: () => import('./pages/PracticeHub.vue') },
+    { path: '/labs', component: () => import('./pages/Labs.vue') }, // ?id= (pentest step-by-step command practice)
     { path: '/practice/forgotten', component: () => import('./pages/Practice.vue') }, // ?ids=1,2,3, default: today's forgotten words
     { path: '/practice/check', component: () => import('./pages/WordQuestions.vue') }, // ?ids=1,2,3: AI multiple choice (shared with the device)
     { path: '/writing', component: () => import('./pages/Writing.vue') },

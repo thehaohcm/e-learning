@@ -48,11 +48,22 @@
           <div class="card-body d-flex flex-column">
             <h5 class="fw-bold"><i class="bi bi-collection text-primary"></i> {{ topicName }} decks</h5>
             <p class="small text-muted mb-2">Study one deck only, or browse its cards.</p>
-            <div v-for="d in subject?.decks ?? []" :key="d.id" class="d-flex align-items-center gap-2 small mb-1">
+            <div v-for="d in (subject?.decks ?? []).filter((d) => d.slug !== 'labs')" :key="d.id" class="d-flex align-items-center gap-2 small mb-1">
               <span class="flex-grow-1">{{ d.name }} <span class="text-muted">· {{ d.learning_count }}/{{ d.card_count }}</span></span>
               <router-link :to="`/review?deck_id=${d.id}`" class="btn btn-sm btn-warning py-0">Study</router-link>
               <router-link :to="`/learn?deck_id=${d.id}`" class="btn btn-sm btn-outline-primary py-0">Browse</router-link>
             </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- pentest: step-by-step command-typing labs -->
+      <div v-if="hasLabs" class="col-md-6">
+        <div class="card border-0 shadow-sm h-100 hoverable">
+          <div class="card-body d-flex flex-column">
+            <h5 class="fw-bold"><i class="bi bi-terminal text-dark"></i> Thực hành gõ lệnh (Labs)</h5>
+            <p class="small text-muted mb-2">Làm theo từng bước, gõ đúng lệnh mới qua bước tiếp theo — luyện phản xạ trước khi lên THM/HTB.</p>
+            <router-link to="/labs" class="btn btn-dark mt-auto align-self-start">Mở Labs</router-link>
           </div>
         </div>
       </div>
@@ -97,6 +108,7 @@ import { computed, onMounted, ref } from 'vue'
 import { api } from '../api'
 import { isEnglish, loadSubjects, shortName, subject } from '../composables/useSubject'
 const topicName = computed(() => (subject.value ? shortName(subject.value.slug, subject.value.name) : ''))
+const hasLabs = computed(() => subject.value?.decks?.some((d) => d.slug === 'labs') ?? false)
 
 interface ReadingSummary { id: number; title: string; status: string; score: number | null; total: number | null }
 interface WritingSummary { id: number; prompt: string; original_text: string; overall_score: number | null }

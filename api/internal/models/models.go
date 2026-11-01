@@ -70,6 +70,7 @@ const (
 	KindPhrasal = "phrasal"
 	KindConcept = "concept"
 	KindMCQ     = "mcq"
+	KindLab     = "lab" // step-by-step command practice (pentest drills)
 )
 
 type Subject struct {

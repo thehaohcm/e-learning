@@ -32,7 +32,10 @@
     </div>
     <div class="card-footer bg-white border-0 pt-0 d-flex justify-content-between align-items-center">
       <small class="text-muted">{{ status }}</small>
-      <button v-if="!card.progress" @click="$emit('add')" class="btn btn-success btn-sm">
+      <router-link v-if="card.kind === 'lab'" :to="`/labs?id=${card.id}`" class="btn btn-dark btn-sm">
+        <i class="bi bi-terminal"></i> Làm lab
+      </router-link>
+      <button v-else-if="!card.progress" @click="$emit('add')" class="btn btn-success btn-sm">
         <i class="bi bi-plus-circle"></i> Learn
       </button>
       <span v-else class="badge" :class="card.progress.suspended ? 'bg-secondary' : 'bg-success-subtle text-success-emphasis'">

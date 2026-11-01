@@ -1,4 +1,4 @@
-export type CardKind = 'vocab' | 'phrasal' | 'concept' | 'mcq'
+export type CardKind = 'vocab' | 'phrasal' | 'concept' | 'mcq' | 'lab'
 
 export interface Sense {
   level: number
@@ -9,6 +9,17 @@ export interface Sense {
   example_id?: number // set when the example is one of the stored AI examples (Study rotates them)
   usage_note?: string
   grammar_note?: string
+}
+
+export interface LabStep {
+  output?: string // simulated tool/terminal output shown above the prompt (assignment-style steps)
+  prompt: string
+  hint?: string
+  type?: 'command' | 'choice' // default 'command' (typed, checked against patterns)
+  patterns?: string[] // regexes, matched case-insensitively anywhere in the trimmed input (type 'command')
+  choices?: string[] // answer options (type 'choice')
+  answer?: number // correct index into choices (type 'choice')
+  explanation?: string
 }
 
 export interface Card {
@@ -34,6 +45,11 @@ export interface Card {
     choices?: string[]
     answer?: number
     explanation?: string
+    mode?: string // lab cards: 'lab' (default, command drill) or 'assignment' (full walkthrough)
+    scenario?: string // lab cards: short framing for the whole lab
+    steps?: LabStep[] // lab cards: ordered steps (typed commands and/or multiple-choice decisions)
+    reference?: string // lab cards: optional Markdown study notes shown below the runner, for review
+    difficulty?: 'co_ban' | 'trung_binh' | 'nang_cao' // lab cards: display-only difficulty badge
   }
 }
 

@@ -50,7 +50,7 @@
         </span>
       </div>
       <div class="row g-3">
-        <div v-for="d in s.decks" :key="d.id" class="col-md-6 col-lg-3">
+        <div v-for="d in s.decks.filter((d) => d.slug !== 'labs')" :key="d.id" class="col-md-6 col-lg-3">
           <div class="card border-0 shadow-sm h-100 hoverable">
             <div class="card-body d-flex flex-column">
               <h6 class="fw-bold mb-1">{{ d.name }}</h6>

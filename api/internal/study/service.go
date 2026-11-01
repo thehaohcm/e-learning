@@ -156,7 +156,7 @@ func (s *Service) Queue(userID int64, f Filter, limit int, now time.Time) ([]Que
 	var due []row
 	q := s.DB.Table("user_cards uc").Select(sel).
 		Joins("JOIN cards c ON c.id = uc.card_id").
-		Where("uc.user_id = ? AND NOT uc.suspended AND uc.state <> ? AND uc.due <= ?", userID, srs.StateNew, now)
+		Where("uc.user_id = ? AND NOT uc.suspended AND uc.state <> ? AND uc.due <= ? AND c.kind <> ?", userID, srs.StateNew, now, models.KindLab)
 	if err := scope(q, f).Order("uc.due ASC").Limit(limit).Scan(&due).Error; err != nil {
 		return nil, err
 	}
@@ -186,7 +186,7 @@ func (s *Service) Queue(userID int64, f Filter, limit int, now time.Time) ([]Que
 				var out []row
 				q := s.DB.Table("user_cards uc").Select(sel).
 					Joins("JOIN cards c ON c.id = uc.card_id").
-					Where("uc.user_id = ? AND NOT uc.suspended AND uc.state = ?", userID, srs.StateNew)
+					Where("uc.user_id = ? AND NOT uc.suspended AND uc.state = ? AND c.kind <> ?", userID, srs.StateNew, models.KindLab)
 				err := scope(q, sf).Order("uc.created_at ASC, c.id ASC").Limit(quota).Scan(&out).Error
 				return out, err
 			}
@@ -251,7 +251,8 @@ func (s *Service) Queue(userID int64, f Filter, limit int, now time.Time) ([]Que
 // deck at all: the English core vocabulary).
 func (s *Service) autoIntroduce(userID int64, settings Settings, f Filter, subject string, n int, now time.Time) (int, error) {
 	q := s.DB.Table("cards c").Select("c.id").
-		Where("NOT EXISTS (SELECT 1 FROM user_cards uc WHERE uc.user_id = ? AND uc.card_id = c.id)", userID)
+		Where("NOT EXISTS (SELECT 1 FROM user_cards uc WHERE uc.user_id = ? AND uc.card_id = c.id)", userID).
+		Where("c.kind <> ?", models.KindLab) // "lab" cards are command-typing drills, never auto-introduced into FSRS
 	switch {
 	case f.DeckID > 0:
 		q = scope(q, f)

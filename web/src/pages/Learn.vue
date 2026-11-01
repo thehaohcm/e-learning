@@ -17,12 +17,17 @@
       </div>
       <div class="col-md-6 d-flex gap-2 flex-wrap justify-content-md-end">
         <button class="btn btn-primary" @click="load(1)"><i class="bi bi-search"></i></button>
-        <button v-if="notAdded.length" class="btn btn-success" @click="addAll">
-          <i class="bi bi-plus-circle"></i> Add {{ notAdded.length }} to Study
-        </button>
-        <router-link v-if="deckId > 0" :to="`/review?deck_id=${deckId}`" class="btn btn-warning">
-          <i class="bi bi-arrow-repeat"></i> Study deck
+        <router-link v-if="deck?.default_kind === 'lab'" to="/labs" class="btn btn-dark">
+          <i class="bi bi-terminal"></i> Open Labs
         </router-link>
+        <template v-else>
+          <button v-if="notAdded.length" class="btn btn-success" @click="addAll">
+            <i class="bi bi-plus-circle"></i> Add {{ notAdded.length }} to Study
+          </button>
+          <router-link v-if="deckId > 0" :to="`/review?deck_id=${deckId}`" class="btn btn-warning">
+            <i class="bi bi-arrow-repeat"></i> Study deck
+          </router-link>
+        </template>
       </div>
     </div>
 

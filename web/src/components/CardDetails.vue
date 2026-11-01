@@ -57,6 +57,15 @@
       </ol>
       <div v-if="card.payload.explanation" class="small text-muted">{{ card.payload.explanation }}</div>
     </div>
+
+    <!-- lab: a step-by-step command-typing drill, done in its own runner -->
+    <div v-else-if="card.kind === 'lab'" class="p-2 rounded bg-light">
+      <div v-if="card.payload.scenario" class="text-muted small mb-1">{{ card.payload.scenario }}</div>
+      <div class="small"><i class="bi bi-list-ol"></i> {{ card.payload.steps?.length ?? 0 }} bước gõ lệnh</div>
+      <router-link :to="`/labs?id=${card.id}`" class="btn btn-sm btn-dark mt-2">
+        <i class="bi bi-terminal"></i> Làm lab này
+      </router-link>
+    </div>
   </div>
 </template>
 

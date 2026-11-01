@@ -25,7 +25,8 @@ func (s *Service) QuizPool(userID int64, f Filter, n int) ([]QueueItem, error) {
 		Select("uc.*, c.deck_id AS c_deck_id, c.kind AS c_kind, c.front AS c_front, c.payload AS c_payload, c.source AS c_source").
 		Joins("JOIN cards c ON c.id = uc.card_id").
 		Where("uc.user_id = ? AND NOT uc.suspended AND uc.state <> ?", userID, srs.StateNew).
-		Where("c.deck_id IN ("+VisibleDecksSQL+")", userID)
+		Where("c.deck_id IN ("+VisibleDecksSQL+")", userID).
+		Where("c.kind <> ?", models.KindLab)
 	if err := scope(q, f).Order("random()").Limit(n).Scan(&rows).Error; err != nil {
 		return nil, err
 	}

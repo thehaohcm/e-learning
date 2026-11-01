@@ -59,7 +59,8 @@ func (s *Service) BuildQuiz(userID int64, f Filter, count int) ([]Question, erro
 	var cards []models.Card
 	q := s.DB.Table("cards c").Select("c.*").
 		Joins("LEFT JOIN user_cards uc ON uc.card_id = c.id AND uc.user_id = ?", userID).
-		Where("c.deck_id IN ("+VisibleDecksSQL+")", userID)
+		Where("c.deck_id IN ("+VisibleDecksSQL+")", userID).
+		Where("c.kind <> ?", models.KindLab) // "lab" cards are command-typing drills, not quiz material
 	if err := scope(q, f).
 		Order("(uc.card_id IS NULL), (uc.state = 0), random()").
 		Limit(count).Scan(&cards).Error; err != nil {
@@ -81,6 +82,9 @@ func (s *Service) BuildQuiz(userID int64, f Filter, count int) ([]Question, erro
 }
 
 func (s *Service) question(c models.Card) (*Question, error) {
+	if c.Kind == models.KindLab {
+		return nil, nil // never quizzed; practiced through its own step runner
+	}
 	if c.Kind == models.KindMCQ {
 		var p content.MCQPayload
 		if json.Unmarshal(c.Payload, &p) != nil || len(p.Choices) < 2 {

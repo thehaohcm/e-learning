@@ -18,9 +18,10 @@ func (h *Handler) Enroll(c *gin.Context) {
 		bad(c, err)
 		return
 	}
-	// only enroll ids that exist
+	// only enroll ids that exist; "lab" cards are step-by-step command drills
+	// checked client-side — they never go into the FSRS spaced-repetition queue
 	var ids []int64
-	h.DB.Model(&models.Card{}).Where("id IN ? AND deck_id IN ("+study.VisibleDecksSQL+")", req.CardIDs, userID(c)).Pluck("id", &ids)
+	h.DB.Model(&models.Card{}).Where("id IN ? AND deck_id IN ("+study.VisibleDecksSQL+") AND kind <> ?", req.CardIDs, userID(c), models.KindLab).Pluck("id", &ids)
 	n, err := h.Study.Enroll(userID(c), ids, time.Now().UTC())
 	if err != nil {
 		internal(c, err)
