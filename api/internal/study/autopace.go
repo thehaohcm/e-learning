@@ -120,6 +120,8 @@ func subjectShort(slug string) string {
 		return "PMP"
 	case "pentest":
 		return "Pentest"
+	case "aws":
+		return "AWS"
 	}
 	return slug
 }

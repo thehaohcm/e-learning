@@ -227,6 +227,8 @@ func shortSubject(slug, name string) string {
 		return "PMP"
 	case "pentest":
 		return "Pentest"
+	case "aws":
+		return "AWS"
 	}
 	return name
 }

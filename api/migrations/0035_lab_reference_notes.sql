@@ -31,6 +31,8 @@ nmap -sU --top-ports 20 <target>              # UDP hay bị bỏ sót (DNS/SNMP
 ```
 Xuất kết quả ra file: `-oN all_ports.txt` (chỉ bản text dễ đọc) hoặc `-oA <basename>` (xuất ĐỒNG THỜI cả 3 định dạng .nmap/.xml/.gnmap trong 1 lệnh — dùng khi vừa cần đọc nhanh vừa cần file để tool khác parse lại, như bước `-oA scan1` trong lab).
 
+**Flag `--reason`:** thêm `--reason` vào lệnh nmap (vd `nmap -sC -sV --reason -p- <target>`) để xem thêm 1 cột REASON cho biết nmap dựa vào gói tin nào để kết luận trạng thái: `syn-ack` = host trả SYN/ACK → chắc chắn open; `reset` = host trả RST → closed nhưng vẫn phản hồi (không bị chặn hoàn toàn); `no-response` = không có phản hồi nào → nmap đoán là filtered (nghi do firewall/IDS chặn âm thầm). Hữu ích vì `closed` và `filtered` nhìn cột STATE không khác nhau rõ, nhưng `filtered` gợi ý có firewall đang chặn, nên cân nhắc đổi kỹ thuật quét (`-sA`, `--source-port`, quét chậm hơn `-T2`/`-T1`).
+
 **Lưu ý cú pháp `-sn`:** luôn phải kèm 1 dải mạng CIDR (vd `-sn 10.10.10.0/24`) hoặc IP đơn lẻ ngay sau nó — không chạy `-sn` một mình mà không có target.
 
 **Nguyên tắc đọc kết quả & ra quyết định:** ưu tiên thử (1) cửa không cần credential (FTP anon, SMB null, DB mở), (2) cửa web (phức tạp nhất nhưng thường là đường vào chính), (3) cửa cần credential (để sau).

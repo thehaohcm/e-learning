@@ -42,7 +42,7 @@ export const isEnglish = computed(() => subjectSlug.value === 'english')
 
 /** Short name for the menu: "English", "PMP". */
 export function shortName(slug: string, name = ''): string {
-  return slug === 'english' ? 'English' : slug === 'pmp' ? 'PMP' : slug === 'pentest' ? 'Pentest' : name || slug
+  return slug === 'english' ? 'English' : slug === 'pmp' ? 'PMP' : slug === 'pentest' ? 'Pentest' : slug === 'aws' ? 'AWS' : name || slug
 }
 
 export function setSubject(slug: string) {
