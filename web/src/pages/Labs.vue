@@ -30,12 +30,15 @@
               <div class="card-body d-flex flex-column">
                 <h5 class="fw-bold mb-1">{{ c.front }}</h5>
                 <p class="small text-muted mb-2">{{ c.payload.scenario }}</p>
-              <div class="small mb-2">
+              <div class="small mb-2 d-flex flex-wrap gap-1 align-items-center">
                 <span class="badge" :class="progressBadgeClass(c)">
                   {{ progressLabel(c) }}
                 </span>
-                <span v-if="c.payload.difficulty" class="badge ms-1" :class="difficultyBadgeClass(c.payload.difficulty)">
+                <span v-if="c.payload.difficulty" class="badge" :class="difficultyBadgeClass(c.payload.difficulty)">
                   {{ difficultyLabel(c.payload.difficulty) }}
+                </span>
+                <span v-for="tag in (c.payload.cert_tags ?? [])" :key="tag" class="badge" :class="certBadgeClass(tag)">
+                  {{ tag }}
                 </span>
               </div>
                 <router-link :to="`/labs?id=${c.id}`" class="btn mt-auto align-self-start"
@@ -58,6 +61,9 @@
         <span v-if="activeCard.payload.mode === 'assignment'" class="badge bg-dark ms-1">Assignment</span>
         <span v-if="activeCard.payload.difficulty" class="badge ms-1" :class="difficultyBadgeClass(activeCard.payload.difficulty)">
           {{ difficultyLabel(activeCard.payload.difficulty) }}
+        </span>
+        <span v-for="tag in (activeCard.payload.cert_tags ?? [])" :key="tag" class="badge ms-1" :class="certBadgeClass(tag)">
+          {{ tag }}
         </span>
       </h3>
       <p class="text-muted">{{ activeCard.payload.scenario }}</p>
@@ -84,11 +90,14 @@
       <!-- current step -->
       <div v-else class="card border-0 shadow-sm">
         <div class="card-body">
-          <pre v-if="currentStep.output" class="bg-dark text-light p-2 rounded small mb-2" style="white-space: pre-wrap;">{{ currentStep.output }}</pre>
+          <div v-if="contextOutput" class="mb-2">
+            <div class="small text-muted mb-1"><i class="bi bi-terminal"></i> Kết quả bước trước:</div>
+            <pre class="bg-dark text-light p-2 rounded small mb-0" style="white-space: pre-wrap;">{{ contextOutput }}</pre>
+          </div>
 
           <p class="fw-semibold">{{ currentStep.prompt }}</p>
 
-          <div v-if="showHint && currentStep.hint" class="alert alert-light border small mb-2">
+          <div v-if="showHint && currentStep.hint" class="alert alert-light border small mb-2" style="white-space: pre-wrap;">
             <i class="bi bi-lightbulb text-warning"></i> {{ currentStep.hint }}
           </div>
 
@@ -128,10 +137,16 @@
           <div v-if="feedback === 'wrong'" class="alert alert-danger py-2 small mb-0">
             <i class="bi bi-x-circle"></i> Chưa đúng, thử lại (gợi ý: kiểm tra lại cú pháp/cờ của lệnh).
           </div>
-          <div v-else-if="feedback === 'correct'" class="alert alert-success py-2 small mb-0">
-            <i class="bi bi-check-circle"></i> {{ currentStep.explanation || 'Chính xác!' }}
-            <div class="mt-2">
-              <button class="btn btn-sm btn-success" @click="next">Bước tiếp theo <i class="bi bi-arrow-right"></i></button>
+          <div v-else-if="feedback === 'correct'">
+            <div v-if="currentStep.type !== 'choice' && currentStep.output" class="mb-2">
+              <div class="small text-muted mb-1"><i class="bi bi-terminal-fill text-success"></i> Kết quả thực thi lệnh:</div>
+              <pre class="bg-dark text-light p-2 rounded small mb-0" style="white-space: pre-wrap;">{{ currentStep.output }}</pre>
+            </div>
+            <div class="alert alert-success py-2 small mb-0">
+              <i class="bi bi-check-circle"></i> {{ currentStep.explanation || 'Chính xác!' }}
+              <div class="mt-2">
+                <button class="btn btn-sm btn-success" @click="next">Bước tiếp theo <i class="bi bi-arrow-right"></i></button>
+              </div>
             </div>
           </div>
         </div>
@@ -143,7 +158,7 @@
           <i class="bi bi-journal-text"></i> {{ showReference ? 'Ẩn tài liệu ôn tập' : 'Xem tài liệu ôn tập' }}
         </button>
         <div v-if="showReference" class="card border-0 shadow-sm mt-2">
-          <div class="card-body reference-notes" v-html="referenceHtml"></div>
+          <div class="card-body reference-notes md" v-html="referenceHtml"></div>
         </div>
       </div>
     </div>
@@ -155,6 +170,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api'
 import { loadSubjects, subject } from '../composables/useSubject'
+import { renderMarkdown } from '../utils/markdown'
 import type { Card, LabStep } from '../types'
 
 const route = useRoute()
@@ -209,12 +225,31 @@ function difficultyBadgeClass(d: string): string {
   }
 }
 
+function certBadgeClass(cert: string): string {
+  switch (cert) {
+    case 'THM PT1': return 'bg-primary'
+    case 'THM WEB1': return 'bg-success'
+    case 'HTB CPTS': return 'bg-dark'
+    default: return 'bg-secondary'
+  }
+}
+
 async function loadLabs() {
   await loadSubjects()
   const deck = subject.value?.decks.find((d) => d.slug === 'labs')
   if (!deck) { labCards.value = []; loading.value = false; return }
-  const { data } = await api.get('/cards', { params: { deck_id: deck.id, limit: 100 } })
-  labCards.value = (data?.data ?? []).filter((c: Card) => c.kind === 'lab')
+  const all: Card[] = []
+  let page = 1
+  const limit = 100
+  while (true) {
+    const { data } = await api.get('/cards', { params: { deck_id: deck.id, kind: 'lab', page, limit } })
+    const rows: Card[] = data?.data ?? []
+    all.push(...rows)
+    const total = Number(data?.total ?? 0)
+    if (!rows.length || all.length >= total || page >= 10) break
+    page++
+  }
+  labCards.value = all.filter((c: Card) => c.kind === 'lab')
   loading.value = false
 }
 
@@ -229,6 +264,15 @@ const totalSteps = computed(() => activeCard.value ? totalStepsOf(activeCard.val
 const curStep = computed(() => activeCard.value ? stepIndex(activeCard.value.id) : 0)
 const finished = computed(() => totalSteps.value > 0 && curStep.value >= totalSteps.value)
 const currentStep = computed<LabStep>(() => activeCard.value?.payload.steps?.[curStep.value] ?? { prompt: '', patterns: [] })
+const contextOutput = computed<string>(() => {
+  if (currentStep.value.type === 'choice' && currentStep.value.output) {
+    return currentStep.value.output
+  }
+  if (curStep.value > 0) {
+    return activeCard.value?.payload.steps?.[curStep.value - 1]?.output ?? ''
+  }
+  return ''
+})
 const chosenIndex = ref<number | null>(null)
 
 const answer = ref('')
@@ -317,59 +361,118 @@ function restart() {
   chosenIndex.value = null
 }
 
-// Minimal Markdown-ish renderer for lab reference notes (headings, bullet
-// lists, bold, inline code, paragraphs). Not a full Markdown parser -- just
-// enough for the short study-note blocks attached to each lab. Input is our
-// own authored content (not untrusted user input).
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-function inlineMd(s: string): string {
-  let out = escapeHtml(s)
-  out = out.replace(/`([^`]+)`/g, '<code>$1</code>')
-  out = out.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-  return out
-}
-const referenceHtml = computed(() => {
-  const md = activeCard.value?.payload.reference ?? ''
-  const lines = md.split('\n')
-  let html = ''
-  let inList = false
-  const closeList = () => { if (inList) { html += '</ul>'; inList = false } }
-  for (const raw of lines) {
-    const line = raw.trim()
-    if (!line) { closeList(); continue }
-    const h = line.match(/^(#{1,4})\s+(.*)$/)
-    if (h) { closeList(); const lvl = Math.min(h[1].length + 3, 6); html += `<h${lvl}>${inlineMd(h[2])}</h${lvl}>`; continue }
-    const li = line.match(/^[-*]\s+(.*)$/)
-    if (li) { if (!inList) { html += '<ul>'; inList = true }; html += `<li>${inlineMd(li[1])}</li>`; continue }
-    closeList()
-    html += `<p>${inlineMd(line)}</p>`
-  }
-  closeList()
-  return html
-})
+const referenceHtml = computed(() => renderMarkdown(activeCard.value?.payload.reference ?? ''))
 
 onMounted(loadLabs)
 </script>
 
 <style scoped>
+.reference-notes :deep(h1),
+.reference-notes :deep(h2),
+.reference-notes :deep(h3),
 .reference-notes :deep(h4),
 .reference-notes :deep(h5),
 .reference-notes :deep(h6) {
   font-weight: 700;
-  margin-top: 0.75rem;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  color: #0f172a;
 }
-.reference-notes :deep(h4:first-child),
-.reference-notes :deep(h5:first-child) {
+.reference-notes :deep(h1) { font-size: 1.25rem; }
+.reference-notes :deep(h2) { font-size: 1.15rem; }
+.reference-notes :deep(h3) { font-size: 1.05rem; }
+.reference-notes :deep(h4),
+.reference-notes :deep(h5),
+.reference-notes :deep(h6) { font-size: 0.95rem; }
+.reference-notes :deep(h1:first-child),
+.reference-notes :deep(h2:first-child),
+.reference-notes :deep(h3:first-child),
+.reference-notes :deep(h4:first-child) {
   margin-top: 0;
 }
-.reference-notes :deep(p) { margin-bottom: 0.5rem; }
-.reference-notes :deep(ul) { padding-left: 1.25rem; margin-bottom: 0.5rem; }
+.reference-notes :deep(p) {
+  margin-bottom: 0.6rem;
+  line-height: 1.6;
+  color: #334155;
+}
+.reference-notes :deep(ul),
+.reference-notes :deep(ol) {
+  padding-left: 1.35rem;
+  margin-bottom: 0.6rem;
+  color: #334155;
+}
+.reference-notes :deep(li) {
+  margin-bottom: 0.25rem;
+  line-height: 1.55;
+}
+.reference-notes :deep(strong) {
+  font-weight: 600;
+  color: #0f172a;
+}
 .reference-notes :deep(code) {
-  background: #f1f3f5;
-  padding: 0.1rem 0.3rem;
-  border-radius: 0.25rem;
-  font-size: 0.9em;
+  background: #f1f5f9;
+  color: #d63384;
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.875em;
+  font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+.reference-notes :deep(pre) {
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 0.85rem 1rem;
+  border-radius: 8px;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  margin: 0.6rem 0 0.85rem;
+  font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.reference-notes :deep(pre code) {
+  background: transparent !important;
+  color: #f1f5f9 !important;
+  padding: 0 !important;
+  border-radius: 0;
+  font-size: inherit;
+  font-family: inherit;
+}
+.reference-notes :deep(table) {
+  width: 100%;
+  margin: 0.75rem 0;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  background: #fff;
+}
+.reference-notes :deep(th),
+.reference-notes :deep(td) {
+  border: 1px solid #e2e8f0;
+  padding: 0.5rem 0.75rem;
+  vertical-align: middle;
+}
+.reference-notes :deep(th) {
+  background: #f8fafc;
+  font-weight: 600;
+  color: #1e293b;
+  border-bottom: 2px solid #cbd5e1;
+}
+.reference-notes :deep(tbody tr:nth-child(even)) {
+  background: #f8fafc;
+}
+.reference-notes :deep(tbody tr:hover) {
+  background: #f1f5f9;
+}
+.reference-notes :deep(blockquote) {
+  border-left: 3px solid #6366f1;
+  margin: 0.6rem 0;
+  padding: 0.4rem 0.8rem;
+  background: #f8fafc;
+  color: #475569;
+  border-radius: 0 4px 4px 0;
+}
+.reference-notes :deep(hr) {
+  border: 0;
+  border-top: 1px solid #e2e8f0;
+  margin: 1rem 0;
 }
 </style>

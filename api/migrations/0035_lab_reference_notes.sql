@@ -29,7 +29,9 @@ nmap -p- --min-rate=1000 -T4 <target>        # quét HẾT 65535 port, không ch
 nmap -p <các-cổng-tìm-được> -sC -sV -A <target>   # soi kỹ: -sC script mặc định, -sV nhận diện version, -A thêm OS detection
 nmap -sU --top-ports 20 <target>              # UDP hay bị bỏ sót (DNS/SNMP/TFTP) — luôn quét riêng
 ```
-Xuất kết quả ra file: `-oN all_ports.txt`.
+Xuất kết quả ra file: `-oN all_ports.txt` (chỉ bản text dễ đọc) hoặc `-oA <basename>` (xuất ĐỒNG THỜI cả 3 định dạng .nmap/.xml/.gnmap trong 1 lệnh — dùng khi vừa cần đọc nhanh vừa cần file để tool khác parse lại, như bước `-oA scan1` trong lab).
+
+**Lưu ý cú pháp `-sn`:** luôn phải kèm 1 dải mạng CIDR (vd `-sn 10.10.10.0/24`) hoặc IP đơn lẻ ngay sau nó — không chạy `-sn` một mình mà không có target.
 
 **Nguyên tắc đọc kết quả & ra quyết định:** ưu tiên thử (1) cửa không cần credential (FTP anon, SMB null, DB mở), (2) cửa web (phức tạp nhất nhưng thường là đường vào chính), (3) cửa cần credential (để sau).
 

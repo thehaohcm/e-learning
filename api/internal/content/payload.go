@@ -93,6 +93,7 @@ type LabPayload struct {
 	Steps      []LabStep `json:"steps"`
 	Reference  string    `json:"reference,omitempty"`  // optional Markdown study notes shown below the runner, for review
 	Difficulty string    `json:"difficulty,omitempty"` // "co_ban" | "trung_binh" | "nang_cao" -- display hint only
+	CertTags   []string  `json:"cert_tags,omitempty"`  // e.g. ["THM PT1", "HTB CPTS", "THM WEB1"]
 }
 
 func ValidKind(k string) bool {
@@ -178,6 +179,13 @@ func Normalize(kind, front string, raw json.RawMessage) (json.RawMessage, error)
 		p.Mode = strings.TrimSpace(p.Mode)
 		p.Reference = strings.TrimSpace(p.Reference)
 		p.Difficulty = strings.TrimSpace(p.Difficulty)
+		var certTags []string
+		for _, tag := range p.CertTags {
+			if t := strings.TrimSpace(tag); t != "" {
+				certTags = append(certTags, t)
+			}
+		}
+		p.CertTags = certTags
 		var steps []LabStep
 		for _, st := range p.Steps {
 			st.Output = strings.TrimSpace(st.Output)

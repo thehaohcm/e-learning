@@ -50,6 +50,7 @@ export interface Card {
     steps?: LabStep[] // lab cards: ordered steps (typed commands and/or multiple-choice decisions)
     reference?: string // lab cards: optional Markdown study notes shown below the runner, for review
     difficulty?: 'co_ban' | 'trung_binh' | 'nang_cao' // lab cards: display-only difficulty badge
+    cert_tags?: string[] // e.g. ['THM PT1', 'HTB CPTS', 'THM WEB1']
   }
 }
 

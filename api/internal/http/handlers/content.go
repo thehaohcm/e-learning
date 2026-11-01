@@ -65,14 +65,15 @@ type cardWithProgress struct {
 	Progress *models.UserCard `json:"progress"`
 }
 
-// ListCards supports ?deck_id, ?subject_id, ?q (search), ?page, ?limit.
+// ListCards supports ?deck_id, ?subject_id, ?kind, ?q (search), ?page, ?limit.
 func (h *Handler) ListCards(c *gin.Context) {
 	f := filterFromQuery(c)
 	page := max(1, queryInt(c, "page", 1))
 	limit := queryInt(c, "limit", 30)
-	if limit < 1 || limit > 100 {
+	if limit < 1 || limit > 500 {
 		limit = 30
 	}
+	kind := strings.TrimSpace(c.Query("kind"))
 	search := strings.TrimSpace(c.Query("q"))
 	build := func() *gorm.DB {
 		q := h.DB.Table("cards c").Where("c.deck_id IN ("+study.VisibleDecksSQL+")", userID(c))
@@ -81,6 +82,9 @@ func (h *Handler) ListCards(c *gin.Context) {
 		}
 		if f.SubjectID > 0 {
 			q = q.Where("c.deck_id IN (SELECT id FROM decks WHERE subject_id = ?)", f.SubjectID)
+		}
+		if kind != "" {
+			q = q.Where("c.kind = ?", kind)
 		}
 		if search != "" {
 			like := "%" + strings.NewReplacer(`\`, `\\`, "%", `\%`, "_", `\_`).Replace(search) + "%"

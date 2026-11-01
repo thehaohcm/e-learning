@@ -152,6 +152,32 @@
   background: var(--secondary-color);
 }
 
+/* Markdown table styles */
+.md table {
+  width: 100%;
+  margin: 0.75rem 0;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+}
+.md th,
+.md td {
+  border: 1px solid #e2e8f0;
+  padding: 0.5rem 0.75rem;
+  vertical-align: middle;
+}
+.md th {
+  background: #f8fafc;
+  font-weight: 600;
+  color: #1e293b;
+  border-bottom: 2px solid #cbd5e1;
+}
+.md tbody tr:nth-child(even) {
+  background: #f8fafc;
+}
+.md tbody tr:hover {
+  background: #f1f5f9;
+}
+
 /* Responsive adjustments */
 @media (max-width: 768px) {
   .display-custom {
