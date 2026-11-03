@@ -2,7 +2,7 @@
   <div id="app">
     <nav v-if="auth.token" class="navbar navbar-expand-lg navbar-dark shadow-lg modern-navbar">
       <div class="container">
-        <router-link class="navbar-brand d-flex align-items-center gap-2 fw-bold" to="/">
+        <router-link class="navbar-brand d-flex align-items-center gap-2 fw-bold" :to="homeLink">
           <div class="brand-icon">
             <i class="bi bi-mortarboard-fill"></i>
           </div>
@@ -97,6 +97,13 @@ import CourseNotesWidget from './components/CourseNotesWidget.vue'
 import { isEnglish, loadSubjects, setSubject, shortName, subjectOfDeck, subjects, subjectSlug } from './composables/useSubject'
 import StudyNudge from './components/StudyNudge.vue'
 import { disablePush, syncPush } from './composables/usePwa'
+import { currentPrefix, PREFIX_TO_SUBJECT, SUBJECT_PREFIXES } from './router'
+
+/** Strips the leading /eng, /pmp, /pentest or /aws segment, e.g. "/pentest/labs" -> "/labs". */
+function stripPrefix(path: string): string {
+  const m = /^\/(?:eng|pmp|pentest|aws)(\/.*)?$/.exec(path)
+  return m ? (m[1] ?? '/') : path
+}
 
 const router = useRouter()
 const route = useRoute()
@@ -111,18 +118,31 @@ watch(() => route.fullPath, () => {
 interface NavLink { to: string; label: string; icon: string; exact?: boolean; children?: NavLink[] }
 // Reading, Writing and the word practice are English only
 const ENGLISH_ONLY = ['/reading', '/writing', '/practice/forgotten', '/practice/check']
+// nav link targets are defined bare (e.g. "/review") below and prefixed here
+// with the current topic ("/pentest/review") so router-link's own active-
+// class matching, and isParentActive(), compare against the real route path
+function withPrefix(to: string): string {
+  if (to.startsWith('#')) return to
+  return `/${currentPrefix()}${to === '/' ? '' : to}`
+}
+const homeLink = computed(() => withPrefix('/'))
 const links = computed<NavLink[]>(() => {
-  const base = allLinks.map((l) =>
-    l.children ? { ...l, children: l.children.filter((c) => isEnglish.value || !ENGLISH_ONLY.includes(c.to)) } : l)
+  const base = allLinks.map((l) => ({
+    ...l,
+    to: withPrefix(l.to),
+    children: l.children
+      ? l.children.filter((c) => isEnglish.value || !ENGLISH_ONLY.includes(c.to)).map((c) => ({ ...c, to: withPrefix(c.to) }))
+      : undefined,
+  }))
   // tuck the less-used pages into a "More" menu (Courses only for admins)
   const more: NavLink = {
     to: '#more', label: 'More', icon: 'bi-grid-3x3-gap',
     children: [
-      { to: '/cheatsheet', label: 'Cheat sheet', icon: 'bi-journal-text' },
-      ...(auth.isAdmin ? [{ to: '/courses', label: 'Courses', icon: 'bi-mortarboard' }] : []),
+      { to: withPrefix('/cheatsheet'), label: 'Cheat sheet', icon: 'bi-journal-text' },
+      ...(auth.isAdmin ? [{ to: withPrefix('/courses'), label: 'Courses', icon: 'bi-mortarboard' }] : []),
     ],
   }
-  const i = base.findIndex((l) => l.to === '/devices')
+  const i = base.findIndex((l) => l.to === withPrefix('/devices'))
   return i >= 0 ? [...base.slice(0, i), more, ...base.slice(i)] : [...base, more]
 })
 
@@ -158,27 +178,38 @@ async function signOut() {
   router.push('/login')
 }
 
-// ---------------------------------------------------------------- topic (English / PMP)
+// ---------------------------------------------------------------- topic (English / PMP / Pentest / AWS)
+// Each topic has its own URL prefix (/eng, /pmp, /pentest, /aws) so pages are
+// shareable/bookmarkable per topic and the address bar always shows which
+// one is open.
 async function chooseSubject(slug: string) {
   if (slug === subjectSlug.value) return
   setSubject(slug)
-  // a page of the other topic: go to the same page without its deck / topic
-  if (!isEnglish.value && ENGLISH_ONLY.some((p) => route.path.startsWith(p))) {
-    router.push('/practice')
-  } else if (route.query.deck_id || route.query.subject_id) {
-    router.replace({ path: route.path })
-  }
+  const prefix = SUBJECT_PREFIXES[slug] ?? 'eng'
+  // same page, new topic's prefix; drop deck_id/subject_id query (belonged to the old topic)
+  const rest = stripPrefix(route.path)
+  const target = (!isEnglish.value && ENGLISH_ONLY.some((p) => rest.startsWith(p))) ? '/practice' : rest
+  router.push(`/${prefix}${target === '/' ? '' : target}`)
 }
 
-// a link into a deck or topic (/review?deck_id=5) switches to its topic
+// a link into a deck or topic (/review?deck_id=5) switches to its topic, and
+// keeps the URL's topic prefix in sync either way (prefix -> state, or
+// state -> prefix when a deck/subject query overrides it)
 async function followTopic() {
   if (!auth.token) return
   await loadSubjects()
+  const prefixSlug = PREFIX_TO_SUBJECT[(route.params.subjectPrefix as string) || '']
+  if (prefixSlug && prefixSlug !== subjectSlug.value) setSubject(prefixSlug)
   const sid = Number(route.query.subject_id) || 0
   const did = Number(route.query.deck_id) || 0
   const target = sid ? subjects.value.find((x) => x.id === sid) : did ? subjectOfDeck(did) : undefined
   if (target && target.slug !== subjectSlug.value) setSubject(target.slug)
-  if (ENGLISH_ONLY.some((p) => route.path.startsWith(p)) && !isEnglish.value && subjects.value.length) setSubject('english')
+  if (ENGLISH_ONLY.some((p) => stripPrefix(route.path).startsWith(p)) && !isEnglish.value && subjects.value.length) setSubject('english')
+  const want = currentPrefix()
+  if (route.params.subjectPrefix && route.params.subjectPrefix !== want) {
+    const rest = stripPrefix(route.path)
+    router.replace({ path: `/${want}${rest === '/' ? '' : rest}`, query: route.query })
+  }
 }
 watch(() => route.fullPath, followTopic)
 onMounted(followTopic)

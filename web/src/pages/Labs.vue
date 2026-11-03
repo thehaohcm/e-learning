@@ -20,35 +20,99 @@
               <i class="bi bi-flag"></i> Assignment <span class="badge bg-light text-dark ms-1">{{ assignmentCards.length }}</span>
             </button>
           </li>
+          <li class="nav-item">
+            <button class="nav-link" :class="{ active: activeTab === 'thm' }" @click="activeTab = 'thm'">
+              <i class="bi bi-box-arrow-up-right"></i> THM Challenge <span class="badge bg-light text-dark ms-1">{{ thmChallenges.length }}</span>
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" :class="{ active: activeTab === 'htb' }" @click="activeTab = 'htb'">
+              <i class="bi bi-box-arrow-up-right"></i> HTB Challenge <span class="badge bg-light text-dark ms-1">{{ htbChallenges.length }}</span>
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" :class="{ active: activeTab === 'cheatsheet' }" @click="activeTab = 'cheatsheet'">
+              <i class="bi bi-journal-code"></i> Cheatsheet
+            </button>
+          </li>
         </ul>
 
-        <div v-if="!visibleCards.length" class="small text-muted">Chưa có bài nào ở mục này.</div>
-
-        <div class="row g-3">
-          <div v-for="c in visibleCards" :key="c.id" class="col-md-6">
-            <div class="card border-0 shadow-sm h-100 hoverable">
-              <div class="card-body d-flex flex-column">
-                <h5 class="fw-bold mb-1">{{ c.front }}</h5>
-                <p class="small text-muted mb-2">{{ c.payload.scenario }}</p>
-              <div class="small mb-2 d-flex flex-wrap gap-1 align-items-center">
-                <span class="badge" :class="progressBadgeClass(c)">
-                  {{ progressLabel(c) }}
-                </span>
-                <span v-if="c.payload.difficulty" class="badge" :class="difficultyBadgeClass(c.payload.difficulty)">
-                  {{ difficultyLabel(c.payload.difficulty) }}
-                </span>
-                <span v-for="tag in (c.payload.cert_tags ?? [])" :key="tag" class="badge" :class="certBadgeClass(tag)">
-                  {{ tag }}
-                </span>
-              </div>
-                <router-link :to="`/labs?id=${c.id}`" class="btn mt-auto align-self-start"
-                  :class="isDone(c) ? 'btn-outline-success' : 'btn-primary'">
-                  {{ isDone(c) ? 'Làm lại' : (stepIndex(c.id) > 0 ? 'Tiếp tục' : 'Bắt đầu') }}
-                </router-link>
+        <!-- THM/HTB challenge tabs: static, forum-recommended external links -->
+        <template v-if="activeTab === 'thm' || activeTab === 'htb'">
+          <p class="small text-muted">
+            Danh sách phòng/box được cộng đồng (r/tryhackme, r/hackthebox, le0pard, Viblo...) khuyên luyện trước khi thi
+            {{ activeTab === 'thm' ? 'PT1/WEB1' : 'CPTS' }}. Một số link trỏ thẳng tới phòng (đã kiểm chứng URL), số còn lại
+            trỏ qua tìm kiếm theo đúng tên (vì không chắc chắn được slug URL chính xác) để tránh link sai/gãy.
+          </p>
+          <div class="row g-3">
+            <div v-for="c in (activeTab === 'thm' ? thmChallenges : htbChallenges)" :key="c.name" class="col-md-6">
+              <div class="card border-0 shadow-sm h-100 hoverable">
+                <div class="card-body d-flex flex-column">
+                  <h6 class="fw-bold mb-1">{{ c.name }}</h6>
+                  <p class="small text-muted mb-2">{{ c.category }}<span v-if="c.note"> — {{ c.note }}</span></p>
+                  <div class="small mb-2 d-flex flex-wrap gap-1 align-items-center">
+                    <span class="badge" :class="difficultyBadgeClass(c.difficulty)">{{ difficultyLabel(c.difficulty) }}</span>
+                    <span v-for="tag in c.cert_tags" :key="tag" class="badge" :class="certBadgeClass(tag)">{{ tag }}</span>
+                    <span v-if="c.search" class="badge bg-light text-dark border"><i class="bi bi-search"></i> link qua tìm kiếm</span>
+                  </div>
+                  <div class="d-flex flex-wrap gap-2 mt-auto">
+                    <a :href="challengeUrl(c)" target="_blank" rel="noopener" class="btn btn-outline-dark">
+                      Mở {{ c.platform }} <i class="bi bi-box-arrow-up-right"></i>
+                    </a>
+                    <router-link v-if="simCardFor(c)" :to="`/labs?id=${simCardFor(c)!.id}`" class="btn btn-success">
+                      <i class="bi bi-joystick"></i> Làm Simulation
+                      <span class="badge bg-light text-dark ms-1">{{ simCardFor(c)!.payload.steps?.length ?? 0 }}</span>
+                    </router-link>
+                    <button type="button" class="btn btn-outline-secondary" @click="manageTarget = c">
+                      <i class="bi bi-pencil-square"></i> Quản lý câu hỏi
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </template>
+
+        <!-- cheatsheet tab: static command reference grouped by topic -->
+        <template v-else-if="activeTab === 'cheatsheet'">
+          <p class="small text-muted">
+            Các lệnh hay dùng nhất trên lab/challenge và được cộng đồng (r/tryhackme, r/hackthebox, le0pard, Viblo, ippsec)
+            khuyên nhớ, gom theo từng nhóm chủ đề để tra nhanh khi làm bài.
+          </p>
+          <div class="card border-0 shadow-sm">
+            <div class="card-body reference-notes md" v-html="cheatsheetHtml"></div>
+          </div>
+        </template>
+
+        <template v-else>
+          <div v-if="!visibleCards.length" class="small text-muted">Chưa có bài nào ở mục này.</div>
+
+          <div class="row g-3">
+            <div v-for="c in visibleCards" :key="c.id" class="col-md-6">
+              <div class="card border-0 shadow-sm h-100 hoverable">
+                <div class="card-body d-flex flex-column">
+                  <h5 class="fw-bold mb-1">{{ c.front }}</h5>
+                  <p class="small text-muted mb-2">{{ c.payload.scenario }}</p>
+                <div class="small mb-2 d-flex flex-wrap gap-1 align-items-center">
+                  <span class="badge" :class="progressBadgeClass(c)">
+                    {{ progressLabel(c) }}
+                  </span>
+                  <span v-if="c.payload.difficulty" class="badge" :class="difficultyBadgeClass(c.payload.difficulty)">
+                    {{ difficultyLabel(c.payload.difficulty) }}
+                  </span>
+                  <span v-for="tag in (c.payload.cert_tags ?? [])" :key="tag" class="badge" :class="certBadgeClass(tag)">
+                    {{ tag }}
+                  </span>
+                </div>
+                  <router-link :to="`/labs?id=${c.id}`" class="btn mt-auto align-self-start"
+                    :class="isDone(c) ? 'btn-outline-success' : 'btn-primary'">
+                    {{ isDone(c) ? 'Làm lại' : (stepIndex(c.id) > 0 ? 'Tiếp tục' : 'Bắt đầu') }}
+                  </router-link>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
       </template>
     </div>
 
@@ -59,6 +123,7 @@
       <h3 class="fw-bold mb-1">
         {{ activeCard.front }}
         <span v-if="activeCard.payload.mode === 'assignment'" class="badge bg-dark ms-1">Assignment</span>
+        <span v-if="activeCard.payload.mode === 'challenge_sim'" class="badge bg-success ms-1"><i class="bi bi-joystick"></i> Simulation</span>
         <span v-if="activeCard.payload.difficulty" class="badge ms-1" :class="difficultyBadgeClass(activeCard.payload.difficulty)">
           {{ difficultyLabel(activeCard.payload.difficulty) }}
         </span>
@@ -162,6 +227,9 @@
         </div>
       </div>
     </div>
+
+    <ChallengeQuestionManager v-if="manageTarget" :challenge="manageTarget" :deck-id="labsDeckId"
+      :card="simCardFor(manageTarget)" @close="manageTarget = null" @saved="onSimSaved" @deleted="onSimDeleted" />
   </div>
 </template>
 
@@ -172,16 +240,47 @@ import { api } from '../api'
 import { loadSubjects, subject } from '../composables/useSubject'
 import { renderMarkdown } from '../utils/markdown'
 import type { Card, LabStep } from '../types'
+import { challengeKey, challengeUrl, htbChallenges, thmChallenges, type Challenge } from '../data/pentestChallenges'
+import { pentestCheatsheet } from '../data/pentestCheatsheet'
+import ChallengeQuestionManager from '../components/ChallengeQuestionManager.vue'
 
 const route = useRoute()
 
 const loading = ref(true)
 const labCards = ref<Card[]>([])
 
-const activeTab = ref<'lab' | 'assignment'>('lab')
-const labOnlyCards = computed(() => labCards.value.filter((c) => c.payload.mode !== 'assignment'))
+const activeTab = ref<'lab' | 'assignment' | 'thm' | 'htb' | 'cheatsheet'>('lab')
+const cheatsheetHtml = computed(() => renderMarkdown(pentestCheatsheet))
+// "challenge_sim" cards are the user's own self-quiz per THM/HTB challenge (see
+// ChallengeQuestionManager) — they live in the same "labs" deck but are kept
+// out of the Lab/Assignment tabs and surfaced only on their own challenge card.
+const labOnlyCards = computed(() => labCards.value.filter((c) => c.payload.mode !== 'assignment' && c.payload.mode !== 'challenge_sim'))
 const assignmentCards = computed(() => labCards.value.filter((c) => c.payload.mode === 'assignment'))
 const visibleCards = computed(() => (activeTab.value === 'assignment' ? assignmentCards.value : labOnlyCards.value))
+
+const labsDeckId = computed<number | null>(() => subject.value?.decks.find((d) => d.slug === 'labs')?.id ?? null)
+const simCardByKey = computed<Record<string, Card>>(() => {
+  const out: Record<string, Card> = {}
+  for (const c of labCards.value) {
+    if (c.payload.mode === 'challenge_sim' && c.payload.challenge_key) out[c.payload.challenge_key] = c
+  }
+  return out
+})
+function simCardFor(c: Challenge): Card | undefined {
+  return simCardByKey.value[challengeKey(c)]
+}
+
+const manageTarget = ref<Challenge | null>(null)
+function onSimSaved(card: Card) {
+  const idx = labCards.value.findIndex((c) => c.id === card.id)
+  if (idx >= 0) labCards.value[idx] = card
+  else labCards.value.push(card)
+  manageTarget.value = null
+}
+function onSimDeleted(cardId: number) {
+  labCards.value = labCards.value.filter((c) => c.id !== cardId)
+  manageTarget.value = null
+}
 
 // --- local practice progress (per card, this browser only — this is
 // self-practice muscle-memory drilling, not graded/synced progress) ---

@@ -51,6 +51,7 @@ export interface Card {
     reference?: string // lab cards: optional Markdown study notes shown below the runner, for review
     difficulty?: 'co_ban' | 'trung_binh' | 'nang_cao' // lab cards: display-only difficulty badge
     cert_tags?: string[] // e.g. ['THM PT1', 'HTB CPTS', 'THM WEB1']
+    challenge_key?: string // lab cards with mode 'challenge_sim': links back to a THM/HTB challenge, see pentestChallenges.ts challengeKey()
   }
 }
 

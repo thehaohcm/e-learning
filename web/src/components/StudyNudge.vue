@@ -2,12 +2,16 @@
   <!-- gentle in-page reminder: no sound, no pop-up; hidden for one interval when closed -->
   <div v-if="show" class="nudge alert alert-warning d-flex align-items-center gap-2 py-2 px-3 mb-3 shadow-sm" role="status">
     <i class="bi bi-alarm"></i>
-    <span class="flex-grow-1">
+    <span v-if="pentestMode" class="flex-grow-1">
+      <strong>Luyện tay hôm nay chưa?</strong>
+      <span class="text-muted small ms-1">· làm vài bước lab/assignment hoặc thử 1 challenge THM/HTB</span>
+    </span>
+    <span v-else class="flex-grow-1">
       <strong>{{ due }} {{ topic }} card{{ due > 1 ? 's' : '' }} due</strong>
       <span class="text-muted small ms-1">· a few minutes now keeps them fresh</span>
     </span>
     <button type="button" class="btn btn-sm btn-warning" @click="study">
-      <i class="bi bi-play-fill"></i> Study now
+      <i class="bi bi-play-fill"></i> {{ pentestMode ? 'Vào Labs' : 'Study now' }}
     </button>
     <button type="button" class="btn-close" aria-label="Later" title="Remind me later" @click="later"></button>
   </div>
@@ -29,9 +33,15 @@ const router = useRouter()
 const show = ref(false)
 const due = ref(0)
 const topic = ref('') // the topic shown in the menu (English / PMP)
+const pentestMode = ref(false) // true: nudge is "go do a lab", not "cards due" (Pentest has no SR theory/quiz cards left)
 
 const KEY = 'elearn.nudge.at' // last time the banner was closed / used
-const QUIET_PATHS = ['/', '/review', '/quiz', '/practice/check', '/login', '/register']
+const QUIET_PATHS = ['/', '/review', '/quiz', '/practice/check', '/login', '/register', '/labs']
+/** Strips the leading /eng, /pmp, /pentest or /aws segment so QUIET_PATHS (bare paths) still match. */
+function stripPrefix(path: string): string {
+  const m = /^\/(?:eng|pmp|pentest|aws)(\/.*)?$/.exec(path)
+  return m ? (m[1] ?? '/') : path
+}
 
 let everyMin = 45
 let activeFrom = '07:30'
@@ -74,7 +84,7 @@ async function loadSettings() {
 
 async function tick() {
   const now = Date.now()
-  if (document.hidden || QUIET_PATHS.includes(route.path) || !inActiveHours(new Date())) {
+  if (document.hidden || QUIET_PATHS.includes(stripPrefix(route.path)) || !inActiveHours(new Date())) {
     show.value = false
     return
   }
@@ -84,12 +94,23 @@ async function tick() {
   // closed or used during the last interval, or asked the server not long ago
   if (now - storedAt() < every || now - statsAt < Math.min(every, 10 * 60_000)) return
   statsAt = now
+
+  // Pentest has no spaced-repetition theory/quiz cards left — nudge toward
+  // hands-on practice (lab/assignment/challenge) on the same schedule instead.
+  if (subject.value?.slug === 'pentest') {
+    pentestMode.value = true
+    topic.value = subject.value ? shortName(subject.value.slug, subject.value.name) : ''
+    show.value = true
+    return
+  }
+
   try {
     const { data } = await api.get('/stats', { params: { subject_id: subjectId.value || undefined } })
     const last = data.last_review_at ? Date.parse(data.last_review_at) : 0
     if (now - last < every) return // studied recently, on the web or a device
     due.value = data.due_now ?? 0
     topic.value = subject.value ? shortName(subject.value.slug, subject.value.name) : ''
+    pentestMode.value = false
     show.value = due.value > 0
   } catch { /* offline: try again later */ }
 }
@@ -101,11 +122,15 @@ function later() {
 
 function study() {
   later()
+  if (pentestMode.value) {
+    router.push('/labs')
+    return
+  }
   router.push(subjectId.value ? `/review?subject_id=${subjectId.value}` : '/review')
 }
 
 watch(() => route.path, () => {
-  if (QUIET_PATHS.includes(route.path)) show.value = false
+  if (QUIET_PATHS.includes(stripPrefix(route.path))) show.value = false
 })
 // another topic chosen: its own count (asked again at the next check)
 watch(subjectId, () => {

@@ -94,6 +94,10 @@ type LabPayload struct {
 	Reference  string    `json:"reference,omitempty"`  // optional Markdown study notes shown below the runner, for review
 	Difficulty string    `json:"difficulty,omitempty"` // "co_ban" | "trung_binh" | "nang_cao" -- display hint only
 	CertTags   []string  `json:"cert_tags,omitempty"`  // e.g. ["THM PT1", "HTB CPTS", "THM WEB1"]
+	// ChallengeKey links a mode="challenge_sim" card (a user-authored self-quiz
+	// for one THM/HTB challenge room/box) back to that challenge; the frontend
+	// builds it as "<platform>:<name>" (see pentestChallenges.ts challengeKey()).
+	ChallengeKey string `json:"challenge_key,omitempty"`
 }
 
 func ValidKind(k string) bool {
@@ -179,6 +183,7 @@ func Normalize(kind, front string, raw json.RawMessage) (json.RawMessage, error)
 		p.Mode = strings.TrimSpace(p.Mode)
 		p.Reference = strings.TrimSpace(p.Reference)
 		p.Difficulty = strings.TrimSpace(p.Difficulty)
+		p.ChallengeKey = strings.TrimSpace(p.ChallengeKey)
 		var certTags []string
 		for _, tag := range p.CertTags {
 			if t := strings.TrimSpace(tag); t != "" {

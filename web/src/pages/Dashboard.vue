@@ -50,20 +50,33 @@
         </span>
       </div>
       <div class="row g-3">
-        <div v-for="d in s.decks.filter((d) => d.slug !== 'labs')" :key="d.id" class="col-md-6 col-lg-3">
-          <div class="card border-0 shadow-sm h-100 hoverable">
-            <div class="card-body d-flex flex-column">
-              <h6 class="fw-bold mb-1">{{ d.name }}</h6>
-              <small class="text-muted flex-grow-1">{{ d.description }}</small>
-              <small class="text-muted my-2">{{ d.learning_count }} / {{ d.card_count }} in your list</small>
-              <div class="d-flex gap-1">
-                <router-link :to="`/review?deck_id=${d.id}`" class="btn btn-sm btn-warning flex-fill">Study</router-link>
-                <router-link :to="`/learn?deck_id=${d.id}`" class="btn btn-sm btn-outline-primary flex-fill">Browse</router-link>
-                <router-link :to="`/quiz?deck_id=${d.id}`" class="btn btn-sm btn-outline-success flex-fill">Quiz</router-link>
+        <template v-if="s.slug === 'pentest'">
+          <div class="col-md-6 col-lg-3">
+            <div class="card border-0 shadow-sm h-100 hoverable border-dark border-2">
+              <div class="card-body d-flex flex-column">
+                <h6 class="fw-bold mb-1"><i class="bi bi-terminal"></i> Lab</h6>
+                <small class="text-muted flex-grow-1">Thực hành gõ lệnh theo từng bước, kèm Assignment và link challenge THM/HTB — luyện phản xạ trước khi thi.</small>
+                <router-link to="/labs" class="btn btn-sm btn-dark mt-2 align-self-start">Mở Labs</router-link>
               </div>
             </div>
           </div>
-        </div>
+        </template>
+        <template v-else>
+          <div v-for="d in s.decks.filter((d) => d.slug !== 'labs')" :key="d.id" class="col-md-6 col-lg-3">
+            <div class="card border-0 shadow-sm h-100 hoverable">
+              <div class="card-body d-flex flex-column">
+                <h6 class="fw-bold mb-1">{{ d.name }}</h6>
+                <small class="text-muted flex-grow-1">{{ d.description }}</small>
+                <small class="text-muted my-2">{{ d.learning_count }} / {{ d.card_count }} in your list</small>
+                <div class="d-flex gap-1">
+                  <router-link :to="`/review?deck_id=${d.id}`" class="btn btn-sm btn-warning flex-fill">Study</router-link>
+                  <router-link :to="`/learn?deck_id=${d.id}`" class="btn btn-sm btn-outline-primary flex-fill">Browse</router-link>
+                  <router-link :to="`/quiz?deck_id=${d.id}`" class="btn btn-sm btn-outline-success flex-fill">Quiz</router-link>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
   </div>

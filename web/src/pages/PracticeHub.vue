@@ -42,8 +42,8 @@
         </div>
       </div>
 
-      <!-- PMP: the decks, to study or browse one -->
-      <div v-if="!isEnglish" class="col-md-6">
+      <!-- PMP: the decks, to study or browse one (not for pentest — that subject is lab-focused, see the Labs card below) -->
+      <div v-if="!isEnglish && subject?.slug !== 'pentest'" class="col-md-6">
         <div class="card border-0 shadow-sm h-100 hoverable">
           <div class="card-body d-flex flex-column">
             <h5 class="fw-bold"><i class="bi bi-collection text-primary"></i> {{ topicName }} decks</h5>
