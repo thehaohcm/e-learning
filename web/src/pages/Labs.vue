@@ -59,6 +59,9 @@
                     <a :href="challengeUrl(c)" target="_blank" rel="noopener" class="btn btn-outline-dark">
                       Mở {{ c.platform }} <i class="bi bi-box-arrow-up-right"></i>
                     </a>
+                    <a v-if="c.writeup_url" :href="c.writeup_url" target="_blank" rel="noopener" class="btn btn-outline-info">
+                      <i class="bi bi-file-text"></i> Bài giải
+                    </a>
                     <router-link v-if="simCardFor(c)" :to="`/labs?id=${simCardFor(c)!.id}`" class="btn btn-success">
                       <i class="bi bi-joystick"></i> Làm Simulation
                       <span class="badge bg-light text-dark ms-1">{{ simCardFor(c)!.payload.steps?.length ?? 0 }}</span>
