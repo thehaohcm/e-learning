@@ -4,7 +4,7 @@
       <div class="card-header bg-white d-flex align-items-center gap-2">
         <i class="bi bi-stars text-warning"></i>
         <span class="fw-bold">Tạo câu hỏi bằng AI</span>
-        <small class="text-muted">· {{ topicName }}</small>
+        <small class="text-muted">· {{ topicName() }}</small>
         <button type="button" class="btn-close ms-auto" aria-label="Close" @click="close"></button>
       </div>
       <div class="card-body">

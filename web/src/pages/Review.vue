@@ -108,7 +108,7 @@
             <template v-if="phase === 'ask' && item.card.kind === 'lab'">
               <p v-if="labStep?.prompt" class="mb-2">{{ labStep.prompt }}</p>
               <div class="d-flex gap-2">
-                <input v-model="cmdInput" class="form-control font-monospace" autocomplete="off" autocapitalize="off" spellcheck="false"
+                <input ref="cmdInputEl" v-model="cmdInput" class="form-control font-monospace" autocomplete="off" autocapitalize="off" spellcheck="false"
                   placeholder="gõ lệnh rồi Enter…" @keydown.enter.prevent.stop="checkCmd" />
                 <button type="button" class="btn btn-primary" :disabled="!cmdInput.trim()" @click="checkCmd"><i class="bi bi-check-lg"></i> Kiểm tra</button>
               </div>
@@ -280,7 +280,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { currentPrefix } from '../router'
 import { api, errorMessage } from '../api'
@@ -401,6 +401,8 @@ const hideOptions = computed(() => recallFirst.value && !optionsShown.value && i
 
 // --- typed-command (lab drill) answering in Study ---
 const cmdInput = ref('')
+const cmdInputEl = ref<HTMLInputElement | null>(null)
+function focusCmd() { nextTick(() => cmdInputEl.value?.focus()) }
 const showLabHint = ref(false)
 const labStep = computed(() => item.value?.card.payload.steps?.[0] ?? null)
 const labAnswer = computed(() => (labStep.value?.explanation ?? '').trim())
@@ -444,6 +446,7 @@ watch(item, (it) => {
   showLabHint.value = false
   // new cards are shown with the answer straight away: there is nothing to recall yet
   phase.value = it?.is_new ? 'reveal' : 'ask'
+  if (it?.card.kind === 'lab' && phase.value === 'ask') focusCmd()
   shownAt = Date.now()
   if (it && autoSpeak.value) {
     if (soundLocked.value) return // the first click/keypress will read it
