@@ -310,6 +310,15 @@ const practiceDone = ref(false)
 const practiceLabel = ref('')
 // After generating, the new cards live in the cheatsheet deck — switch to it if
 // we are studying a different deck, then (re)load the queue.
+// Fisher-Yates: new random order each time the user starts a drill
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr]
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
 function onDrill(p: { items: QueueItem[]; kind: 'lab' | 'mcq'; topic: string; label: string }) {
   if (!p.items.length) { error.value = 'Không có thẻ nào khớp mục/dạng đã chọn.'; return }
   error.value = ''
@@ -317,7 +326,7 @@ function onDrill(p: { items: QueueItem[]; kind: 'lab' | 'mcq'; topic: string; la
   practiceLabel.value = p.label
   practiceDone.value = false
   practiceMode.value = true
-  queue.value = p.items
+  queue.value = shuffle(p.items)
   idx.value = 0
   loaded.value = true
 }
