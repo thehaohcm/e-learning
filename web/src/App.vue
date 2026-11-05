@@ -134,6 +134,11 @@ const links = computed<NavLink[]>(() => {
       ? l.children.filter((c) => isEnglish.value || !ENGLISH_ONLY.includes(c.to)).map((c) => ({ ...c, to: withPrefix(c.to) }))
       : undefined,
   }))
+  // Pentest-only: a top-level "Labs" (hands-on command practice), after Study
+  if (subjectSlug.value === 'pentest') {
+    const si = base.findIndex((l) => l.to === withPrefix('/review'))
+    base.splice(si >= 0 ? si + 1 : base.length, 0, { to: withPrefix('/labs'), label: 'Labs', icon: 'bi-terminal' })
+  }
   // tuck the less-used pages into a "More" menu (Courses only for admins)
   const more: NavLink = {
     to: '#more', label: 'More', icon: 'bi-grid-3x3-gap',

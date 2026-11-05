@@ -1,15 +1,25 @@
 <template>
   <div class="row justify-content-center">
-    <div class="col-lg-8">
+    <div class="col-12">
       <div class="d-flex flex-wrap justify-content-between align-items-end mb-3 gap-2">
         <div>
           <h2 class="fw-bold mb-0"><i class="bi bi-journal-text"></i> Cheat sheet</h2>
           <small class="text-muted">{{ topicName }} · your own notes. Write items, then let AI condense them for review.</small>
         </div>
-        <button class="btn btn-outline-primary" @click="startNew">
-          <i class="bi bi-plus-lg"></i> New note
-        </button>
+        <div class="d-flex gap-2">
+          <button v-if="isPentest && canStudy" class="btn btn-outline-warning" @click="genModal?.open()">
+            <i class="bi bi-stars"></i> Call AI
+          </button>
+          <button v-if="isPentest && canStudy" class="btn btn-warning" :disabled="studying" @click="studyNotes">
+            <span v-if="studying" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-arrow-repeat"></i> Study
+          </button>
+          <button class="btn btn-outline-primary" @click="startNew">
+            <i class="bi bi-plus-lg"></i> New note
+          </button>
+        </div>
       </div>
+
+      <GenerateQuestionsModal ref="genModal" @done="onGenerated" />
 
       <div v-if="msg" class="alert py-2" :class="msgOk ? 'alert-success' : 'alert-danger'">{{ msg }}</div>
 
@@ -98,10 +108,24 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
-import { loadSubjects, shortName, subject, subjectId } from '../composables/useSubject'
+import { auth } from '../auth'
+import { currentPrefix } from '../router'
+import { loadSubjects, shortName, subject, subjectId, subjectSlug } from '../composables/useSubject'
 import { renderMarkdown } from '../utils/markdown'
 import CourseChat from '../components/CourseChat.vue'
+import GenerateQuestionsModal from '../components/GenerateQuestionsModal.vue'
+
+const router = useRouter()
+const isPentest = computed(() => subjectSlug.value === 'pentest')
+const canStudy = computed(() => auth.isAdmin) // studying materializes notes into shared cards (admin)
+const studying = ref(false)
+const genModal = ref<InstanceType<typeof GenerateQuestionsModal> | null>(null)
+
+function onGenerated(p: { deckId: number; created: number }) {
+  router.push(`/${currentPrefix()}/review?deck_id=${p.deckId}`)
+}
 
 interface Note { id: number; subject_id: number; title: string; body: string; sort_order: number }
 interface Summary { summary_md: string; generated_at: string }
@@ -148,6 +172,54 @@ async function load() {
     flash(errorMessage(e), false)
   } finally {
     loading.value = false
+  }
+}
+
+function firstLine(s: string): string {
+  return (s.split('\n').find((l) => l.trim()) ?? '').trim()
+}
+
+/**
+ * Turn the notes into studyable flashcards (front = title or first line,
+ * back = body) in this course's "cheatsheet" deck, then open Study for it.
+ * Re-running syncs: new notes are added, changed bodies updated, SRS kept.
+ */
+async function studyNotes() {
+  // nothing to study yet → offer to generate questions from the cheatsheet
+  if (!notes.value.length) { genModal.value?.open(); return }
+  const deck = subject.value?.decks?.find((d) => d.slug === 'cheatsheet')
+  if (!deck) { flash('Chưa có deck Cheatsheet — deploy bản mới (migration 0052) để tạo.', false); return }
+  studying.value = true
+  try {
+    const { data } = await api.get('/cards', { params: { deck_id: deck.id, kind: 'concept', limit: 500 } })
+    const existing = new Map<string, { id: number; payload?: { back?: string } }>()
+    for (const c of (data.data ?? [])) existing.set(String(c.front).trim().toLowerCase(), c)
+
+    const ids: number[] = []
+    for (const n of notes.value) {
+      const front = (n.title.trim() || firstLine(n.body)).slice(0, 300)
+      const back = n.body.trim()
+      if (!front || !back) continue
+      const cur = existing.get(front.toLowerCase())
+      try {
+        if (!cur) {
+          const r = await api.post('/cards', { deck_id: deck.id, kind: 'concept', front, payload: { back } })
+          ids.push(r.data.id)
+        } else {
+          if ((cur.payload?.back ?? '') !== back) {
+            await api.put(`/cards/${cur.id}`, { front, kind: 'concept', payload: { back } })
+          }
+          ids.push(cur.id)
+        }
+      } catch { /* skip a single bad entry, keep going */ }
+    }
+    if (!ids.length) { flash('Không có mục nào để học (cần tiêu đề hoặc nội dung).', false); return }
+    await api.post('/study/enroll', { card_ids: ids })
+    router.push(`/${currentPrefix()}/review?deck_id=${deck.id}`)
+  } catch (e) {
+    flash(errorMessage(e), false)
+  } finally {
+    studying.value = false
   }
 }
 

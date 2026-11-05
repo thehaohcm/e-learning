@@ -60,6 +60,18 @@
               </div>
             </div>
           </div>
+          <div class="col-md-6 col-lg-3">
+            <div class="card border-0 shadow-sm h-100 hoverable border-warning border-2">
+              <div class="card-body d-flex flex-column">
+                <h6 class="fw-bold mb-1"><i class="bi bi-arrow-repeat"></i> Study</h6>
+                <small class="text-muted flex-grow-1">Ôn thẻ đến hạn bằng spaced repetition — gồm câu hỏi AI tạo từ cheatsheet của bạn.</small>
+                <div class="d-flex gap-2 mt-2">
+                  <router-link to="/review" class="btn btn-sm btn-warning align-self-start">Học ngay</router-link>
+                  <router-link to="/cheatsheet" class="btn btn-sm btn-outline-secondary align-self-start">Cheatsheet</router-link>
+                </div>
+              </div>
+            </div>
+          </div>
         </template>
         <template v-else>
           <div v-for="d in s.decks.filter((d) => d.slug !== 'labs')" :key="d.id" class="col-md-6 col-lg-3">

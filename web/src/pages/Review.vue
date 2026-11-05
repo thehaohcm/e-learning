@@ -29,6 +29,13 @@
       </div>
     </div>
 
+    <!-- practice-by-section (Pentest): pick a format + cheatsheet section and drill now -->
+    <PracticePicker v-if="isPentestSubject" @drill="onDrill" />
+    <div v-if="practiceMode" class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2 py-2 small mb-3">
+      <span><i class="bi bi-lightning-charge-fill"></i> Đang drill: <b>{{ practiceLabel }}</b> · không tính lịch SRS</span>
+      <button class="btn btn-sm btn-outline-secondary" @click="exitPractice"><i class="bi bi-x-lg"></i> Thoát, về SRS</button>
+    </div>
+
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
 
     <!-- end of a round: fill in the blanks with the words just studied -->
@@ -97,8 +104,22 @@
               <SpeakCheck ref="speakCheck" :text="exampleText" />
             </div>
 
+            <!-- ASK: typed command (lab drill) -->
+            <template v-if="phase === 'ask' && item.card.kind === 'lab'">
+              <p v-if="labStep?.prompt" class="mb-2">{{ labStep.prompt }}</p>
+              <div class="d-flex gap-2">
+                <input v-model="cmdInput" class="form-control font-monospace" autocomplete="off" autocapitalize="off" spellcheck="false"
+                  placeholder="gõ lệnh rồi Enter…" @keydown.enter.prevent.stop="checkCmd" />
+                <button type="button" class="btn btn-primary" :disabled="!cmdInput.trim()" @click="checkCmd"><i class="bi bi-check-lg"></i> Kiểm tra</button>
+              </div>
+              <div class="d-flex mt-1">
+                <button v-if="labStep?.hint" type="button" class="btn btn-sm btn-link text-muted p-0" @click="showLabHint = true">Gợi ý</button>
+                <button type="button" class="btn btn-sm btn-link text-muted p-0 ms-auto" @click="revealCmd">Không nhớ · xem đáp án</button>
+              </div>
+              <div v-if="showLabHint && labStep?.hint" class="small text-muted mt-1"><i class="bi bi-lightbulb"></i> {{ labStep.hint }}</div>
+            </template>
             <!-- ASK: multiple choice -->
-            <template v-if="phase === 'ask' && choices.length && hideOptions">
+            <template v-else-if="phase === 'ask' && choices.length && hideOptions">
               <p class="text-center text-muted small mb-2">
                 {{ item.card.kind === 'mcq' ? 'Think of the answer first.' : item.card.payload.group ? 'Think of the English sentence first.' : 'What does it mean? Say it to yourself first.' }}
               </p>
@@ -140,13 +161,17 @@
                 </button>
               </div>
               <div v-if="outcome === 'correct'" class="alert alert-success py-2 text-center">
-                <i class="bi bi-check-circle-fill"></i> Correct! How easy was it?
+                <i class="bi bi-check-circle-fill"></i> {{ practiceMode ? 'Chính xác!' : 'Correct! How easy was it?' }}
               </div>
               <div v-else-if="outcome === 'wrong'" class="alert alert-warning py-2 text-center">
-                <i class="bi bi-arrow-counterclockwise"></i> No problem: this card comes back in {{ item.preview['1'] }}.
+                <i class="bi bi-arrow-counterclockwise"></i> <span v-if="practiceMode">Chưa đúng — xem đáp án mẫu bên dưới.</span><span v-else>No problem: this card comes back in {{ item.preview['1'] }}.</span>
               </div>
 
-              <CardDetails v-if="item.card.kind !== 'mcq'" :card="item.card" :speakable="isEnglish" class="text-start"
+              <div v-if="item.card.kind === 'lab'" class="mb-2">
+                <div class="small text-muted mb-1">Đáp án mẫu / ghi nhớ:</div>
+                <pre class="cmd-answer mb-0">{{ labAnswer || '—' }}</pre>
+              </div>
+              <CardDetails v-if="item.card.kind !== 'mcq' && item.card.kind !== 'lab'" :card="item.card" :speakable="isEnglish" class="text-start"
                 @speak="(en: string) => speakEnglish(en, RATE_REPLAY)" />
               <div v-else-if="item.card.payload.explanation" class="small text-muted">{{ item.card.payload.explanation }}</div>
               <div v-if="exampleText" class="text-center mt-3 pt-3 border-top">
@@ -155,7 +180,13 @@
               </div>
 
               <!-- grading -->
-              <div class="d-flex gap-2 mt-4">
+              <div v-if="practiceMode" class="d-flex gap-2 mt-4">
+                <button class="btn btn-primary flex-fill py-2" @click="advance">
+                  <div class="fw-semibold">Tiếp theo</div>
+                  <small class="opacity-75">Enter</small>
+                </button>
+              </div>
+              <div v-else class="d-flex gap-2 mt-4">
                 <template v-if="item.is_new">
                   <button class="btn btn-primary flex-fill py-2" :disabled="sending" @click="rate(3)">
                     <div class="fw-semibold">Got it</div>
@@ -171,7 +202,7 @@
                   <small class="opacity-75">Enter</small>
                 </button>
                 <template v-else>
-                  <button v-if="outcome === 'correct'" class="btn btn-outline-warning flex-fill py-2" :disabled="sending"
+                  <button v-if="outcome === 'correct' && item.card.kind !== 'lab'" class="btn btn-outline-warning flex-fill py-2" :disabled="sending"
                     title="Right, but only thanks to the options: it comes back soon" @click="rate(1)">
                     <div class="fw-semibold">I guessed</div>
                     <small class="d-block opacity-75">{{ item.preview['1'] }} · G</small>
@@ -187,6 +218,13 @@
           </div>
         </div>
       </div>
+    </div>
+
+    <div v-else-if="practiceDone" class="text-center py-5">
+      <i class="bi bi-check2-circle display-1 text-success"></i>
+      <h3 class="mt-3">Xong phần drill!</h3>
+      <p class="text-muted">Bạn đã làm {{ done }} thẻ. Chọn mục/dạng khác ở trên để drill tiếp, hoặc quay về Study (SRS).</p>
+      <button class="btn btn-outline-secondary" @click="exitPractice"><i class="bi bi-arrow-repeat"></i> Về Study (SRS)</button>
     </div>
 
     <div v-else-if="loaded" class="text-center py-5">
@@ -230,9 +268,11 @@
       <p v-else class="text-muted">Cards you just learned will come back in a few minutes.</p>
       <div class="d-flex flex-wrap gap-2 justify-content-center">
         <button class="btn btn-outline-primary" @click="load"><i class="bi bi-arrow-clockwise"></i> Check again</button>
+        <button v-if="isPentestSubject && isAdmin" class="btn btn-warning" @click="genModal?.open()"><i class="bi bi-stars"></i> Tạo câu hỏi từ cheatsheet</button>
         <router-link to="/learn" class="btn btn-primary"><i class="bi bi-plus-circle"></i> Add cards</router-link>
         <router-link v-if="isEnglishSubject" to="/reading" class="btn btn-warning"><i class="bi bi-book-half"></i> Read a story with your words</router-link>
       </div>
+      <GenerateQuestionsModal ref="genModal" @done="onGen" />
     </div>
 
     <div v-else class="text-center py-5"><div class="spinner-border"></div></div>
@@ -241,7 +281,8 @@
 
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import { currentPrefix } from '../router'
 import { api, errorMessage } from '../api'
 import CardDetails from '../components/CardDetails.vue'
 import Pronunciation from '../components/Pronunciation.vue'
@@ -251,11 +292,52 @@ import ClozeRound from '../components/common/ClozeRound.vue'
 import { RATE_REPLAY, RATE_SLOW, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import { RATINGS, stateLabel } from '../types'
 import type { QueueItem } from '../types'
-import { isEnglish as isEnglishSubject, loadSubjects, shortName, subject, subjectId } from '../composables/useSubject'
+import { isEnglish as isEnglishSubject, loadSubjects, shortName, subject, subjectId, subjectSlug } from '../composables/useSubject'
+import { auth } from '../auth'
+import GenerateQuestionsModal from '../components/GenerateQuestionsModal.vue'
+import PracticePicker from '../components/PracticePicker.vue'
 
 type Mode = 'choose' | 'self'
 
 const route = useRoute()
+const router = useRouter()
+const isPentestSubject = computed(() => subjectSlug.value === 'pentest')
+const isAdmin = computed(() => auth.isAdmin)
+const genModal = ref<InstanceType<typeof GenerateQuestionsModal> | null>(null)
+// practice-by-section (drill now, no SRS): queue is filled from the picker
+const practiceMode = ref(false)
+const practiceDone = ref(false)
+const practiceLabel = ref('')
+// After generating, the new cards live in the cheatsheet deck — switch to it if
+// we are studying a different deck, then (re)load the queue.
+function onDrill(p: { items: QueueItem[]; kind: 'lab' | 'mcq'; topic: string; label: string }) {
+  if (!p.items.length) { error.value = 'Không có thẻ nào khớp mục/dạng đã chọn.'; return }
+  error.value = ''
+  empty.value = null
+  practiceLabel.value = p.label
+  practiceDone.value = false
+  practiceMode.value = true
+  queue.value = p.items
+  idx.value = 0
+  loaded.value = true
+}
+function advance() {
+  done.value++
+  if (idx.value < queue.value.length - 1) idx.value++
+  else { queue.value = []; practiceDone.value = true }
+}
+function exitPractice() {
+  practiceMode.value = false
+  practiceDone.value = false
+  practiceLabel.value = ''
+  load()
+}
+async function onGen(p?: { deckId?: number }) {
+  if (p?.deckId && Number(route.query.deck_id) !== p.deckId) {
+    await router.push(`/${currentPrefix()}/review?deck_id=${p.deckId}`)
+  }
+  await load()
+}
 const { speakEnglish } = useSpeechSynthesis()
 
 const queue = ref<QueueItem[]>([])
@@ -290,7 +372,7 @@ const isEnglish = computed(() => item.value?.card.kind === 'vocab' || item.value
 const progressPct = computed(() => (queue.value.length ? Math.round((idx.value / queue.value.length) * 100) : 0))
 const kindLabel = computed(() =>
   item.value?.card.payload.group ? 'Writing phrase'
-    : ({ vocab: 'Word', phrasal: 'Phrasal verb', concept: 'Concept', mcq: 'Question' }[item.value?.card.kind ?? 'vocab']))
+    : ({ vocab: 'Word', phrasal: 'Phrasal verb', concept: 'Concept', mcq: 'Question', lab: 'Command' }[item.value?.card.kind ?? 'vocab']))
 const scopeLabel = computed(() =>
   route.query.deck_id ? 'This deck' : subject.value ? shortName(subject.value.slug, subject.value.name) : 'All subjects')
 
@@ -317,10 +399,49 @@ watch(recallFirst, (v) => storageSet('elearn.recallfirst', String(v)))
 // not for PMP questions (mcq): they cannot be answered without the options
 const hideOptions = computed(() => recallFirst.value && !optionsShown.value && item.value?.card.kind !== 'mcq')
 
+// --- typed-command (lab drill) answering in Study ---
+const cmdInput = ref('')
+const showLabHint = ref(false)
+const labStep = computed(() => item.value?.card.payload.steps?.[0] ?? null)
+const labAnswer = computed(() => (labStep.value?.explanation ?? '').trim())
+
+/** `@flags:cmd:letters` — true if input starts with cmd and has every short-flag
+ *  letter in any order (ss -tunlp == ss -utpln == ss -t -u -n -l -p). */
+function flagSpecMatch(spec: string, input: string): boolean {
+  const parts = spec.split(':')
+  const cmd = (parts[1] ?? '').toLowerCase()
+  const letters = (parts[2] ?? '').toLowerCase()
+  const toks = input.trim().toLowerCase().split(/\s+/)
+  if (!cmd || toks[0] !== cmd) return false
+  const have = new Set<string>()
+  for (const t of toks.slice(1)) {
+    if (/^-[a-z0-9]+$/.test(t)) for (const ch of t.slice(1)) have.add(ch)
+  }
+  for (const ch of letters) if (!have.has(ch)) return false
+  return true
+}
+function matchCmd(p: string, norm: string): boolean {
+  if (p.startsWith('@flags:')) return flagSpecMatch(p, norm)
+  try { return new RegExp(p, 'i').test(norm) } catch { return false }
+}
+function checkCmd() {
+  if (!item.value || !cmdInput.value.trim()) return
+  const norm = cmdInput.value.trim().replace(/\s+/g, ' ')
+  const pats = labStep.value?.patterns ?? []
+  outcome.value = pats.some((p) => matchCmd(p, norm)) ? 'correct' : 'wrong'
+  phase.value = 'reveal'
+}
+function revealCmd() {
+  outcome.value = 'wrong'
+  phase.value = 'reveal'
+}
+
 watch(item, (it) => {
   outcome.value = null
   picked.value = null
   optionsShown.value = false
+  cmdInput.value = ''
+  showLabHint.value = false
   // new cards are shown with the answer straight away: there is nothing to recall yet
   phase.value = it?.is_new ? 'reveal' : 'ask'
   shownAt = Date.now()
@@ -485,6 +606,7 @@ function resultClass(id: number) {
 
 async function rate(rating: number) {
   if (!item.value || sending.value) return
+  if (practiceMode.value) { advance(); return }
   sending.value = true
   try {
     const it = item.value
@@ -509,6 +631,7 @@ async function rate(rating: number) {
 function onKey(e: KeyboardEvent) {
   const it = item.value
   if (!it || sending.value || showCloze.value || (e.target as HTMLElement)?.tagName === 'INPUT') return
+  if (practiceMode.value && phase.value === 'reveal' && (e.key === 'Enter' || e.code === 'Enter')) { e.preventDefault(); advance(); return }
   if (e.key === 'p' || e.key === 'P') {
     speakCard(it, RATE_REPLAY)
     return
@@ -599,5 +722,15 @@ onUnmounted(() => {
   width: 32px;
   height: 32px;
   font-size: 0.85rem;
+}
+.cmd-answer {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #0f172a;
+  color: #e2e8f0;
+  padding: 0.5rem 0.7rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  font-family: var(--bs-font-monospace);
 }
 </style>

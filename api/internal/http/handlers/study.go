@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"mvp-lang-app/internal/http/dto"
@@ -222,4 +223,106 @@ func (h *Handler) UpdateSettings(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"settings": settings, "timezone": u.Timezone, "display_name": u.DisplayName})
+}
+
+// ---------------------------------------------------------------- practice (cheatsheet drills)
+
+// cheatsheetDeck finds the "cheatsheet" deck of a subject (where AI-generated
+// lab/mcq drills live). Writes a 404/500 and returns false on failure.
+func (h *Handler) cheatsheetDeck(c *gin.Context, subjectID int64) (models.Deck, bool) {
+	var deck models.Deck
+	if err := h.DB.Where("subject_id = ? AND slug = ?", subjectID, "cheatsheet").First(&deck).Error; err != nil {
+		notFoundOr500(c, err, "cheatsheet deck")
+		return models.Deck{}, false
+	}
+	return deck, true
+}
+
+// Practice: GET /api/study/practice?subject_id=&kind=lab|mcq&topic=&limit=
+// Returns cheatsheet-deck cards of one kind as a drill set to study right now,
+// regardless of SRS schedule. No enrollment and no FSRS writes: the client
+// grades each card locally and just advances. topic filters by the cheatsheet
+// section the card was generated from ("" = every section).
+func (h *Handler) Practice(c *gin.Context) {
+	subjectID := queryInt64(c, "subject_id")
+	kind := c.Query("kind")
+	if kind != models.KindLab && kind != models.KindMCQ {
+		abort(c, http.StatusBadRequest, "kind must be lab or mcq")
+		return
+	}
+	deck, ok := h.cheatsheetDeck(c, subjectID)
+	if !ok {
+		return
+	}
+	limit := queryInt(c, "limit", 100)
+	if limit <= 0 || limit > 200 {
+		limit = 100
+	}
+	q := h.DB.Where("deck_id = ? AND kind = ?", deck.ID, kind)
+	if topic := strings.TrimSpace(c.Query("topic")); topic != "" {
+		q = q.Where("payload->>'topic' = ?", topic)
+	}
+	var cards []models.Card
+	if err := q.Order("id ASC").Limit(limit).Find(&cards).Error; err != nil {
+		internal(c, err)
+		return
+	}
+	items := make([]study.QueueItem, 0, len(cards))
+	for _, cd := range cards {
+		items = append(items, study.QueueItem{Card: cd, IsNew: false, Preview: map[string]string{}})
+	}
+	c.JSON(http.StatusOK, items)
+}
+
+// PracticeTopics: GET /api/study/practice-topics?subject_id=
+// Lists the cheatsheet sections (topics) that have drills, with per-kind counts,
+// so the Study picker can offer "choose a section + format". "" topic = drills
+// generated without a section.
+func (h *Handler) PracticeTopics(c *gin.Context) {
+	subjectID := queryInt64(c, "subject_id")
+	deck, ok := h.cheatsheetDeck(c, subjectID)
+	if !ok {
+		return
+	}
+	type agg struct {
+		Topic string
+		Kind  string
+		N     int
+	}
+	var rows []agg
+	if err := h.DB.Model(&models.Card{}).
+		Select("COALESCE(payload->>'topic', '') AS topic, kind, count(*) AS n").
+		Where("deck_id = ? AND kind IN ?", deck.ID, []string{models.KindLab, models.KindMCQ}).
+		Group("topic, kind").Scan(&rows).Error; err != nil {
+		internal(c, err)
+		return
+	}
+	type tc struct {
+		Topic string `json:"topic"`
+		Lab   int    `json:"lab"`
+		Mcq   int    `json:"mcq"`
+	}
+	idx := map[string]*tc{}
+	order := []string{}
+	labTotal, mcqTotal := 0, 0
+	for _, r := range rows {
+		t, ok := idx[r.Topic]
+		if !ok {
+			t = &tc{Topic: r.Topic}
+			idx[r.Topic] = t
+			order = append(order, r.Topic)
+		}
+		if r.Kind == models.KindLab {
+			t.Lab += r.N
+			labTotal += r.N
+		} else {
+			t.Mcq += r.N
+			mcqTotal += r.N
+		}
+	}
+	out := make([]tc, 0, len(order))
+	for _, t := range order {
+		out = append(out, *idx[t])
+	}
+	c.JSON(http.StatusOK, gin.H{"topics": out, "lab": labTotal, "mcq": mcqTotal})
 }

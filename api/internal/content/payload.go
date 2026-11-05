@@ -56,6 +56,7 @@ type MCQPayload struct {
 	Choices     []string `json:"choices"`
 	Answer      int      `json:"answer"`
 	Explanation string   `json:"explanation,omitempty"`
+	Topic       string   `json:"topic,omitempty"` // cheatsheet section it was generated from (Study practice-by-section filter)
 }
 
 // LabStep is one step of a lab card. Two kinds of step:
@@ -89,6 +90,7 @@ type LabStep struct {
 // to resemble a real engagement end-to-end.
 type LabPayload struct {
 	Mode       string    `json:"mode,omitempty"`
+	Topic      string    `json:"topic,omitempty"` // cheatsheet section it was generated from (Study practice-by-section filter)
 	Scenario   string    `json:"scenario,omitempty"`
 	Steps      []LabStep `json:"steps"`
 	Reference  string    `json:"reference,omitempty"`  // optional Markdown study notes shown below the runner, for review
@@ -173,6 +175,7 @@ func Normalize(kind, front string, raw json.RawMessage) (json.RawMessage, error)
 			return nil, errors.New("mcq answer index out of range")
 		}
 		p.Choices = choices
+		p.Topic = strings.TrimSpace(p.Topic)
 		return json.Marshal(p)
 	case models.KindLab:
 		var p LabPayload
@@ -181,6 +184,7 @@ func Normalize(kind, front string, raw json.RawMessage) (json.RawMessage, error)
 		}
 		p.Scenario = strings.TrimSpace(p.Scenario)
 		p.Mode = strings.TrimSpace(p.Mode)
+		p.Topic = strings.TrimSpace(p.Topic)
 		p.Reference = strings.TrimSpace(p.Reference)
 		p.Difficulty = strings.TrimSpace(p.Difficulty)
 		p.ChallengeKey = strings.TrimSpace(p.ChallengeKey)

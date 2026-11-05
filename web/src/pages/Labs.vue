@@ -76,14 +76,27 @@
           </div>
         </template>
 
-        <!-- cheatsheet tab: static command reference grouped by topic -->
+        <!-- cheatsheet tab: the learner's own notes (shared with the Cheat sheet page + floating Notes widget) -->
         <template v-else-if="activeTab === 'cheatsheet'">
-          <p class="small text-muted">
-            Các lệnh hay dùng nhất trên lab/challenge và được cộng đồng (r/tryhackme, r/hackthebox, le0pard, Viblo, ippsec)
-            khuyên nhớ, gom theo từng nhóm chủ đề để tra nhanh khi làm bài.
+          <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
+            <p class="small text-muted mb-0">
+              Ghi chú lệnh của bạn — dùng chung với trang <b>Cheat sheet</b> và nút <b>Notes</b> nổi. Sửa/thêm ở Cheat sheet.
+            </p>
+            <router-link :to="`/${prefix}/cheatsheet`" class="btn btn-sm btn-outline-primary">
+              <i class="bi bi-pencil-square"></i> Sửa / thêm · Study
+            </router-link>
+          </div>
+          <div v-if="notesLoading" class="text-muted small"><span class="spinner-border spinner-border-sm me-1"></span>Đang tải…</div>
+          <p v-else-if="!notes.length" class="text-muted small">
+            Chưa có ghi chú nào. Thêm ở <router-link :to="`/${prefix}/cheatsheet`">Cheat sheet</router-link> hoặc nút Notes nổi (góc dưới-phải).
           </p>
-          <div class="card border-0 shadow-sm">
-            <div class="card-body reference-notes md" v-html="cheatsheetHtml"></div>
+          <div v-else class="d-flex flex-column gap-3">
+            <div v-for="n in notes" :key="n.id" class="card border-0 shadow-sm">
+              <div class="card-body">
+                <h6 v-if="n.title" class="fw-bold mb-1">{{ n.title }}</h6>
+                <div class="reference-notes md" v-html="renderMarkdown(n.body)"></div>
+              </div>
+            </div>
           </div>
         </template>
 
@@ -240,11 +253,11 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api'
-import { loadSubjects, subject } from '../composables/useSubject'
+import { loadSubjects, subject, subjectId } from '../composables/useSubject'
+import { currentPrefix } from '../router'
 import { renderMarkdown } from '../utils/markdown'
 import type { Card, LabStep } from '../types'
 import { challengeKey, challengeUrl, htbChallenges, thmChallenges, type Challenge } from '../data/pentestChallenges'
-import { pentestCheatsheet } from '../data/pentestCheatsheet'
 import ChallengeQuestionManager from '../components/ChallengeQuestionManager.vue'
 
 const route = useRoute()
@@ -253,7 +266,26 @@ const loading = ref(true)
 const labCards = ref<Card[]>([])
 
 const activeTab = ref<'lab' | 'assignment' | 'thm' | 'htb' | 'cheatsheet'>('lab')
-const cheatsheetHtml = computed(() => renderMarkdown(pentestCheatsheet))
+
+// Cheatsheet tab = the learner's own course notes (shared with the Cheat sheet
+// page and the floating Notes widget), so all three stay in sync.
+const prefix = currentPrefix()
+interface CheatNote { id: number; title: string; body: string }
+const notes = ref<CheatNote[]>([])
+const notesLoading = ref(false)
+let notesLoaded = false
+async function loadNotes() {
+  if (!subjectId.value) return
+  notesLoading.value = true
+  try {
+    const { data } = await api.get('/course-notes', { params: { subject_id: subjectId.value } })
+    notes.value = data.notes ?? []
+    notesLoaded = true
+  } catch { /* keep what we have */ } finally {
+    notesLoading.value = false
+  }
+}
+watch(activeTab, (t) => { if (t === 'cheatsheet' && !notesLoaded) loadNotes() })
 // "challenge_sim" cards are the user's own self-quiz per THM/HTB challenge (see
 // ChallengeQuestionManager) — they live in the same "labs" deck but are kept
 // out of the Lab/Assignment tabs and surfaced only on their own challenge card.
@@ -389,12 +421,35 @@ function normalize(raw: string): string {
   return raw.trim().replace(/\s+/g, ' ')
 }
 
+/**
+ * Order-independent flag matching. A pattern written as `@flags:<cmd>:<letters>`
+ * is correct when the input starts with <cmd> and contains every short-flag
+ * letter, in ANY order or grouping — so `ss -tunlp`, `ss -utpln`, `ss -t -u -n -l -p`
+ * and `ss -tun -lp` all pass `@flags:ss:tunlp`. Extra flags are allowed.
+ */
+function flagSpecMatch(spec: string, input: string): boolean {
+  const parts = spec.split(':')
+  const cmd = (parts[1] ?? '').toLowerCase()
+  const letters = (parts[2] ?? '').toLowerCase()
+  const toks = input.trim().toLowerCase().split(/\s+/)
+  if (!cmd || toks[0] !== cmd) return false
+  const have = new Set<string>()
+  for (const t of toks.slice(1)) {
+    if (/^-[a-z0-9]+$/.test(t)) for (const ch of t.slice(1)) have.add(ch)
+  }
+  for (const ch of letters) if (!have.has(ch)) return false
+  return true
+}
+
+function matchPattern(p: string, norm: string): boolean {
+  if (p.startsWith('@flags:')) return flagSpecMatch(p, norm)
+  try { return new RegExp(p, 'i').test(norm) } catch { return false }
+}
+
 function check() {
   if (!activeCard.value) return
   const norm = normalize(answer.value)
-  const ok = (currentStep.value.patterns ?? []).some((p) => {
-    try { return new RegExp(p, 'i').test(norm) } catch { return false }
-  })
+  const ok = (currentStep.value.patterns ?? []).some((p) => matchPattern(p, norm))
   feedback.value = ok ? 'correct' : 'wrong'
 }
 

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"mvp-lang-app/internal/ai"
+	"mvp-lang-app/internal/content"
 	"mvp-lang-app/internal/models"
 
 	"github.com/gin-gonic/gin"
@@ -407,4 +409,128 @@ func (h *Handler) ChatModels(c *gin.Context) {
 		models = []string{}
 	}
 	c.JSON(http.StatusOK, gin.H{"models": models})
+}
+
+// GenerateCourseQuestions: POST /api/course-notes/gen-questions
+// {subject_id, topic?, count?, model?} — the AI writes multiple-choice study
+// questions from the learner's own notes and inserts them (kind mcq) into the
+// subject's "cheatsheet" deck. Returns the created card ids so the client can
+// enroll + study them. Admin only (inserts into shared cards).
+func (h *Handler) GenerateCourseQuestions(c *gin.Context) {
+	var req struct {
+		SubjectID int64  `json:"subject_id"`
+		Topic     string `json:"topic"`
+		Count     int    `json:"count"`
+		Model     string `json:"model"`
+		Format    string `json:"format"` // "lab" = typed-command drills, else "mcq"
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.SubjectID <= 0 {
+		abort(c, http.StatusBadRequest, "subject_id is required")
+		return
+	}
+	if !h.AI.Enabled() {
+		abort(c, http.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
+		return
+	}
+	uid := userID(c)
+	var notes []models.CourseNote
+	if err := h.DB.Where("user_id = ? AND subject_id = ?", uid, req.SubjectID).
+		Order("sort_order ASC, id ASC").Limit(maxCourseNotes).Find(&notes).Error; err != nil {
+		internal(c, err)
+		return
+	}
+	if len(notes) == 0 {
+		abort(c, http.StatusBadRequest, "add some notes first")
+		return
+	}
+	// both formats study in the cheatsheet deck (SRS): lab = typed-command cards,
+	// mcq = multiple-choice cards.
+	isLab := req.Format == "lab"
+	kind := models.KindMCQ
+	if isLab {
+		kind = models.KindLab
+	}
+	var deck models.Deck
+	if err := h.DB.Where("subject_id = ? AND slug = ?", req.SubjectID, "cheatsheet").First(&deck).Error; err != nil {
+		notFoundOr500(c, err, "cheatsheet deck")
+		return
+	}
+	var subject models.Subject
+	h.DB.First(&subject, req.SubjectID)
+
+	items := make([]ai.CheatNote, len(notes))
+	for i, n := range notes {
+		items[i] = ai.CheatNote{Title: n.Title, Body: n.Body}
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 170*time.Second)
+	defer cancel()
+	if req.Model != "" && !h.chatModelAllowed(ctx, req.Model) {
+		abort(c, http.StatusBadRequest, "model not allowed")
+		return
+	}
+
+	var gen []ai.GeneratedCard
+	var err error
+	if isLab {
+		gen, err = h.AI.GenerateDrillsFromNotes(ctx, req.Model, subject.Name, req.Topic, req.Count, items)
+	} else {
+		gen, err = h.AI.GenerateQuestionsFromNotes(ctx, req.Model, subject.Name, req.Topic, req.Count, items)
+	}
+	if err != nil {
+		if errors.Is(err, ai.ErrNotConfigured) {
+			abort(c, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		log.Printf("[ai] gen-questions (format=%s) user=%d subject=%d: %v", req.Format, uid, req.SubjectID, err)
+		abort(c, http.StatusBadGateway, "AI could not generate questions: "+err.Error())
+		return
+	}
+
+	ids := []int64{}
+	skipped := 0
+	topic := strings.TrimSpace(req.Topic)
+	for _, g := range gen {
+		front := strings.TrimSpace(g.Front)
+		raw := g.Payload
+		if topic != "" {
+			raw = withPayloadTopic(raw, topic)
+		}
+		payload, perr := content.Normalize(kind, front, raw)
+		if perr != nil {
+			skipped++
+			continue
+		}
+		card := models.Card{DeckID: deck.ID, Kind: kind, Front: front, Payload: models.JSON(payload), Source: "ai"}
+		res := h.DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&card)
+		if res.Error != nil || res.RowsAffected == 0 {
+			skipped++
+			continue
+		}
+		ids = append(ids, card.ID)
+	}
+	c.JSON(http.StatusOK, gin.H{"created": len(ids), "skipped": skipped, "card_ids": ids, "deck_id": deck.ID, "format": req.Format})
+}
+
+// withPayloadTopic adds a "topic" field to a card payload JSON object so the
+// Study "practice by section" filter can group generated drills by their
+// cheatsheet section. Returns the input unchanged if it is not a JSON object.
+func withPayloadTopic(raw json.RawMessage, topic string) json.RawMessage {
+	if len(raw) == 0 {
+		raw = json.RawMessage("{}")
+	}
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return raw
+	}
+	tb, err := json.Marshal(topic)
+	if err != nil {
+		return raw
+	}
+	m["topic"] = tb
+	out, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return out
 }

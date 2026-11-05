@@ -156,7 +156,7 @@ func (s *Service) Queue(userID int64, f Filter, limit int, now time.Time) ([]Que
 	var due []row
 	q := s.DB.Table("user_cards uc").Select(sel).
 		Joins("JOIN cards c ON c.id = uc.card_id").
-		Where("uc.user_id = ? AND NOT uc.suspended AND uc.state <> ? AND uc.due <= ? AND c.kind <> ?", userID, srs.StateNew, now, models.KindLab)
+		Where("uc.user_id = ? AND NOT uc.suspended AND uc.state <> ? AND uc.due <= ?", userID, srs.StateNew, now)
 	if err := scope(q, f).Order("uc.due ASC").Limit(limit).Scan(&due).Error; err != nil {
 		return nil, err
 	}
@@ -186,7 +186,7 @@ func (s *Service) Queue(userID int64, f Filter, limit int, now time.Time) ([]Que
 				var out []row
 				q := s.DB.Table("user_cards uc").Select(sel).
 					Joins("JOIN cards c ON c.id = uc.card_id").
-					Where("uc.user_id = ? AND NOT uc.suspended AND uc.state = ? AND c.kind <> ?", userID, srs.StateNew, models.KindLab)
+					Where("uc.user_id = ? AND NOT uc.suspended AND uc.state = ?", userID, srs.StateNew)
 				err := scope(q, sf).Order("uc.created_at ASC, c.id ASC").Limit(quota).Scan(&out).Error
 				return out, err
 			}
@@ -233,8 +233,8 @@ func (s *Service) Queue(userID int64, f Filter, limit int, now time.Time) ([]Que
 		add(r, true)
 	}
 	for i := range items {
-		if items[i].IsNew || items[i].Card.Kind == models.KindMCQ {
-			continue // new cards are shown with the answer; mcq has its own choices
+		if items[i].IsNew || items[i].Card.Kind == models.KindMCQ || items[i].Card.Kind == models.KindLab {
+			continue // new cards show the answer; mcq has its own choices; lab is typed
 		}
 		ch, err := s.MeaningChoices(items[i].Card)
 		if err != nil {

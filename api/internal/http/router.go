@@ -90,6 +90,8 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/study/review", h.Review)
 		u.POST("/study/suspend", h.Suspend)
 		u.POST("/study/extra-new", h.ExtraNew)
+		u.GET("/study/practice", h.Practice)
+		u.GET("/study/practice-topics", h.PracticeTopics)
 
 		u.POST("/practice/word-questions", practiceLimit, h.WordQuestions) // may call AI (shared with the device)
 		u.POST("/practice/word-questions/answer", h.WordQuestionAnswer)
@@ -153,9 +155,10 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/course-notes/summarize", practiceLimit, h.SummarizeCourseNotes)
 		u.POST("/course-notes/adopt-summary", h.AdoptSummary)
 		u.POST("/course-notes/ask", practiceLimit, h.AskCourse)
+		u.POST("/course-notes/gen-questions", practiceLimit, h.GenerateCourseQuestions)
 		u.GET("/chat-models", h.ChatModels)
 
-		u.GET("/writing/phrases", h.WritingPhrases)              // phrase bank (Writing page panel)
+		u.GET("/writing/phrases", h.WritingPhrases)             // phrase bank (Writing page panel)
 		u.POST("/writing/phrases/study", h.StudyWritingPhrases) // add the whole bank to Study
 		u.POST("/writing", h.SubmitWriting)
 		u.GET("/writing", h.ListWriting)

@@ -4,7 +4,7 @@
       <div class="d-flex flex-wrap justify-content-between align-items-end mb-3 gap-2">
         <div>
           <h2 class="fw-bold mb-0"><i class="bi bi-mortarboard"></i> Courses</h2>
-          <small class="text-muted">Create and manage your study subjects, their decks and cards (admin).</small>
+          <small class="text-muted">Quản lý decks &amp; cards của <b>môn đang chọn</b> (admin). Đổi môn ở thanh trên.</small>
         </div>
         <button class="btn btn-primary" @click="showNew = !showNew">
           <i class="bi bi-plus-lg"></i> New course
@@ -47,7 +47,7 @@
       <div v-if="loading" class="text-center py-5"><div class="spinner-border text-primary"></div></div>
 
       <!-- each course -->
-      <div v-for="s in subjects" :key="s.id" class="card border-0 shadow-sm mb-3">
+      <div v-for="s in visibleSubjects" :key="s.id" class="card border-0 shadow-sm mb-3">
         <div class="card-body">
           <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
             <div class="flex-grow-1 min-w-0">
@@ -173,15 +173,17 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { api, errorMessage } from '../api'
 import { auth } from '../auth'
-import { loadSubjects } from '../composables/useSubject'
+import { loadSubjects, subjectSlug } from '../composables/useSubject'
 import type { CardKind, Subject } from '../types'
 
 const KINDS: CardKind[] = ['vocab', 'phrasal', 'concept', 'mcq']
 
 const subjects = ref<Subject[]>([])
+// show only the course of the currently-selected topic (tab), not every course
+const visibleSubjects = computed(() => subjects.value.filter((s) => s.slug === subjectSlug.value))
 const loading = ref(true)
 const busy = ref(false)
 const genBusy = ref(0)
