@@ -61,6 +61,8 @@ Each drill is one card with a single step:
 - "prompt": the instruction telling the learner what command to type (in the notes' language).
 - "patterns": 1-3 case-insensitive REGEX patterns; a learner's answer is correct if ANY pattern matches anywhere in their input.
 - "explanation": ONE concrete, correct example command (plain text, with placeholders like <target> where needed) — shown as the model answer when the learner reveals it.
+- "note": 1-3 short sentences IN THE NOTES' LANGUAGE explaining what the command does and what EACH argument/parameter/flag means. Example: for "unshadow passwd.txt shadow.txt", say passwd.txt is the copied /etc/passwd, shadow.txt the copied /etc/shadow, and unshadow merges them into one file John can crack.
+- "lesson": 1-3 short sentences IN THE NOTES' LANGUAGE teaching WHEN to use this command/technique and WHY (the situation it fits, what problem it solves, how it fits a pentest workflow). This is the takeaway to remember, not a repeat of the note.
 
 Rules for patterns (IMPORTANT):
 - ORDER-INDEPENDENT FLAGS: when the command is a tool plus combined single-letter flags with NO values (e.g. ss, ls, ps, netstat), use the special form "@flags:<cmd>:<letters>" so the flags are accepted in ANY order or grouping. Example: "@flags:ss:tunlp" accepts "ss -tunlp", "ss -utpln", "ss -t -u -n -l -p" and "ss -tun -lp". List only the letters, no dashes.
@@ -72,7 +74,7 @@ Rules for patterns (IMPORTANT):
 
 Return JSON: {"cards": [
   {"front": "goal title", "payload": {"mode": "lab", "scenario": "...", "steps": [
-    {"prompt": "Type the command to ...", "patterns": ["tool\\s+-flag", "\\btool\\b"], "hint": "optional short hint", "explanation": "tool -flag <target>"}
+    {"prompt": "Type the command to ...", "patterns": ["tool\\s+-flag", "\\btool\\b"], "hint": "optional short hint", "explanation": "tool -flag <target>", "note": "what the command does and what each argument/flag means", "lesson": "when to use it and why"}
   ]}}
 ]}`, courseName, b.String(), countInstr, focus)
 

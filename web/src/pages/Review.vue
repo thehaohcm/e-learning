@@ -170,6 +170,8 @@
               <div v-if="item.card.kind === 'lab'" class="mb-2">
                 <div class="small text-muted mb-1">Đáp án mẫu / ghi nhớ:</div>
                 <pre class="cmd-answer mb-0">{{ labAnswer || '—' }}</pre>
+                <div v-if="labNote" class="small text-muted mt-2 text-start"><i class="bi bi-info-circle"></i> {{ labNote }}</div>
+                <div v-if="labLesson" class="alert alert-info py-2 small mt-2 mb-0 text-start"><i class="bi bi-mortarboard"></i> <b>Khi nào &amp; vì sao:</b> {{ labLesson }}</div>
               </div>
               <CardDetails v-if="item.card.kind !== 'mcq' && item.card.kind !== 'lab'" :card="item.card" :speakable="isEnglish" class="text-start"
                 @speak="(en: string) => speakEnglish(en, RATE_REPLAY)" />
@@ -415,6 +417,8 @@ function focusCmd() { nextTick(() => cmdInputEl.value?.focus()) }
 const showLabHint = ref(false)
 const labStep = computed(() => item.value?.card.payload.steps?.[0] ?? null)
 const labAnswer = computed(() => (labStep.value?.explanation ?? '').trim())
+const labNote = computed(() => (labStep.value?.note ?? '').trim())
+const labLesson = computed(() => (labStep.value?.lesson ?? '').trim())
 
 /** `@flags:cmd:letters` — true if input starts with cmd and has every short-flag
  *  letter in any order (ss -tunlp == ss -utpln == ss -t -u -n -l -p). */

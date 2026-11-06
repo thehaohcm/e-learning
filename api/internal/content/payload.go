@@ -80,6 +80,8 @@ type LabStep struct {
 	Choices     []string `json:"choices,omitempty"`     // answer options (type == "choice")
 	Answer      int      `json:"answer,omitempty"`      // correct index into Choices (type == "choice")
 	Explanation string   `json:"explanation,omitempty"` // shown after a correct answer
+	Note        string   `json:"note,omitempty"`        // plain-language breakdown: what the command does and what each parameter means
+	Lesson      string   `json:"lesson,omitempty"`      // the teaching point: when to use this and why
 }
 
 // LabPayload is a sequential, hands-on drill (a "lab"): a short scenario plus
@@ -201,6 +203,8 @@ func Normalize(kind, front string, raw json.RawMessage) (json.RawMessage, error)
 			st.Prompt = strings.TrimSpace(st.Prompt)
 			st.Hint = strings.TrimSpace(st.Hint)
 			st.Explanation = strings.TrimSpace(st.Explanation)
+			st.Note = strings.TrimSpace(st.Note)
+			st.Lesson = strings.TrimSpace(st.Lesson)
 			st.Type = strings.TrimSpace(st.Type)
 			if st.Prompt == "" {
 				continue
