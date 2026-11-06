@@ -31,10 +31,11 @@ const (
 )
 
 type courseNoteReq struct {
-	SubjectID int64   `json:"subject_id"`
-	Title     *string `json:"title"`
-	Body      *string `json:"body"`
-	SortOrder *int    `json:"sort_order"`
+	SubjectID int64            `json:"subject_id"`
+	Title     *string          `json:"title"`
+	Body      *string          `json:"body"`
+	Links     *json.RawMessage `json:"links"`
+	SortOrder *int             `json:"sort_order"`
 }
 
 // ListCourseNotes: GET /api/course-notes?subject_id=
@@ -87,7 +88,7 @@ func (h *Handler) CreateCourseNote(c *gin.Context) {
 	now := time.Now().UTC()
 	note := models.CourseNote{
 		UserID: uid, SubjectID: req.SubjectID,
-		Title: clip(deref(req.Title), maxNoteTitle), Body: clip(deref(req.Body), maxNoteBody),
+		Title: clip(deref(req.Title), maxNoteTitle), Body: clip(deref(req.Body), maxNoteBody), Links: normLinks(req.Links),
 		CreatedAt: now, UpdatedAt: now,
 	}
 	if req.SortOrder != nil {
@@ -128,6 +129,9 @@ func (h *Handler) UpdateCourseNote(c *gin.Context) {
 	}
 	if req.Body != nil {
 		note.Body = clip(*req.Body, maxNoteBody)
+	}
+	if req.Links != nil {
+		note.Links = normLinks(req.Links)
 	}
 	if req.SortOrder != nil {
 		note.SortOrder = *req.SortOrder
@@ -533,4 +537,44 @@ func withPayloadTopic(raw json.RawMessage, topic string) json.RawMessage {
 		return raw
 	}
 	return out
+}
+
+// normLinks validates the resource links on a course note: keeps only entries
+// with a non-empty url, trims/caps lengths, limits the count, and always
+// returns a valid JSON array (never null) for the jsonb column.
+func normLinks(raw *json.RawMessage) models.JSON {
+	if raw == nil {
+		return models.JSON("[]")
+	}
+	type noteLink struct {
+		URL   string `json:"url"`
+		Label string `json:"label,omitempty"`
+	}
+	var in []noteLink
+	if err := json.Unmarshal(*raw, &in); err != nil {
+		return models.JSON("[]")
+	}
+	out := make([]noteLink, 0, len(in))
+	for _, l := range in {
+		u := strings.TrimSpace(l.URL)
+		if u == "" {
+			continue
+		}
+		if len(u) > 500 {
+			u = u[:500]
+		}
+		lab := strings.TrimSpace(l.Label)
+		if len(lab) > 120 {
+			lab = lab[:120]
+		}
+		out = append(out, noteLink{URL: u, Label: lab})
+		if len(out) >= 20 {
+			break
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return models.JSON("[]")
+	}
+	return models.JSON(b)
 }

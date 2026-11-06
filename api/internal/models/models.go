@@ -250,6 +250,7 @@ type CourseNote struct {
 	SubjectID int64     `json:"subject_id"`
 	Title     string    `json:"title"`
 	Body      string    `json:"body"`
+	Links     JSON      `gorm:"type:jsonb" json:"links"` // [{url,label}] resource links to track later
 	SortOrder int       `json:"sort_order"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
