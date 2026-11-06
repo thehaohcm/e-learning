@@ -170,6 +170,17 @@
               <div v-if="item.card.kind === 'lab'" class="mb-2">
                 <div class="small text-muted mb-1">Đáp án mẫu / ghi nhớ:</div>
                 <pre class="cmd-answer mb-0">{{ labAnswer || '—' }}</pre>
+                <!-- gave up: optionally retype the answer to build muscle memory (empty + Next still works) -->
+                <div v-if="gaveUp" class="mt-2">
+                  <div class="d-flex gap-2">
+                    <input ref="retypeInputEl" v-model="retypeInput" class="form-control form-control-sm font-monospace" autocomplete="off" autocapitalize="off" spellcheck="false"
+                      :class="{ 'is-valid': retypeResult === 'correct', 'is-invalid': retypeResult === 'wrong' }"
+                      placeholder="(tuỳ chọn) gõ lại đáp án để nhớ…" @input="retypeResult = null; clearTimeout(retypeTimer)" @keydown.enter.prevent.stop="checkRetype" />
+                    <button type="button" class="btn btn-sm btn-outline-primary" :disabled="!retypeInput.trim()" @click="checkRetype"><i class="bi bi-check-lg"></i> Kiểm tra</button>
+                  </div>
+                  <div v-if="retypeResult === 'correct'" class="small text-success mt-1"><i class="bi bi-check-circle-fill"></i> Đúng rồi!</div>
+                  <div v-else-if="retypeResult === 'wrong'" class="small text-danger mt-1"><i class="bi bi-x-circle-fill"></i> Chưa đúng — so lại với đáp án mẫu rồi gõ lại nhé.</div>
+                </div>
                 <div v-if="labNote" class="small text-muted mt-2 text-start"><i class="bi bi-info-circle"></i> {{ labNote }}</div>
                 <div v-if="labLesson" class="alert alert-info py-2 small mt-2 mb-0 text-start"><i class="bi bi-mortarboard"></i> <b>Khi nào &amp; vì sao:</b> {{ labLesson }}</div>
               </div>
@@ -445,17 +456,51 @@ function checkCmd() {
   const pats = labStep.value?.patterns ?? []
   outcome.value = pats.some((p) => matchCmd(p, norm)) ? 'correct' : 'wrong'
   phase.value = 'reveal'
+  if (outcome.value === 'wrong') {
+    // wrong: let the user retype the model answer to practise
+    gaveUp.value = true
+    nextTick(() => retypeInputEl.value?.focus())
+  }
 }
 function revealCmd() {
   outcome.value = 'wrong'
+  gaveUp.value = true
   phase.value = 'reveal'
+  nextTick(() => retypeInputEl.value?.focus())
 }
+// retype-to-memorise after "Không nhớ": purely practice, never changes the grade
+const gaveUp = ref(false)
+const retypeInputEl = ref<HTMLInputElement | null>(null)
+const retypeInput = ref('')
+const retypeResult = ref<'correct' | 'wrong' | null>(null)
+function checkRetype() {
+  const norm = retypeInput.value.trim().replace(/\s+/g, ' ')
+  if (!norm) return
+  const pats = labStep.value?.patterns ?? []
+  const exact = norm.toLowerCase() === labAnswer.value.replace(/\s+/g, ' ').toLowerCase()
+  retypeResult.value = exact || pats.some((p) => matchCmd(p, norm)) ? 'correct' : 'wrong'
+  clearTimeout(retypeTimer)
+  if (retypeResult.value === 'correct') {
+    // correct retype: go to the next card after 1s (same as pressing "Tiếp theo")
+    const cur = item.value
+    retypeTimer = setTimeout(() => {
+      if (item.value !== cur || phase.value !== 'reveal' || sending.value) return
+      if (practiceMode.value) advance()
+      else rate(1)
+    }, 1000)
+  }
+}
+let retypeTimer: ReturnType<typeof setTimeout> | undefined
 
 watch(item, (it) => {
   outcome.value = null
   picked.value = null
   optionsShown.value = false
   cmdInput.value = ''
+  clearTimeout(retypeTimer)
+  gaveUp.value = false
+  retypeInput.value = ''
+  retypeResult.value = null
   showLabHint.value = false
   // new cards are shown with the answer straight away: there is nothing to recall yet
   phase.value = it?.is_new ? 'reveal' : 'ask'
