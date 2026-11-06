@@ -90,11 +90,44 @@
           <p v-else-if="!notes.length" class="text-muted small">
             Chưa có ghi chú nào. Thêm ở <router-link :to="`/${prefix}/cheatsheet`">Cheat sheet</router-link> hoặc nút Notes nổi (góc dưới-phải).
           </p>
-          <div v-else class="d-flex flex-column gap-3">
-            <div v-for="n in notes" :key="n.id" class="card border-0 shadow-sm">
-              <div class="card-body">
-                <h6 v-if="n.title" class="fw-bold mb-1">{{ n.title }}</h6>
-                <div class="reference-notes md" v-html="renderMarkdown(n.body)"></div>
+          <div v-else>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+              <div class="input-group input-group-sm" style="max-width: 280px">
+                <span class="input-group-text"><i class="bi bi-search"></i></span>
+                <input v-model="noteSearch" class="form-control" placeholder="Tìm keyword…" />
+                <button v-if="noteSearch" class="btn btn-outline-secondary" @click="noteSearch = ''"><i class="bi bi-x-lg"></i></button>
+              </div>
+              <div class="btn-group btn-group-sm" role="group">
+                <button v-for="c in noteCourseChips" :key="c" type="button" class="btn"
+                  :class="noteCourse === c ? 'btn-primary' : 'btn-outline-primary'"
+                  @click="noteCourse = noteCourse === c ? '' : c">{{ c }}</button>
+              </div>
+              <button class="btn btn-sm btn-outline-secondary ms-auto" @click="toggleAllNotes">
+                <i class="bi" :class="allNotesOpen ? 'bi-chevron-bar-up' : 'bi-chevron-bar-down'"></i>
+                {{ allNotesOpen ? 'Thu gọn tất cả' : 'Mở tất cả' }}
+              </button>
+              <small class="text-muted w-100">Hiện {{ filteredNotes.length }}/{{ notes.length }} mục</small>
+            </div>
+            <p v-if="!filteredNotes.length" class="text-muted small text-center py-3">Không có mục nào khớp bộ lọc.</p>
+            <div class="d-flex flex-column gap-2">
+              <div v-for="n in filteredNotes" :key="n.id" class="card border-0 shadow-sm">
+                <div class="card-body py-2">
+                  <div class="d-flex align-items-center gap-2">
+                    <button class="btn btn-sm btn-link p-0 text-muted flex-shrink-0" @click="toggleNote(n.id)">
+                      <i class="bi" :class="isNoteOpen(n.id) ? 'bi-chevron-down' : 'bi-chevron-right'"></i>
+                    </button>
+                    <h6 class="fw-bold mb-0 flex-grow-1 text-truncate cs-title" @click="toggleNote(n.id)">
+                      {{ n.title || noteFirstLine(n.body) || '(không tiêu đề)' }}
+                    </h6>
+                  </div>
+                  <div v-if="isNoteOpen(n.id)" class="reference-notes md mt-2" v-html="renderMarkdown(n.body)"></div>
+                  <div v-if="isNoteOpen(n.id) && n.links && n.links.length" class="mt-2 d-flex flex-wrap gap-2">
+                    <a v-for="(lnk, i) in n.links" :key="i" :href="lnk.url" target="_blank" rel="noopener noreferrer"
+                      class="badge rounded-pill text-bg-light border text-decoration-none">
+                      <i class="bi bi-link-45deg"></i> {{ lnk.label || lnk.url }}
+                    </a>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -270,8 +303,34 @@ const activeTab = ref<'lab' | 'assignment' | 'thm' | 'htb' | 'cheatsheet'>('lab'
 // Cheatsheet tab = the learner's own course notes (shared with the Cheat sheet
 // page and the floating Notes widget), so all three stay in sync.
 const prefix = currentPrefix()
-interface CheatNote { id: number; title: string; body: string }
+interface CheatNote { id: number; title: string; body: string; links?: { url: string; label?: string }[] }
 const notes = ref<CheatNote[]>([])
+// cheatsheet tab UX (same as the Cheat sheet page): search + course filter + collapse
+const noteSearch = ref('')
+const noteCourse = ref('')
+const noteCourseChips = ['PT1', 'WEB1', 'CPTS']
+const noteOpen = ref<Set<number>>(new Set())
+const isNoteOpen = (id: number) => noteOpen.value.has(id)
+function toggleNote(id: number) {
+  const nx = new Set(noteOpen.value)
+  nx.has(id) ? nx.delete(id) : nx.add(id)
+  noteOpen.value = nx
+}
+const noteFirstLine = (t: string) => (t.split('\n').find((l) => l.trim()) ?? '').trim()
+const filteredNotes = computed(() => {
+  const q = noteSearch.value.trim().toLowerCase()
+  const c = noteCourse.value.toLowerCase()
+  return notes.value.filter((n) => {
+    const hay = (n.title + ' ' + n.body).toLowerCase()
+    if (c && !hay.includes(c)) return false
+    if (q && !hay.includes(q)) return false
+    return true
+  })
+})
+const allNotesOpen = computed(() => filteredNotes.value.length > 0 && filteredNotes.value.every((n) => noteOpen.value.has(n.id)))
+function toggleAllNotes() {
+  noteOpen.value = allNotesOpen.value ? new Set() : new Set(filteredNotes.value.map((n) => n.id))
+}
 const notesLoading = ref(false)
 let notesLoaded = false
 async function loadNotes() {
@@ -535,6 +594,8 @@ onMounted(loadLabs)
   margin-bottom: 0.5rem;
   color: #0f172a;
 }
+.cs-title { cursor: pointer; }
+.cs-title:hover { color: #4f46e5; }
 .reference-notes :deep(h1) { font-size: 1.25rem; }
 .reference-notes :deep(h2) { font-size: 1.15rem; }
 .reference-notes :deep(h3) { font-size: 1.05rem; }
