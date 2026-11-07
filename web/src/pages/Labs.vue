@@ -16,6 +16,12 @@
             </button>
           </li>
           <li class="nav-item">
+            <button class="nav-link" :class="{ active: activeTab === 'mistakes' }" @click="activeTab = 'mistakes'">
+              <i class="bi bi-arrow-repeat"></i> Ôn lại câu sai
+              <span class="badge ms-1" :class="dueMistakes.length ? 'bg-danger' : 'bg-light text-dark'">{{ dueMistakes.length }}</span>
+            </button>
+          </li>
+          <li class="nav-item">
             <button class="nav-link" :class="{ active: activeTab === 'assignment' }" @click="activeTab = 'assignment'">
               <i class="bi bi-flag"></i> Assignment <span class="badge bg-light text-dark ms-1">{{ assignmentCards.length }}</span>
             </button>
@@ -70,6 +76,41 @@
                       <i class="bi bi-pencil-square"></i> Quản lý câu hỏi
                     </button>
                   </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <!-- mistakes tab: lab steps answered wrong or given up on, resurfaced on a Leitner
+             schedule (10 min -> 1 day -> 3 -> 7 -> 16 days) like vocab's spaced repetition,
+             except local to this browser (lab cards never go into the server-side FSRS). -->
+        <template v-else-if="activeTab === 'mistakes'">
+          <p class="small text-muted">
+            Câu đã gõ sai hoặc bấm "Không nhớ" quay lại đây theo lịch ôn tập ngắn → dài, giống cách ôn từ vựng.
+            Chỉ lưu trên trình duyệt này.
+          </p>
+          <p v-if="!dueMistakes.length" class="text-muted small text-center py-4">
+            <i class="bi bi-emoji-smile display-6 d-block mb-2"></i> Không có câu nào cần ôn lại bây giờ 🎉
+          </p>
+          <div v-else class="d-flex flex-column gap-2">
+            <div v-for="m in dueMistakes" :key="mistakeKey(m)" class="card border-0 shadow-sm">
+              <div class="card-body py-2">
+                <div class="small text-muted mb-1">{{ mistakeCard(m)?.front }}</div>
+                <p class="fw-semibold mb-2">{{ mistakeStep(m)?.prompt }}</p>
+                <div class="input-group input-group-sm mb-1">
+                  <span class="input-group-text font-monospace">$</span>
+                  <input v-model="mistakeAnswers[mistakeKey(m)]" class="form-control font-monospace" autocomplete="off" autocapitalize="off" spellcheck="false"
+                    placeholder="gõ lệnh…" :class="{ 'is-invalid': mistakeFeedback[mistakeKey(m)] === 'wrong' }"
+                    @keydown.enter.prevent="checkMistake(m)" />
+                  <button class="btn btn-outline-primary" type="button" @click="checkMistake(m)">Kiểm tra</button>
+                </div>
+                <div v-if="mistakeFeedback[mistakeKey(m)] === 'wrong'" class="small text-danger">
+                  <i class="bi bi-x-circle"></i> Chưa đúng, thử lại.
+                  <button class="btn btn-sm btn-link p-0 ms-1" @click="mistakeShowAnswer[mistakeKey(m)] = true">Xem đáp án</button>
+                </div>
+                <div v-if="mistakeShowAnswer[mistakeKey(m)]" class="small text-muted mt-1">
+                  Đáp án mẫu: <code>{{ mistakeStep(m)?.explanation || mistakeStep(m)?.patterns?.[0] }}</code>
                 </div>
               </div>
             </div>
@@ -259,7 +300,7 @@
             <div class="alert alert-success py-2 small mb-0">
               <i class="bi bi-check-circle"></i> {{ currentStep.explanation || 'Chính xác!' }}
               <div class="mt-2">
-                <button class="btn btn-sm btn-success" @click="next">Bước tiếp theo <i class="bi bi-arrow-right"></i></button>
+                <button ref="nextStepBtn" class="btn btn-sm btn-success" @click="next">Bước tiếp theo <i class="bi bi-arrow-right"></i></button>
               </div>
             </div>
           </div>
@@ -283,7 +324,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { api } from '../api'
 import { loadSubjects, subject, subjectId } from '../composables/useSubject'
@@ -292,13 +333,14 @@ import { renderMarkdown } from '../utils/markdown'
 import type { Card, LabStep } from '../types'
 import { challengeKey, challengeUrl, htbChallenges, thmChallenges, type Challenge } from '../data/pentestChallenges'
 import ChallengeQuestionManager from '../components/ChallengeQuestionManager.vue'
+import { dueLabMistakes, recordLabMistake, resolveLabMistake, type LabMistake } from '../composables/labMistakes'
 
 const route = useRoute()
 
 const loading = ref(true)
 const labCards = ref<Card[]>([])
 
-const activeTab = ref<'lab' | 'assignment' | 'thm' | 'htb' | 'cheatsheet'>('lab')
+const activeTab = ref<'lab' | 'mistakes' | 'assignment' | 'thm' | 'htb' | 'cheatsheet'>(route.query.tab === 'mistakes' ? 'mistakes' : 'lab')
 
 // Cheatsheet tab = the learner's own course notes (shared with the Cheat sheet
 // page and the floating Notes widget), so all three stay in sync.
@@ -505,17 +547,39 @@ function matchPattern(p: string, norm: string): boolean {
   try { return new RegExp(p, 'i').test(norm) } catch { return false }
 }
 
+const nextStepBtn = ref<HTMLButtonElement | null>(null)
+/** After a correct answer, move focus to "Bước tiếp theo" so Enter/Space
+ *  advances without reaching for the mouse. */
+function focusNextStep() {
+  nextTick(() => nextStepBtn.value?.focus())
+}
+
 function check() {
   if (!activeCard.value) return
   const norm = normalize(answer.value)
   const ok = (currentStep.value.patterns ?? []).some((p) => matchPattern(p, norm))
   feedback.value = ok ? 'correct' : 'wrong'
+  if (ok) {
+    resolveLabMistake(activeCard.value.id, curStep.value)
+    focusNextStep()
+  } else {
+    recordLabMistake(activeCard.value.id, curStep.value)
+  }
+  refreshMistakes()
 }
 
 function checkChoice(i: number) {
   if (!activeCard.value || feedback.value === 'correct') return
   chosenIndex.value = i
-  feedback.value = i === currentStep.value.answer ? 'correct' : 'wrong'
+  const ok = i === currentStep.value.answer
+  feedback.value = ok ? 'correct' : 'wrong'
+  if (ok) {
+    resolveLabMistake(activeCard.value.id, curStep.value)
+    focusNextStep()
+  } else {
+    recordLabMistake(activeCard.value.id, curStep.value)
+  }
+  refreshMistakes()
 }
 
 // Enter in the command input: check the answer, or — if already correct —
@@ -577,9 +641,41 @@ function restart() {
   chosenIndex.value = null
 }
 
+// --- "Ôn lại câu sai" tab: local Leitner review queue for wrong/given-up steps ---
+const dueMistakes = ref<LabMistake[]>([])
+function refreshMistakes() { dueMistakes.value = dueLabMistakes() }
+const mistakeAnswers = reactive<Record<string, string>>({})
+const mistakeFeedback = reactive<Record<string, 'wrong' | undefined>>({})
+const mistakeShowAnswer = reactive<Record<string, boolean>>({})
+function mistakeKey(m: LabMistake): string { return `${m.cardId}:${m.stepIndex}` }
+function mistakeCard(m: LabMistake): Card | undefined { return labCards.value.find((c) => c.id === m.cardId) }
+function mistakeStep(m: LabMistake) { return mistakeCard(m)?.payload.steps?.[m.stepIndex] }
+function checkMistake(m: LabMistake) {
+  const k = mistakeKey(m)
+  const step = mistakeStep(m)
+  const norm = normalize(mistakeAnswers[k] ?? '')
+  const ok = !!step && (step.patterns ?? []).some((p) => matchPattern(p, norm))
+  if (ok) {
+    resolveLabMistake(m.cardId, m.stepIndex)
+    mistakeFeedback[k] = undefined
+    mistakeShowAnswer[k] = false
+    delete mistakeAnswers[k]
+    refreshMistakes()
+  } else {
+    recordLabMistake(m.cardId, m.stepIndex)
+    mistakeFeedback[k] = 'wrong'
+  }
+}
+let mistakesTimer: number | undefined
+
 const referenceHtml = computed(() => renderMarkdown(activeCard.value?.payload.reference ?? ''))
 
 onMounted(loadLabs)
+onMounted(() => {
+  refreshMistakes()
+  mistakesTimer = window.setInterval(refreshMistakes, 30_000)
+})
+onUnmounted(() => clearInterval(mistakesTimer))
 </script>
 
 <style scoped>

@@ -58,7 +58,13 @@
 
       <!-- grouped entries -->
       <div v-for="g in groups" :key="g.name" class="mb-3">
-        <h6 class="fw-bold text-uppercase text-muted small mt-3 mb-2">{{ g.name }} <span class="text-muted">({{ g.items.length }})</span></h6>
+        <div class="d-flex align-items-center gap-2 mt-3 mb-2">
+          <h6 class="fw-bold text-uppercase text-muted small mb-0">{{ g.name }} <span class="text-muted">({{ g.items.length }})</span></h6>
+          <button v-if="canEdit" class="btn btn-sm btn-outline-danger py-0 px-2" title="Xóa cả mục này và toàn bộ câu hỏi"
+            :disabled="busy" @click="removeGroup(g)">
+            <i class="bi bi-trash3"></i> Xóa cả mục
+          </button>
+        </div>
         <div class="card border-0 shadow-sm">
           <div class="list-group list-group-flush">
             <div v-for="c in g.items" :key="c.id" class="list-group-item">
@@ -193,6 +199,23 @@ async function remove(c: CardWithProgress) {
   try {
     await api.delete(`/cards/${c.id}`)
     entries.value = entries.value.filter((x) => x.id !== c.id)
+  } catch (e) {
+    flash(errorMessage(e), false)
+  } finally {
+    busy.value = false
+  }
+}
+
+/** Delete an entire group: every entry (= every question) filed under it, and their progress. */
+async function removeGroup(g: { name: string; items: CardWithProgress[] }) {
+  if (!confirm(`Xóa cả mục “${g.name}” và toàn bộ ${g.items.length} câu hỏi trong mục này? Không thể hoàn tác.`)) return
+  busy.value = true
+  try {
+    const ids = g.items.map((c) => c.id)
+    await Promise.all(ids.map((id) => api.delete(`/cards/${id}`)))
+    const removed = new Set(ids)
+    entries.value = entries.value.filter((x) => !removed.has(x.id))
+    flash(`Đã xóa mục "${g.name}" (${ids.length} câu hỏi).`)
   } catch (e) {
     flash(errorMessage(e), false)
   } finally {

@@ -92,6 +92,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/study/extra-new", h.ExtraNew)
 		u.GET("/study/practice", h.Practice)
 		u.GET("/study/practice-topics", h.PracticeTopics)
+		u.POST("/study/flag-quiz", practiceLimit, h.FlagQuiz) // ephemeral multi-select quiz on a command's flags, not persisted
 
 		u.POST("/practice/word-questions", practiceLimit, h.WordQuestions) // may call AI (shared with the device)
 		u.POST("/practice/word-questions/answer", h.WordQuestionAnswer)

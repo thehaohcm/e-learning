@@ -28,6 +28,10 @@
             <i v-else class="bi bi-play-fill"></i> Drill ngay
           </button>
         </div>
+        <button v-if="canEdit && topic" class="btn btn-sm btn-outline-danger" :disabled="deleting || totalForKind === 0"
+          title="Xóa toàn bộ câu hỏi AI đã tạo cho mục này" @click="deleteTopic">
+          <span v-if="deleting" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-trash3"></i> Xóa mục
+        </button>
         <button class="btn btn-sm btn-link text-muted px-1" :disabled="loading" title="Tải lại danh sách mục" @click="loadTopics">
           <i class="bi bi-arrow-clockwise"></i>
         </button>
@@ -44,6 +48,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { api, errorMessage } from '../api'
+import { auth } from '../auth'
 import { subjectId } from '../composables/useSubject'
 import type { QueueItem } from '../types'
 
@@ -61,7 +66,9 @@ const topics = ref<TopicCount[]>([])
 const totals = ref<{ lab: number; mcq: number }>({ lab: 0, mcq: 0 })
 const loading = ref(false)
 const busy = ref(false)
+const deleting = ref(false)
 const err = ref('')
+const canEdit = computed(() => auth.isAdmin)
 
 const totalForKind = computed(() => (kind.value === 'lab' ? totals.value.lab : totals.value.mcq))
 const topicsForKind = computed(() => topics.value.filter((t) => (kind.value === 'lab' ? t.lab : t.mcq) > 0))
@@ -101,6 +108,31 @@ async function drill() {
     err.value = errorMessage(e)
   } finally {
     busy.value = false
+  }
+}
+
+/** Delete every AI-generated card of the current kind + selected topic (the
+ *  same set "Drill ngay" would study) — fetches the live list so counts can
+ *  never drift, then removes them one by one via the existing card-delete
+ *  endpoint (cascades progress/logs server-side). */
+async function deleteTopic() {
+  if (!subjectId.value || !topic.value) return
+  const n = kind.value === 'lab' ? topicsForKind.value.find((t) => t.topic === topic.value)?.lab : topicsForKind.value.find((t) => t.topic === topic.value)?.mcq
+  if (!confirm(`Xóa toàn bộ ${n ?? totalForKind.value} câu ${kind.value === 'lab' ? 'gõ lệnh' : 'trắc nghiệm'} đã tạo cho mục "${topic.value}"? Không thể hoàn tác.`)) return
+  deleting.value = true
+  err.value = ''
+  try {
+    const { data } = await api.get('/study/practice', {
+      params: { subject_id: subjectId.value, kind: kind.value, topic: topic.value },
+    })
+    const items: QueueItem[] = data ?? []
+    await Promise.all(items.map((it) => api.delete(`/cards/${it.card.id}`)))
+    topic.value = ''
+    await loadTopics()
+  } catch (e) {
+    err.value = errorMessage(e)
+  } finally {
+    deleting.value = false
   }
 }
 

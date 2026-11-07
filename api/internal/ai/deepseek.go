@@ -84,7 +84,7 @@ func (c *Client) chatJSONModel(ctx context.Context, model, system, user string, 
 			{Role: "user", Content: user},
 		},
 		Temperature:    temperature,
-		MaxTokens:      8000,
+		MaxTokens:      12000, // raised from 8000 so larger structured responses (e.g. up to 40 generated cheatsheet drills/questions) aren't cut off mid-JSON
 		ResponseFormat: map[string]string{"type": "json_object"},
 	}
 	text, status, err := c.complete(ctx, req)

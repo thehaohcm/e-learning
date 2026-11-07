@@ -16,8 +16,8 @@ func (c *Client) GenerateDrillsFromNotes(ctx context.Context, model, courseName,
 		return nil, ErrNotConfigured
 	}
 	auto := count <= 0
-	if count > 25 {
-		count = 25
+	if count > 40 {
+		count = 40
 	}
 	var b strings.Builder
 	total := 0
@@ -46,7 +46,7 @@ func (c *Client) GenerateDrillsFromNotes(ctx context.Context, model, courseName,
 
 	countInstr := fmt.Sprintf("exactly %d short practice drills", count)
 	if auto {
-		countInstr = "short practice drills — one for each distinct command or technique in the notes, merging near-duplicates (produce as many as the notes meaningfully support: at least 3, at most 25)"
+		countInstr = "short practice drills — one for each distinct command or technique in the notes, merging near-duplicates (produce as many as the notes meaningfully support: at least 3, at most 40)"
 	}
 	system := "You create typed-command practice drills strictly from a learner's own notes. Reply with a single JSON object only."
 	user := fmt.Sprintf(`Course: %s
@@ -84,8 +84,8 @@ Return JSON: {"cards": [
 	if err := c.chatJSONModel(ctx, model, system, user, 0.5, &out); err != nil {
 		return nil, err
 	}
-	if len(out.Cards) > 25 {
-		out.Cards = out.Cards[:25]
+	if len(out.Cards) > 40 {
+		out.Cards = out.Cards[:40]
 	}
 	return out.Cards, nil
 }

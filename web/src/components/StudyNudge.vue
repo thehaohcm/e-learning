@@ -2,7 +2,11 @@
   <!-- gentle in-page reminder: no sound, no pop-up; hidden for one interval when closed -->
   <div v-if="show" class="nudge alert alert-warning d-flex align-items-center gap-2 py-2 px-3 mb-3 shadow-sm" role="status">
     <i class="bi bi-alarm"></i>
-    <span v-if="pentestMode" class="flex-grow-1">
+    <span v-if="pentestDueMode" class="flex-grow-1">
+      <strong>{{ due }} câu lệnh cần ôn lại</strong>
+      <span class="text-muted small ms-1">· đã gõ sai hoặc bấm "Không nhớ" trước đây</span>
+    </span>
+    <span v-else-if="pentestMode" class="flex-grow-1">
       <strong>Luyện tay hôm nay chưa?</strong>
       <span class="text-muted small ms-1">· làm vài bước lab/assignment hoặc thử 1 challenge THM/HTB</span>
     </span>
@@ -11,7 +15,7 @@
       <span class="text-muted small ms-1">· a few minutes now keeps them fresh</span>
     </span>
     <button type="button" class="btn btn-sm btn-warning" @click="study">
-      <i class="bi bi-play-fill"></i> {{ pentestMode ? 'Vào Labs' : 'Study now' }}
+      <i class="bi bi-play-fill"></i> {{ pentestDueMode ? 'Ôn lại' : (pentestMode ? 'Vào Labs' : 'Study now') }}
     </button>
     <button type="button" class="btn-close" aria-label="Later" title="Remind me later" @click="later"></button>
   </div>
@@ -22,6 +26,7 @@ import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
 import { shortName, subject, subjectId } from '../composables/useSubject'
+import { dueLabMistakeCount } from '../composables/labMistakes'
 
 // Web counterpart of the device pop-up: while the site is open (and visible),
 // once per "pop-up every N min" (the device's setting) inside its active hours, a
@@ -34,6 +39,7 @@ const show = ref(false)
 const due = ref(0)
 const topic = ref('') // the topic shown in the menu (English / PMP)
 const pentestMode = ref(false) // true: nudge is "go do a lab", not "cards due" (Pentest has no SR theory/quiz cards left)
+const pentestDueMode = ref(false) // true: show the local Leitner due-count for missed lab commands (takes priority over the generic pentestMode nudge)
 
 const KEY = 'elearn.nudge.at' // last time the banner was closed / used
 const QUIET_PATHS = ['/', '/review', '/quiz', '/practice/check', '/login', '/register', '/labs']
@@ -95,11 +101,16 @@ async function tick() {
   if (now - storedAt() < every || now - statsAt < Math.min(every, 10 * 60_000)) return
   statsAt = now
 
-  // Pentest has no spaced-repetition theory/quiz cards left — nudge toward
-  // hands-on practice (lab/assignment/challenge) on the same schedule instead.
+  // Pentest has no server-side spaced-repetition cards, but its command-typing
+  // drills keep their own local Leitner due-count (labMistakes.ts) for anything
+  // typed wrong or given up on; fall back to the generic "go practice" nudge
+  // when nothing is due.
   if (subject.value?.slug === 'pentest') {
-    pentestMode.value = true
     topic.value = subject.value ? shortName(subject.value.slug, subject.value.name) : ''
+    const n = dueLabMistakeCount()
+    due.value = n
+    pentestDueMode.value = n > 0
+    pentestMode.value = n === 0
     show.value = true
     return
   }
@@ -122,6 +133,10 @@ function later() {
 
 function study() {
   later()
+  if (pentestDueMode.value) {
+    router.push('/labs?tab=mistakes')
+    return
+  }
   if (pentestMode.value) {
     router.push('/labs')
     return

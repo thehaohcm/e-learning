@@ -48,6 +48,11 @@
     <div v-else-if="item" class="row justify-content-center">
       <div class="col-lg-8">
         <ForgottenWords :words="forgotten" compact class="mb-3" />
+        <div class="d-flex justify-content-end mb-1">
+          <button type="button" class="btn btn-sm btn-outline-secondary" :disabled="idx === 0" @click="goBack">
+            <i class="bi bi-arrow-counterclockwise"></i> Quay lại · làm lại câu trước
+          </button>
+        </div>
         <div class="progress mb-3" style="height: 6px">
           <div class="progress-bar bg-warning" :style="{ width: progressPct + '%' }"></div>
         </div>
@@ -168,6 +173,7 @@
               </div>
 
               <div v-if="item.card.kind === 'lab'" class="mb-2">
+                <p v-if="labStep?.prompt" class="fw-semibold">{{ labStep.prompt }}</p>
                 <div class="small text-muted mb-1">Đáp án mẫu / ghi nhớ:</div>
                 <pre class="cmd-answer mb-0">{{ labAnswer || '—' }}</pre>
                 <!-- gave up: optionally retype the answer to build muscle memory (empty + Next still works) -->
@@ -178,8 +184,50 @@
                       placeholder="(tuỳ chọn) gõ lại đáp án để nhớ…" @input="retypeResult = null; clearTimeout(retypeTimer)" @keydown.enter.prevent.stop="checkRetype" />
                     <button type="button" class="btn btn-sm btn-outline-primary" :disabled="!retypeInput.trim()" @click="checkRetype"><i class="bi bi-check-lg"></i> Kiểm tra</button>
                   </div>
-                  <div v-if="retypeResult === 'correct'" class="small text-success mt-1"><i class="bi bi-check-circle-fill"></i> Đúng rồi!</div>
+                  <div v-if="retypeResult === 'correct'" class="small text-success mt-1 d-flex align-items-center gap-2">
+                    <span><i class="bi bi-check-circle-fill"></i> Đúng rồi! Tự qua câu sau ít giây…</span>
+                    <button ref="retypeNextBtn" type="button" class="btn btn-sm btn-success py-0 px-2 ms-auto" @click="skipRetypeWait">Tiếp theo ngay</button>
+                  </div>
                   <div v-else-if="retypeResult === 'wrong'" class="small text-danger mt-1"><i class="bi bi-x-circle-fill"></i> Chưa đúng — so lại với đáp án mẫu rồi gõ lại nhé.</div>
+
+                  <!-- optional: AI-generated multi-select quiz on this command's flags/options -->
+                  <div class="mt-3 pt-2 border-top text-start">
+                    <button v-if="!flagQuiz && !flagQuizErr" type="button" class="btn btn-sm btn-outline-info" :disabled="flagQuizLoading" @click="genFlagQuiz">
+                      <span v-if="flagQuizLoading" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-stars"></i>
+                      Tạo câu hỏi trắc nghiệm liên quan đến lệnh này
+                    </button>
+                    <div v-if="flagQuizErr" class="small text-danger">
+                      <i class="bi bi-exclamation-triangle"></i> {{ flagQuizErr }}
+                      <button type="button" class="btn btn-sm btn-link p-0 ms-1" @click="genFlagQuiz">Thử lại</button>
+                    </div>
+                    <div v-if="flagQuiz" class="mt-2">
+                      <p class="fw-semibold small mb-2">{{ flagQuiz.prompt }}</p>
+                      <div class="d-flex flex-column gap-1 mb-2">
+                        <label v-for="(o, i) in flagQuiz.options" :key="i"
+                          class="d-flex align-items-start gap-2 p-1 rounded"
+                          :class="flagQuizChecked ? (o.correct ? 'bg-success-subtle' : (flagQuizSelected.has(i) ? 'bg-danger-subtle' : '')) : ''">
+                          <input class="form-check-input mt-1 flex-shrink-0" type="checkbox" :checked="flagQuizSelected.has(i)"
+                            :disabled="flagQuizChecked" @change="toggleFlagOption(i)" />
+                          <span class="flex-grow-1">
+                            <code>{{ o.label }}</code>
+                            <span v-if="flagQuizChecked" class="small text-muted"> — {{ o.explain }}</span>
+                          </span>
+                        </label>
+                      </div>
+                      <div class="d-flex gap-2 align-items-center">
+                        <button v-if="!flagQuizChecked" type="button" class="btn btn-sm btn-primary" :disabled="!flagQuizSelected.size" @click="flagQuizChecked = true">
+                          Kiểm tra
+                        </button>
+                        <span v-else class="small" :class="flagQuizAllCorrect ? 'text-success' : 'text-warning'">
+                          <i class="bi" :class="flagQuizAllCorrect ? 'bi-check-circle-fill' : 'bi-exclamation-circle-fill'"></i>
+                          {{ flagQuizAllCorrect ? 'Chính xác hết!' : 'Có chỗ chưa đúng — xem giải thích ở trên.' }}
+                        </span>
+                        <button v-if="flagQuizChecked" type="button" class="btn btn-sm btn-outline-secondary ms-auto" @click="genFlagQuiz">
+                          <i class="bi bi-arrow-repeat"></i> Câu khác
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
                 <div v-if="labNote" class="small text-muted mt-2 text-start"><i class="bi bi-info-circle"></i> {{ labNote }}</div>
                 <div v-if="labLesson" class="alert alert-info py-2 small mt-2 mb-0 text-start"><i class="bi bi-mortarboard"></i> <b>Khi nào &amp; vì sao:</b> {{ labLesson }}</div>
@@ -293,6 +341,7 @@
 </template>
 
 <script setup lang="ts">
+import { recordLabMistake, resolveLabMistake } from '../composables/labMistakes'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { currentPrefix } from '../router'
@@ -347,6 +396,11 @@ function advance() {
   done.value++
   if (idx.value < queue.value.length - 1) idx.value++
   else { queue.value = []; practiceDone.value = true }
+}
+/** Go back to the previous card in the queue and redo it (ask phase, fresh state). */
+function goBack() {
+  if (idx.value <= 0) return
+  idx.value--
 }
 function exitPractice() {
   practiceMode.value = false
@@ -456,8 +510,12 @@ function checkCmd() {
   const pats = labStep.value?.patterns ?? []
   outcome.value = pats.some((p) => matchCmd(p, norm)) ? 'correct' : 'wrong'
   phase.value = 'reveal'
-  if (outcome.value === 'wrong') {
-    // wrong: let the user retype the model answer to practise
+  if (outcome.value === 'correct') {
+    resolveLabMistake(item.value.card.id, 0)
+  } else {
+    // wrong: let the user retype the model answer to practise, and queue this
+    // command for a later review (local Leitner schedule, like vocab's SRS)
+    recordLabMistake(item.value.card.id, 0)
     gaveUp.value = true
     nextTick(() => retypeInputEl.value?.focus())
   }
@@ -465,6 +523,7 @@ function checkCmd() {
 function revealCmd() {
   outcome.value = 'wrong'
   gaveUp.value = true
+  if (item.value) recordLabMistake(item.value.card.id, 0)
   phase.value = 'reveal'
   nextTick(() => retypeInputEl.value?.focus())
 }
@@ -479,18 +538,70 @@ function checkRetype() {
   const pats = labStep.value?.patterns ?? []
   const exact = norm.toLowerCase() === labAnswer.value.replace(/\s+/g, ' ').toLowerCase()
   retypeResult.value = exact || pats.some((p) => matchCmd(p, norm)) ? 'correct' : 'wrong'
+  if (item.value) {
+    if (retypeResult.value === 'correct') resolveLabMistake(item.value.card.id, 0)
+    else recordLabMistake(item.value.card.id, 0)
+  }
   clearTimeout(retypeTimer)
   if (retypeResult.value === 'correct') {
-    // correct retype: go to the next card after 1s (same as pressing "Tiếp theo")
+    // correct retype: focus "Tiếp theo ngay" so Enter/Space advances right
+    // away, and go to the next card after 5s if the user doesn't
     const cur = item.value
+    nextTick(() => retypeNextBtn.value?.focus())
     retypeTimer = setTimeout(() => {
       if (item.value !== cur || phase.value !== 'reveal' || sending.value) return
       if (practiceMode.value) advance()
       else rate(1)
-    }, 1000)
+    }, 5000)
+  }
+}
+const retypeNextBtn = ref<HTMLButtonElement | null>(null)
+
+// --- optional AI-generated multi-select quiz on a missed command's flags ---
+interface FlagQuizOption { label: string; correct: boolean; explain: string }
+const flagQuiz = ref<{ prompt: string; options: FlagQuizOption[] } | null>(null)
+const flagQuizLoading = ref(false)
+const flagQuizErr = ref('')
+const flagQuizSelected = ref<Set<number>>(new Set())
+const flagQuizChecked = ref(false)
+const flagQuizAllCorrect = computed(() =>
+  !!flagQuiz.value && flagQuiz.value.options.every((o, i) => o.correct === flagQuizSelected.value.has(i)))
+function toggleFlagOption(i: number) {
+  if (flagQuizChecked.value) return
+  const s = new Set(flagQuizSelected.value)
+  s.has(i) ? s.delete(i) : s.add(i)
+  flagQuizSelected.value = s
+}
+function resetFlagQuiz() {
+  flagQuiz.value = null
+  flagQuizLoading.value = false
+  flagQuizErr.value = ''
+  flagQuizSelected.value = new Set()
+  flagQuizChecked.value = false
+}
+async function genFlagQuiz() {
+  if (!item.value) return
+  flagQuizLoading.value = true
+  flagQuizErr.value = ''
+  flagQuiz.value = null
+  flagQuizSelected.value = new Set()
+  flagQuizChecked.value = false
+  try {
+    const context = [labStep.value?.prompt, labNote.value, labLesson.value].filter(Boolean).join(' — ')
+    const { data } = await api.post('/study/flag-quiz', { command: labAnswer.value, context }, { timeout: 60000 })
+    flagQuiz.value = data
+  } catch (e) {
+    flagQuizErr.value = errorMessage(e)
+  } finally {
+    flagQuizLoading.value = false
   }
 }
 let retypeTimer: ReturnType<typeof setTimeout> | undefined
+function skipRetypeWait() {
+  clearTimeout(retypeTimer)
+  if (practiceMode.value) advance()
+  else rate(1)
+}
 
 watch(item, (it) => {
   outcome.value = null
@@ -501,6 +612,7 @@ watch(item, (it) => {
   gaveUp.value = false
   retypeInput.value = ''
   retypeResult.value = null
+  resetFlagQuiz()
   showLabHint.value = false
   // new cards are shown with the answer straight away: there is nothing to recall yet
   phase.value = it?.is_new ? 'reveal' : 'ask'

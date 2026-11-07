@@ -134,12 +134,40 @@ const links = computed<NavLink[]>(() => {
       ? l.children.filter((c) => isEnglish.value || !ENGLISH_ONLY.includes(c.to)).map((c) => ({ ...c, to: withPrefix(c.to) }))
       : undefined,
   }))
-  // Pentest-only: a top-level "Labs" (hands-on command practice), after Study
+
   if (subjectSlug.value === 'pentest') {
-    const si = base.findIndex((l) => l.to === withPrefix('/review'))
-    base.splice(si >= 0 ? si + 1 : base.length, 0, { to: withPrefix('/labs'), label: 'Labs', icon: 'bi-terminal' })
+    // Pentest's nav is reshaped around how the subject is actually used:
+    // Labs and Cheat sheet are the pages opened constantly, so both go
+    // top-level; "Practice" has nothing of its own for pentest (its Overview
+    // page is just a Quiz card plus a Labs shortcut that duplicates the new
+    // top-level Labs link), so it collapses to a plain "Quiz" link; "Browse"
+    // (card search/admin tools) is used rarely enough to live in "More".
+    const out: NavLink[] = []
+    for (const l of base) {
+      if (l.to === withPrefix('/practice')) {
+        out.push({ to: withPrefix('/quiz'), label: 'Quiz', icon: 'bi-question-circle' })
+        continue
+      }
+      if (l.to === withPrefix('/learn')) continue // moved into "More" below
+      out.push(l)
+      if (l.to === withPrefix('/review')) {
+        out.push({ to: withPrefix('/labs'), label: 'Labs', icon: 'bi-terminal' })
+        out.push({ to: withPrefix('/cheatsheet'), label: 'Cheat sheet', icon: 'bi-journal-text' })
+      }
+    }
+    const more: NavLink = {
+      to: '#more', label: 'More', icon: 'bi-grid-3x3-gap',
+      children: [
+        { to: withPrefix('/learn'), label: 'Browse', icon: 'bi-collection' },
+        ...(auth.isAdmin ? [{ to: withPrefix('/courses'), label: 'Courses', icon: 'bi-mortarboard' }] : []),
+      ],
+    }
+    const i = out.findIndex((l) => l.to === withPrefix('/devices'))
+    return i >= 0 ? [...out.slice(0, i), more, ...out.slice(i)] : [...out, more]
   }
-  // tuck the less-used pages into a "More" menu (Courses only for admins)
+
+  // other subjects (English/PMP/AWS) keep the existing shape: Practice
+  // dropdown, Browse top-level, "More" holding Cheat sheet (+ Courses, admin)
   const more: NavLink = {
     to: '#more', label: 'More', icon: 'bi-grid-3x3-gap',
     children: [

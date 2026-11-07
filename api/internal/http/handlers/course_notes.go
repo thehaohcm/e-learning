@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"regexp"
@@ -422,11 +423,12 @@ func (h *Handler) ChatModels(c *gin.Context) {
 // enroll + study them. Admin only (inserts into shared cards).
 func (h *Handler) GenerateCourseQuestions(c *gin.Context) {
 	var req struct {
-		SubjectID int64  `json:"subject_id"`
-		Topic     string `json:"topic"`
-		Count     int    `json:"count"`
-		Model     string `json:"model"`
-		Format    string `json:"format"` // "lab" = typed-command drills, else "mcq"
+		SubjectID  int64  `json:"subject_id"`
+		Topic      string `json:"topic"`
+		Count      int    `json:"count"`
+		Model      string `json:"model"`
+		Format     string `json:"format"`     // "lab" = typed-command drills, else "mcq"
+		Exhaustive bool   `json:"exhaustive"` // lab only: deterministically extract every command line from the matching notes' code blocks and make exactly one drill per line (see ai.ExtractCommandLines), instead of letting the AI decide how many/which commands to cover
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.SubjectID <= 0 {
 		abort(c, http.StatusBadRequest, "subject_id is required")
@@ -474,11 +476,15 @@ func (h *Handler) GenerateCourseQuestions(c *gin.Context) {
 		return
 	}
 
+	extractedTotal := 0
 	var gen []ai.GeneratedCard
 	var err error
-	if isLab {
+	switch {
+	case isLab && req.Exhaustive:
+		gen, extractedTotal, err = h.generateExhaustiveLabDrills(ctx, req.Model, req.Topic, subject.Name, notes)
+	case isLab:
 		gen, err = h.AI.GenerateDrillsFromNotes(ctx, req.Model, subject.Name, req.Topic, req.Count, items)
-	} else {
+	default:
 		gen, err = h.AI.GenerateQuestionsFromNotes(ctx, req.Model, subject.Name, req.Topic, req.Count, items)
 	}
 	if err != nil {
@@ -486,7 +492,7 @@ func (h *Handler) GenerateCourseQuestions(c *gin.Context) {
 			abort(c, http.StatusServiceUnavailable, err.Error())
 			return
 		}
-		log.Printf("[ai] gen-questions (format=%s) user=%d subject=%d: %v", req.Format, uid, req.SubjectID, err)
+		log.Printf("[ai] gen-questions (format=%s exhaustive=%v) user=%d subject=%d: %v", req.Format, req.Exhaustive, uid, req.SubjectID, err)
 		abort(c, http.StatusBadGateway, "AI could not generate questions: "+err.Error())
 		return
 	}
@@ -513,7 +519,63 @@ func (h *Handler) GenerateCourseQuestions(c *gin.Context) {
 		}
 		ids = append(ids, card.ID)
 	}
-	c.JSON(http.StatusOK, gin.H{"created": len(ids), "skipped": skipped, "card_ids": ids, "deck_id": deck.ID, "format": req.Format})
+	c.JSON(http.StatusOK, gin.H{"created": len(ids), "skipped": skipped, "card_ids": ids, "deck_id": deck.ID, "format": req.Format, "extracted": extractedTotal})
+}
+
+// generateExhaustiveLabDrills deterministically extracts every command line
+// from the notes whose title matches topic (or all notes, if none match or
+// topic is empty), then asks the AI to write a drill for each one in small
+// batches — never letting the AI decide coverage, only wording. Any command
+// a batch call fails or forgets to cover falls back to a safe, AI-free
+// literal-match card (ai.BuildFallbackDrillCard), so the count returned
+// always equals the number of commands extracted. Returns the generated
+// cards, the total number of commands extracted (for the caller to report),
+// and an error only when nothing could be extracted at all.
+func (h *Handler) generateExhaustiveLabDrills(ctx context.Context, model, topic, courseName string, notes []models.CourseNote) ([]ai.GeneratedCard, int, error) {
+	topic = strings.TrimSpace(topic)
+	scoped := notes
+	if topic != "" {
+		lt := strings.ToLower(topic)
+		var matched []models.CourseNote
+		for _, n := range notes {
+			if strings.Contains(strings.ToLower(n.Title), lt) {
+				matched = append(matched, n)
+			}
+		}
+		if len(matched) > 0 {
+			scoped = matched
+		}
+	}
+	cheatNotes := make([]ai.CheatNote, len(scoped))
+	for i, n := range scoped {
+		cheatNotes[i] = ai.CheatNote{Title: n.Title, Body: n.Body}
+	}
+	lines := ai.ExtractCommandLines(cheatNotes)
+	if len(lines) == 0 {
+		return nil, 0, fmt.Errorf("không tìm thấy dòng lệnh nào trong ```code block``` của ghi chú phù hợp")
+	}
+	const batchSize = 15
+	gen := make([]ai.GeneratedCard, 0, len(lines))
+	for start := 0; start < len(lines); start += batchSize {
+		end := start + batchSize
+		if end > len(lines) {
+			end = len(lines)
+		}
+		batch := lines[start:end]
+		cards, err := h.AI.GenerateExactDrills(ctx, model, courseName, batch)
+		if err != nil {
+			log.Printf("[ai] exhaustive drill batch [%d:%d]/%d: %v", start, end, len(lines), err)
+			cards = nil // fall through: every line in this batch gets the AI-free fallback below
+		}
+		for i, l := range batch {
+			if i < len(cards) && strings.TrimSpace(cards[i].Front) != "" && len(cards[i].Payload) > 0 {
+				gen = append(gen, cards[i])
+			} else {
+				gen = append(gen, ai.BuildFallbackDrillCard(l))
+			}
+		}
+	}
+	return gen, len(lines), nil
 }
 
 // withPayloadTopic adds a "topic" field to a card payload JSON object so the
