@@ -12,14 +12,28 @@
           </div>
         </div>
 
-        <div class="flex-grow-1" style="min-width: 180px">
+        <div class="flex-grow-1" style="min-width: 220px" ref="topicMenuRoot">
           <label class="form-label small mb-1 text-muted">Mục (từ cheatsheet)</label>
-          <select v-model="topic" class="form-select form-select-sm">
-            <option value="">Tất cả{{ totalForKind ? ` (${totalForKind})` : '' }}</option>
-            <option v-for="t in topicsForKind" :key="t.topic" :value="t.topic">
-              {{ t.topic || '(không mục)' }} ({{ kind === 'lab' ? t.lab : t.mcq }})
-            </option>
-          </select>
+          <div class="dropdown">
+            <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start text-truncate"
+              @click="topicMenuOpen = !topicMenuOpen">
+              {{ topicSummaryLabel }}
+            </button>
+            <ul class="dropdown-menu shadow" :class="{ show: topicMenuOpen }" style="max-height: 280px; overflow-y: auto">
+              <li>
+                <button type="button" class="dropdown-item" :class="{ active: selectedTopics.length === 0 }" @click="selectedTopics = []">
+                  Tất cả{{ totalForKind ? ` (${totalForKind})` : '' }}
+                </button>
+              </li>
+              <li v-if="topicsForKind.length"><hr class="dropdown-divider" /></li>
+              <li v-for="t in topicsForKind" :key="t.topic">
+                <label class="dropdown-item d-flex align-items-center gap-2 mb-0" style="cursor: pointer">
+                  <input type="checkbox" class="form-check-input mt-0 flex-shrink-0" :checked="selectedTopics.includes(t.topic)" @change="toggleTopic(t.topic)" />
+                  <span>{{ t.topic || '(không mục)' }} ({{ kind === 'lab' ? t.lab : t.mcq }})</span>
+                </label>
+              </li>
+            </ul>
+          </div>
         </div>
 
         <div>
@@ -28,8 +42,8 @@
             <i v-else class="bi bi-play-fill"></i> Drill ngay
           </button>
         </div>
-        <button v-if="canEdit && topic" class="btn btn-sm btn-outline-danger" :disabled="deleting || totalForKind === 0"
-          title="Xóa toàn bộ câu hỏi AI đã tạo cho mục này" @click="deleteTopic">
+        <button v-if="canEdit && selectedTopics.length" class="btn btn-sm btn-outline-danger" :disabled="deleting || totalForKind === 0"
+          title="Xóa toàn bộ câu hỏi AI đã tạo cho các mục đã chọn" @click="deleteTopic">
           <span v-if="deleting" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-trash3"></i> Xóa mục
         </button>
         <button class="btn btn-sm btn-link text-muted px-1" :disabled="loading" title="Tải lại danh sách mục" @click="loadTopics">
@@ -46,7 +60,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, errorMessage } from '../api'
 import { auth } from '../auth'
 import { subjectId } from '../composables/useSubject'
@@ -61,7 +75,10 @@ const emit = defineEmits<{ drill: [payload: { items: QueueItem[]; kind: 'lab' | 
 type TopicCount = { topic: string; lab: number; mcq: number }
 
 const kind = ref<'lab' | 'mcq'>('lab')
-const topic = ref('')
+// multiple sections can be picked at once (checkboxes); empty = "Tất cả"
+const selectedTopics = ref<string[]>([])
+const topicMenuOpen = ref(false)
+const topicMenuRoot = ref<HTMLElement | null>(null)
 const topics = ref<TopicCount[]>([])
 const totals = ref<{ lab: number; mcq: number }>({ lab: 0, mcq: 0 })
 const loading = ref(false)
@@ -73,9 +90,27 @@ const canEdit = computed(() => auth.isAdmin)
 const totalForKind = computed(() => (kind.value === 'lab' ? totals.value.lab : totals.value.mcq))
 const topicsForKind = computed(() => topics.value.filter((t) => (kind.value === 'lab' ? t.lab : t.mcq) > 0))
 
-// if the chosen section has nothing in the new format, fall back to "Tất cả"
+const topicSummaryLabel = computed(() => {
+  if (selectedTopics.value.length === 0) return `Tất cả${totalForKind.value ? ` (${totalForKind.value})` : ''}`
+  if (selectedTopics.value.length === 1) return selectedTopics.value[0] || '(không mục)'
+  return `${selectedTopics.value.length} mục đã chọn`
+})
+
+function toggleTopic(t: string) {
+  const i = selectedTopics.value.indexOf(t)
+  if (i === -1) selectedTopics.value = [...selectedTopics.value, t]
+  else selectedTopics.value = selectedTopics.value.filter((x) => x !== t)
+}
+
+function onDocClick(e: MouseEvent) {
+  if (topicMenuOpen.value && topicMenuRoot.value && !topicMenuRoot.value.contains(e.target as Node)) topicMenuOpen.value = false
+}
+onMounted(() => document.addEventListener('click', onDocClick))
+onUnmounted(() => document.removeEventListener('click', onDocClick))
+
+// if the chosen sections no longer exist in the new format, drop them
 watch(kind, () => {
-  if (topic.value && !topicsForKind.value.some((t) => t.topic === topic.value)) topic.value = ''
+  selectedTopics.value = selectedTopics.value.filter((t) => topicsForKind.value.some((x) => x.topic === t))
 })
 
 async function loadTopics() {
@@ -98,12 +133,20 @@ async function drill() {
   busy.value = true
   err.value = ''
   try {
+    // always fetch the full set (no server-side topic filter) and, when one or
+    // more sections are checked, keep only cards from those sections here —
+    // lets the picker combine several sections in one drill with one request.
     const { data } = await api.get('/study/practice', {
-      params: { subject_id: subjectId.value, kind: kind.value, topic: topic.value || undefined },
+      params: { subject_id: subjectId.value, kind: kind.value, limit: 200 },
     })
-    const items: QueueItem[] = data ?? []
-    const label = `${kind.value === 'lab' ? 'Gõ lệnh' : 'Trắc nghiệm'}${topic.value ? ' · ' + topic.value : ''}`
-    emit('drill', { items, kind: kind.value, topic: topic.value, label })
+    let items: QueueItem[] = data ?? []
+    if (selectedTopics.value.length > 0) {
+      const set = new Set(selectedTopics.value)
+      items = items.filter((it) => set.has(it.card.payload.topic ?? ''))
+    }
+    const topicLabel = selectedTopics.value.map((t) => t || '(không mục)').join(', ')
+    const label = `${kind.value === 'lab' ? 'Gõ lệnh' : 'Trắc nghiệm'}${topicLabel ? ' · ' + topicLabel : ''}`
+    emit('drill', { items, kind: kind.value, topic: selectedTopics.value.join(','), label })
   } catch (e) {
     err.value = errorMessage(e)
   } finally {
@@ -116,18 +159,20 @@ async function drill() {
  *  never drift, then removes them one by one via the existing card-delete
  *  endpoint (cascades progress/logs server-side). */
 async function deleteTopic() {
-  if (!subjectId.value || !topic.value) return
-  const n = kind.value === 'lab' ? topicsForKind.value.find((t) => t.topic === topic.value)?.lab : topicsForKind.value.find((t) => t.topic === topic.value)?.mcq
-  if (!confirm(`Xóa toàn bộ ${n ?? totalForKind.value} câu ${kind.value === 'lab' ? 'gõ lệnh' : 'trắc nghiệm'} đã tạo cho mục "${topic.value}"? Không thể hoàn tác.`)) return
+  if (!subjectId.value || selectedTopics.value.length === 0) return
+  const set = new Set(selectedTopics.value)
+  const n = topicsForKind.value.filter((t) => set.has(t.topic)).reduce((sum, t) => sum + (kind.value === 'lab' ? t.lab : t.mcq), 0)
+  const names = selectedTopics.value.map((t) => t || '(không mục)').join(', ')
+  if (!confirm(`Xóa toàn bộ ${n || totalForKind.value} câu ${kind.value === 'lab' ? 'gõ lệnh' : 'trắc nghiệm'} đã tạo cho mục "${names}"? Không thể hoàn tác.`)) return
   deleting.value = true
   err.value = ''
   try {
     const { data } = await api.get('/study/practice', {
-      params: { subject_id: subjectId.value, kind: kind.value, topic: topic.value },
+      params: { subject_id: subjectId.value, kind: kind.value, limit: 200 },
     })
-    const items: QueueItem[] = data ?? []
+    const items: QueueItem[] = (data ?? []).filter((it: QueueItem) => set.has(it.card.payload.topic ?? ''))
     await Promise.all(items.map((it) => api.delete(`/cards/${it.card.id}`)))
-    topic.value = ''
+    selectedTopics.value = []
     await loadTopics()
   } catch (e) {
     err.value = errorMessage(e)
