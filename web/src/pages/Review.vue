@@ -181,12 +181,12 @@
                   <div class="d-flex gap-2">
                     <input ref="retypeInputEl" v-model="retypeInput" class="form-control form-control-sm font-monospace" autocomplete="off" autocapitalize="off" spellcheck="false"
                       :class="{ 'is-valid': retypeResult === 'correct', 'is-invalid': retypeResult === 'wrong' }"
-                      placeholder="(tuỳ chọn) gõ lại đáp án để nhớ…" @input="retypeResult = null; clearTimeout(retypeTimer)" @keydown.enter.prevent.stop="checkRetype" />
+                      placeholder="(tuỳ chọn) gõ lại đáp án để nhớ…" @input="retypeResult = null" @keydown.enter.prevent.stop="checkRetype" />
                     <button type="button" class="btn btn-sm btn-outline-primary" :disabled="!retypeInput.trim()" @click="checkRetype"><i class="bi bi-check-lg"></i> Kiểm tra</button>
                   </div>
                   <div v-if="retypeResult === 'correct'" class="small text-success mt-1 d-flex align-items-center gap-2">
-                    <span><i class="bi bi-check-circle-fill"></i> Đúng rồi! Tự qua câu sau ít giây…</span>
-                    <button ref="retypeNextBtn" type="button" class="btn btn-sm btn-success py-0 px-2 ms-auto" @click="skipRetypeWait">Tiếp theo ngay</button>
+                    <span><i class="bi bi-check-circle-fill"></i> Đúng rồi!</span>
+                    <button ref="retypeNextBtn" type="button" class="btn btn-sm btn-success py-0 px-2 ms-auto" @click="skipRetypeWait">Tiếp theo</button>
                   </div>
                   <div v-else-if="retypeResult === 'wrong'" class="small text-danger mt-1"><i class="bi bi-x-circle-fill"></i> Chưa đúng — so lại với đáp án mẫu rồi gõ lại nhé.</div>
 
@@ -542,17 +542,9 @@ function checkRetype() {
     if (retypeResult.value === 'correct') resolveLabMistake(item.value.card.id, 0)
     else recordLabMistake(item.value.card.id, 0)
   }
-  clearTimeout(retypeTimer)
   if (retypeResult.value === 'correct') {
-    // correct retype: focus "Tiếp theo ngay" so Enter/Space advances right
-    // away, and go to the next card after 5s if the user doesn't
-    const cur = item.value
+    // correct retype: focus "Tiếp theo" so Enter/Space advances right away
     nextTick(() => retypeNextBtn.value?.focus())
-    retypeTimer = setTimeout(() => {
-      if (item.value !== cur || phase.value !== 'reveal' || sending.value) return
-      if (practiceMode.value) advance()
-      else rate(1)
-    }, 5000)
   }
 }
 const retypeNextBtn = ref<HTMLButtonElement | null>(null)
@@ -596,9 +588,7 @@ async function genFlagQuiz() {
     flagQuizLoading.value = false
   }
 }
-let retypeTimer: ReturnType<typeof setTimeout> | undefined
 function skipRetypeWait() {
-  clearTimeout(retypeTimer)
   if (practiceMode.value) advance()
   else rate(1)
 }
@@ -608,7 +598,6 @@ watch(item, (it) => {
   picked.value = null
   optionsShown.value = false
   cmdInput.value = ''
-  clearTimeout(retypeTimer)
   gaveUp.value = false
   retypeInput.value = ''
   retypeResult.value = null
