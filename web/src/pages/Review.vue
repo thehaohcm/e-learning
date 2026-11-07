@@ -33,7 +33,13 @@
     <PracticePicker v-if="isPentestSubject" @drill="onDrill" />
     <div v-if="practiceMode" class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2 py-2 small mb-3">
       <span><i class="bi bi-lightning-charge-fill"></i> Đang drill: <b>{{ practiceLabel }}</b> · không tính lịch SRS</span>
-      <button class="btn btn-sm btn-outline-secondary" @click="exitPractice"><i class="bi bi-x-lg"></i> Thoát, về SRS</button>
+      <div class="d-flex align-items-center gap-2">
+        <div class="form-check form-switch mb-0" title="Câu trả lời sai sẽ được hỏi lại ở cuối, sau khi làm hết các câu còn lại trong vòng này">
+          <input id="requeue-wrong" v-model="requeueWrongInRound" class="form-check-input" type="checkbox" />
+          <label class="form-check-label" for="requeue-wrong">Làm lại câu sai sau 1 vòng</label>
+        </div>
+        <button class="btn btn-sm btn-outline-secondary" @click="exitPractice"><i class="bi bi-x-lg"></i> Thoát, về SRS</button>
+      </div>
     </div>
 
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
@@ -174,7 +180,12 @@
 
               <div v-if="item.card.kind === 'lab'" class="mb-2">
                 <p v-if="labStep?.prompt" class="fw-semibold">{{ labStep.prompt }}</p>
-                <div class="small text-muted mb-1">Đáp án mẫu / ghi nhớ:</div>
+                <div class="d-flex align-items-center justify-content-between gap-2 mb-1">
+                  <div class="small text-muted">Đáp án mẫu / ghi nhớ:</div>
+                  <button v-if="labAnswer" type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Copy đáp án mẫu và dán vào ô nhập bên dưới" @click="pasteAnswer">
+                    <i class="bi" :class="pasteCopied ? 'bi-clipboard-check-fill text-success' : 'bi-clipboard-plus'"></i> {{ pasteCopied ? 'Đã copy!' : 'Dán vào ô nhập' }}
+                  </button>
+                </div>
                 <pre class="cmd-answer mb-0">{{ labAnswer || '—' }}</pre>
                 <!-- gave up: optionally retype the answer to build muscle memory (empty + Next still works) -->
                 <div v-if="gaveUp" class="mt-2">
@@ -370,6 +381,16 @@ const genModal = ref<InstanceType<typeof GenerateQuestionsModal> | null>(null)
 const practiceMode = ref(false)
 const practiceDone = ref(false)
 const practiceLabel = ref('')
+// default ON: a command answered wrong is set aside and re-asked once the
+// rest of the current round is done, instead of only being shown once
+const requeueWrongInRound = ref(storageGet('elearn.labs.requeuewrong') !== 'false')
+watch(requeueWrongInRound, (v) => storageSet('elearn.labs.requeuewrong', String(v)))
+// lab cards answered wrong in the round currently in progress, pending redo
+const missedThisRound = ref<QueueItem[]>([])
+function queueMissed(it: QueueItem) {
+  if (!practiceMode.value || !requeueWrongInRound.value) return
+  if (!missedThisRound.value.some((m) => m.card.id === it.card.id)) missedThisRound.value.push(it)
+}
 // After generating, the new cards live in the cheatsheet deck — switch to it if
 // we are studying a different deck, then (re)load the queue.
 // Fisher-Yates: new random order each time the user starts a drill
@@ -388,14 +409,24 @@ function onDrill(p: { items: QueueItem[]; kind: 'lab' | 'mcq'; topic: string; la
   practiceLabel.value = p.label
   practiceDone.value = false
   practiceMode.value = true
+  missedThisRound.value = []
   queue.value = shuffle(p.items)
   idx.value = 0
   loaded.value = true
 }
 function advance() {
   done.value++
-  if (idx.value < queue.value.length - 1) idx.value++
-  else { queue.value = []; practiceDone.value = true }
+  if (idx.value < queue.value.length - 1) { idx.value++; return }
+  // end of this round: if any command was answered wrong, redo just those
+  // (another round), instead of ending the drill right away
+  if (requeueWrongInRound.value && missedThisRound.value.length > 0) {
+    queue.value = shuffle(missedThisRound.value)
+    missedThisRound.value = []
+    idx.value = 0
+    return
+  }
+  queue.value = []
+  practiceDone.value = true
 }
 /** Go back to the previous card in the queue and redo it (ask phase, fresh state). */
 function goBack() {
@@ -406,6 +437,7 @@ function exitPractice() {
   practiceMode.value = false
   practiceDone.value = false
   practiceLabel.value = ''
+  missedThisRound.value = []
   load()
 }
 async function onGen(p?: { deckId?: number }) {
@@ -513,9 +545,11 @@ function checkCmd() {
   if (outcome.value === 'correct') {
     resolveLabMistake(item.value.card.id, 0)
   } else {
-    // wrong: let the user retype the model answer to practise, and queue this
-    // command for a later review (local Leitner schedule, like vocab's SRS)
+    // wrong: let the user retype the model answer to practise, queue this
+    // command for a later review (local Leitner schedule, like vocab's SRS),
+    // and — in a drill round — set it aside to be re-asked after this round
     recordLabMistake(item.value.card.id, 0)
+    queueMissed(item.value)
     gaveUp.value = true
     nextTick(() => retypeInputEl.value?.focus())
   }
@@ -523,7 +557,10 @@ function checkCmd() {
 function revealCmd() {
   outcome.value = 'wrong'
   gaveUp.value = true
-  if (item.value) recordLabMistake(item.value.card.id, 0)
+  if (item.value) {
+    recordLabMistake(item.value.card.id, 0)
+    queueMissed(item.value)
+  }
   phase.value = 'reveal'
   nextTick(() => retypeInputEl.value?.focus())
 }
@@ -532,6 +569,26 @@ const gaveUp = ref(false)
 const retypeInputEl = ref<HTMLInputElement | null>(null)
 const retypeInput = ref('')
 const retypeResult = ref<'correct' | 'wrong' | null>(null)
+// "Dán vào ô nhập": copies the sample answer to the clipboard AND fills the
+// retype box with it, for when the learner just wants to paste/compare
+// instead of typing from scratch
+const pasteCopied = ref(false)
+let pasteCopiedTimer: ReturnType<typeof setTimeout> | undefined
+async function pasteAnswer() {
+  if (!labAnswer.value) return
+  gaveUp.value = true
+  retypeInput.value = labAnswer.value
+  retypeResult.value = null
+  try {
+    await navigator.clipboard.writeText(labAnswer.value)
+    pasteCopied.value = true
+    clearTimeout(pasteCopiedTimer)
+    pasteCopiedTimer = setTimeout(() => { pasteCopied.value = false }, 1500)
+  } catch {
+    /* clipboard permission denied — the box is still filled, that's enough */
+  }
+  nextTick(() => retypeInputEl.value?.focus())
+}
 function checkRetype() {
   const norm = retypeInput.value.trim().replace(/\s+/g, ' ')
   if (!norm) return
@@ -601,6 +658,7 @@ watch(item, (it) => {
   gaveUp.value = false
   retypeInput.value = ''
   retypeResult.value = null
+  pasteCopied.value = false
   resetFlagQuiz()
   showLabHint.value = false
   // new cards are shown with the answer straight away: there is nothing to recall yet

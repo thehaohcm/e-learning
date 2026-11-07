@@ -14,22 +14,22 @@
 
         <div class="flex-grow-1" style="min-width: 220px" ref="topicMenuRoot">
           <label class="form-label small mb-1 text-muted">Mục (từ cheatsheet)</label>
-          <div class="dropdown">
+          <div class="dropdown topic-menu">
             <button type="button" class="btn btn-sm btn-outline-secondary dropdown-toggle w-100 text-start text-truncate"
               @click="topicMenuOpen = !topicMenuOpen">
               {{ topicSummaryLabel }}
             </button>
-            <ul class="dropdown-menu shadow" :class="{ show: topicMenuOpen }" style="max-height: 280px; overflow-y: auto">
+            <ul class="dropdown-menu shadow-sm w-100" :class="{ show: topicMenuOpen }">
               <li>
                 <button type="button" class="dropdown-item" :class="{ active: selectedTopics.length === 0 }" @click="selectedTopics = []">
                   Tất cả{{ totalForKind ? ` (${totalForKind})` : '' }}
                 </button>
               </li>
               <li v-if="topicsForKind.length"><hr class="dropdown-divider" /></li>
-              <li v-for="t in topicsForKind" :key="t.topic">
-                <label class="dropdown-item d-flex align-items-center gap-2 mb-0" style="cursor: pointer">
-                  <input type="checkbox" class="form-check-input mt-0 flex-shrink-0" :checked="selectedTopics.includes(t.topic)" @change="toggleTopic(t.topic)" />
-                  <span>{{ t.topic || '(không mục)' }} ({{ kind === 'lab' ? t.lab : t.mcq }})</span>
+              <li class="topic-list">
+                <label v-for="t in topicsForKind" :key="t.topic" class="dropdown-item">
+                  <input type="checkbox" class="form-check-input flex-shrink-0" :checked="selectedTopics.includes(t.topic)" @change="toggleTopic(t.topic)" />
+                  <span class="text-truncate">{{ t.topic || '(không mục)' }} ({{ kind === 'lab' ? t.lab : t.mcq }})</span>
                 </label>
               </li>
             </ul>
@@ -191,5 +191,44 @@ defineExpose({ loadTopics })
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.03em;
+}
+
+.topic-menu .dropdown-menu {
+  padding: 0.35rem;
+  border-radius: 0.6rem;
+  font-size: 0.85rem;
+}
+.topic-menu .dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.4rem;
+  cursor: pointer;
+}
+.topic-menu .dropdown-item:hover,
+.topic-menu .dropdown-item:focus-visible {
+  background-color: var(--bs-tertiary-bg, #f1f3f5);
+}
+.topic-menu .dropdown-item.active {
+  border-radius: 0.4rem;
+}
+.topic-menu .dropdown-divider {
+  margin: 0.3rem 0.2rem;
+}
+.topic-menu .topic-list {
+  display: block;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.topic-menu .topic-list::-webkit-scrollbar {
+  width: 6px;
+}
+.topic-menu .topic-list::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.18);
+  border-radius: 3px;
+}
+.topic-menu .form-check-input {
+  margin-top: 0;
 }
 </style>

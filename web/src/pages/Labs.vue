@@ -68,6 +68,19 @@
                     <a v-if="c.writeup_url" :href="c.writeup_url" target="_blank" rel="noopener" class="btn btn-outline-info">
                       <i class="bi bi-file-text"></i> Bài giải
                     </a>
+                    <a v-if="c.youtube_url" :href="c.youtube_url" target="_blank" rel="noopener" class="btn btn-outline-danger">
+                      <i class="bi bi-youtube"></i> YouTube
+                    </a>
+                    <div v-else-if="c.youtube_urls && c.youtube_urls.length" class="dropdown">
+                      <button type="button" class="btn btn-outline-danger dropdown-toggle" data-bs-toggle="dropdown" aria-expanded="false">
+                        <i class="bi bi-youtube"></i> YouTube
+                      </button>
+                      <ul class="dropdown-menu">
+                        <li v-for="(yt, i) in c.youtube_urls" :key="i">
+                          <a class="dropdown-item" :href="yt.url" target="_blank" rel="noopener">{{ yt.label }}</a>
+                        </li>
+                      </ul>
+                    </div>
                     <router-link v-if="simCardFor(c)" :to="`/labs?id=${simCardFor(c)!.id}`" class="btn btn-success">
                       <i class="bi bi-joystick"></i> Làm Simulation
                       <span class="badge bg-light text-dark ms-1">{{ simCardFor(c)!.payload.steps?.length ?? 0 }}</span>
