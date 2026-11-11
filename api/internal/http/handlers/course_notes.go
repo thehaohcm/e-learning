@@ -464,8 +464,16 @@ func (h *Handler) GenerateCourseQuestions(c *gin.Context) {
 	var subject models.Subject
 	h.DB.First(&subject, req.SubjectID)
 
-	items := make([]ai.CheatNote, len(notes))
-	for i, n := range notes {
+	// Only the notes whose title matches the chosen topic go to the AI. The
+	// prompt has a size cap, so a long cheatsheet (e.g. PMP, 28 sections)
+	// would otherwise be cut off after the first few notes.
+	scoped := scopeNotesByTopic(notes, req.Topic)
+	// Exam-logistics sections (exam format, eligibility, fees, renewal) have
+	// no quiz value — drop them so they don't dilute/waste AI-generated
+	// question slots, unless they're the only notes left to scope from.
+	scoped = filterQuizWorthy(scoped)
+	items := make([]ai.CheatNote, len(scoped))
+	for i, n := range scoped {
 		items[i] = ai.CheatNote{Title: n.Title, Body: n.Body}
 	}
 
@@ -520,6 +528,66 @@ func (h *Handler) GenerateCourseQuestions(c *gin.Context) {
 		ids = append(ids, card.ID)
 	}
 	c.JSON(http.StatusOK, gin.H{"created": len(ids), "skipped": skipped, "card_ids": ids, "deck_id": deck.ID, "format": req.Format, "extracted": extractedTotal})
+}
+
+// scopeNotesByTopic returns the notes whose title contains topic
+// (case-insensitive). With an empty topic, or when no title matches, it returns
+// all notes unchanged so the topic still acts as a plain hint to the AI.
+func scopeNotesByTopic(notes []models.CourseNote, topic string) []models.CourseNote {
+	t := strings.ToLower(strings.TrimSpace(topic))
+	if t == "" {
+		return notes
+	}
+	var matched []models.CourseNote
+	for _, n := range notes {
+		if strings.Contains(strings.ToLower(n.Title), t) {
+			matched = append(matched, n)
+		}
+	}
+	if len(matched) == 0 {
+		return notes
+	}
+	return matched
+}
+
+// noQuizValuePhrases match cheat-sheet section titles that hold only exam
+// logistics / certification admin (exam format, eligibility, fees, renewal
+// units) rather than conceptual content. Generating AI quiz questions from
+// these produces trivia ("how many questions does the exam have?") that
+// doesn't help the learner study the subject itself, so they're excluded
+// before the notes are sent to the AI. Matched case-insensitively; harmless
+// for other subjects whose note titles won't contain this Vietnamese
+// phrasing (confirmed against the Pentest cheat-sheet seed).
+var noQuizValuePhrases = []string{
+	"thông tin kỳ thi",
+	"điều kiện thi, cấp chứng chỉ",
+}
+
+func hasQuizValue(title string) bool {
+	t := strings.ToLower(title)
+	for _, p := range noQuizValuePhrases {
+		if strings.Contains(t, p) {
+			return false
+		}
+	}
+	return true
+}
+
+// filterQuizWorthy drops notes with no quiz value (see noQuizValuePhrases).
+// If that would leave nothing (e.g. the learner explicitly picked one of
+// those sections as the topic), it falls back to the original list rather
+// than erroring out with "no notes to generate from".
+func filterQuizWorthy(notes []models.CourseNote) []models.CourseNote {
+	var out []models.CourseNote
+	for _, n := range notes {
+		if hasQuizValue(n.Title) {
+			out = append(out, n)
+		}
+	}
+	if len(out) == 0 {
+		return notes
+	}
+	return out
 }
 
 // generateExhaustiveLabDrills deterministically extracts every command line

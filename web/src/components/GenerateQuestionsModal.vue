@@ -10,19 +10,19 @@
       <div class="card-body">
         <p class="small text-muted">AI đọc <b>cheatsheet (ghi chú)</b> của bạn và tạo câu hỏi trắc nghiệm để ôn. Chỉ dựa trên ghi chú, không bịa.</p>
 
-        <label class="form-label small mb-1">Dạng</label>
-        <div class="btn-group w-100 mb-2" role="group">
+        <label v-if="isCommandSubject" class="form-label small mb-1">Dạng</label>
+        <div v-if="isCommandSubject" class="btn-group w-100 mb-2" role="group">
           <input id="fmt-lab" v-model="format" type="radio" class="btn-check" value="lab" />
           <label class="btn btn-outline-primary" for="fmt-lab"><i class="bi bi-terminal"></i> Gõ lệnh (Labs)</label>
           <input id="fmt-mcq" v-model="format" type="radio" class="btn-check" value="mcq" />
           <label class="btn btn-outline-primary" for="fmt-mcq"><i class="bi bi-ui-checks"></i> Trắc nghiệm</label>
         </div>
-        <p class="small text-muted mb-2">
-          {{ format === 'lab' ? 'Trong Study bạn gõ lệnh, hệ thống so khớp (cờ không cần đúng thứ tự, vd ss -tunlp = ss -utpln).' : 'Chọn 1 trong 4 đáp án, ôn trong Study.' }}
+        <p v-if="isCommandSubject" class="small text-muted mb-2">
+          {{ format === 'lab' ?'Trong Study bạn gõ lệnh, hệ thống so khớp (cờ không cần đúng thứ tự, vd ss -tunlp = ss -utpln).' : 'Chọn 1 trong 4 đáp án, ôn trong Study.' }}
         </p>
 
         <label class="form-label small mb-1">Chủ đề / mục cần ôn <span class="text-muted">(để trống = toàn bộ cheatsheet)</span></label>
-        <input v-model="topic" class="form-control mb-2" maxlength="200" placeholder="VD: Active Directory, Recon, privilege escalation… (khớp đúng tên mục ghi chú)" />
+        <input v-model="topic" class="form-control mb-2" maxlength="200" :placeholder="isCommandSubject ? 'VD: Active Directory, Recon, privilege escalation… (khớp đúng tên mục ghi chú)' : 'VD: Risk, EVM, Scrum, Procurement… (khớp tên mục; chỉ ghi chú của mục đó được dùng)'" />
 
         <div v-if="format === 'lab'" class="form-check mb-2">
           <input id="gq-exhaustive" v-model="exhaustive" class="form-check-input" type="checkbox" />
@@ -61,7 +61,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { api, errorMessage } from '../api'
-import { shortName, subject, subjectId } from '../composables/useSubject'
+import { isCommandSubject, shortName, subject, subjectId } from '../composables/useSubject'
 
 // Reusable "generate practice from the cheatsheet" dialog. Opened via the
 // exposed open() method. "lab" = typed-command cards, "mcq" = multiple-choice;
@@ -88,6 +88,8 @@ async function loadModels() {
 }
 
 function open() {
+  // topics without shell commands (PMP) only have multiple-choice
+  if (!isCommandSubject.value) format.value = 'mcq'
   err.value = ''
   okMsg.value = ''
   pendingDone.value = null

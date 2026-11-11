@@ -5,8 +5,9 @@
 //
 // Supported: headings (#..######), fenced code ```lang, tables (| a | b |),
 // inline `code`, bold **x** / __x__, italic *x* / _x_, strikethrough ~~x~~,
-// links [text](http…), unordered (-, *) and ordered (1.) lists,
-// blockquotes (>), horizontal rules (---), paragraphs & line breaks.
+// links [text](http…), images ![alt](http… or /own-path.svg), unordered (-, *)
+// and ordered (1.) lists, blockquotes (>), horizontal rules (---), paragraphs
+// & line breaks.
 
 function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
@@ -20,6 +21,11 @@ function inline(s: string): string {
     codes.push(`<code>${c}</code>`)
     return `\u0000${codes.length - 1}\u0000`
   })
+  // images ![alt](src) — only http(s) or a same-origin absolute path (/...),
+  // never // (protocol-relative) or anything else; must run before the link
+  // rule below since both start with "[".
+  s = s.replace(/!\[([^\]]*)\]\(((?:https?:\/\/[^\s)]+)|(?:\/(?!\/)[^\s)]+))\)/g, (_m, alt, src) =>
+    `<img src="${src}" alt="${alt}" loading="lazy">`)
   // links [text](url) — only http(s), url already escaped
   s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_m, t, u) =>
     `<a href="${u}" target="_blank" rel="noopener noreferrer">${t}</a>`)

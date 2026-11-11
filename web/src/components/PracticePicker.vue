@@ -5,8 +5,8 @@
         <div>
           <label class="form-label small mb-1 text-muted">Dạng</label>
           <div class="btn-group d-block" role="group">
-            <input id="pp-lab" v-model="kind" type="radio" class="btn-check" value="lab" />
-            <label class="btn btn-sm btn-outline-primary" for="pp-lab"><i class="bi bi-terminal"></i> Gõ lệnh</label>
+            <input v-if="isCommandSubject" id="pp-lab" v-model="kind" type="radio" class="btn-check" value="lab" />
+            <label v-if="isCommandSubject" class="btn btn-sm btn-outline-primary" for="pp-lab"><i class="bi bi-terminal"></i> Gõ lệnh</label>
             <input id="pp-mcq" v-model="kind" type="radio" class="btn-check" value="mcq" />
             <label class="btn btn-sm btn-outline-primary" for="pp-mcq"><i class="bi bi-ui-checks"></i> Trắc nghiệm</label>
           </div>
@@ -63,7 +63,7 @@
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, errorMessage } from '../api'
 import { auth } from '../auth'
-import { subjectId } from '../composables/useSubject'
+import { isCommandSubject, subjectId } from '../composables/useSubject'
 import type { QueueItem } from '../types'
 
 // "Study a chosen section + format now" picker (Pentest). Lists the cheatsheet
@@ -74,7 +74,8 @@ const emit = defineEmits<{ drill: [payload: { items: QueueItem[]; kind: 'lab' | 
 
 type TopicCount = { topic: string; lab: number; mcq: number }
 
-const kind = ref<'lab' | 'mcq'>('lab')
+// PMP has no shell commands, so it only offers multiple-choice drills
+const kind = ref<'lab' | 'mcq'>(isCommandSubject.value ? 'lab' : 'mcq')
 // multiple sections can be picked at once (checkboxes); empty = "Tất cả"
 const selectedTopics = ref<string[]>([])
 const topicMenuOpen = ref(false)
@@ -107,6 +108,9 @@ function onDocClick(e: MouseEvent) {
 }
 onMounted(() => document.addEventListener('click', onDocClick))
 onUnmounted(() => document.removeEventListener('click', onDocClick))
+
+// switching Pentest <-> PMP in the menu: PMP has no typed-command drills
+watch(isCommandSubject, (cmd) => { if (!cmd) kind.value = 'mcq' })
 
 // if the chosen sections no longer exist in the new format, drop them
 watch(kind, () => {

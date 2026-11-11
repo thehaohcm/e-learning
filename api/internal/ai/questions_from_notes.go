@@ -58,6 +58,8 @@ Write %s to help the learner study THESE notes.%s
 Rules:
 - Base every question ONLY on the notes above. Do NOT invent commands, flags, numbers or facts that are not in the notes.
 - For command notes, test when/why to use a command, what a flag does, or the expected output.
+- For concept, process or formula notes (e.g. project management), mix definition questions, situational questions ("what should the project manager do first/next?") and calculation questions. For calculations use ONLY formulas stated in the notes, pick simple numbers and double-check the arithmetic so exactly one choice is correct.
+- Vary which choice index is correct; the 3 wrong choices must be plausible (common confusions between similar terms in the notes), never obviously absurd.
 - Each question has exactly 4 choices, exactly one correct answer (index into choices), and a short explanation.
 - Keep commands, code and technical terms EXACT. Keep the learner's language (Vietnamese or English) as in the notes.
 Return JSON: {"cards": [

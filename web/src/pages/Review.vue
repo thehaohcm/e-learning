@@ -30,7 +30,7 @@
     </div>
 
     <!-- practice-by-section (Pentest): pick a format + cheatsheet section and drill now -->
-    <PracticePicker v-if="isPentestSubject" @drill="onDrill" />
+    <PracticePicker v-if="isPentestSubject" @drill="onDrill" /> <!-- isPentestSubject = Pentest or PMP (cheatsheet drills) -->
     <div v-if="practiceMode" class="alert alert-warning d-flex flex-wrap align-items-center justify-content-between gap-2 py-2 small mb-3">
       <span><i class="bi bi-lightning-charge-fill"></i> Đang drill: <b>{{ practiceLabel }}</b> · không tính lịch SRS</span>
       <div class="d-flex align-items-center gap-2">
@@ -365,7 +365,7 @@ import ClozeRound from '../components/common/ClozeRound.vue'
 import { RATE_REPLAY, RATE_SLOW, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import { RATINGS, stateLabel } from '../types'
 import type { QueueItem } from '../types'
-import { isEnglish as isEnglishSubject, loadSubjects, shortName, subject, subjectId, subjectSlug } from '../composables/useSubject'
+import { isEnglish as isEnglishSubject, loadSubjects, shortName, subject, subjectId, supportsCheatsheetAi } from '../composables/useSubject'
 import { auth } from '../auth'
 import GenerateQuestionsModal from '../components/GenerateQuestionsModal.vue'
 import PracticePicker from '../components/PracticePicker.vue'
@@ -374,7 +374,8 @@ type Mode = 'choose' | 'self'
 
 const route = useRoute()
 const router = useRouter()
-const isPentestSubject = computed(() => subjectSlug.value === 'pentest')
+// true for topics with a cheatsheet deck + AI drills (Pentest and PMP)
+const isPentestSubject = supportsCheatsheetAi
 const isAdmin = computed(() => auth.isAdmin)
 const genModal = ref<InstanceType<typeof GenerateQuestionsModal> | null>(null)
 // practice-by-section (drill now, no SRS): queue is filled from the picker

@@ -6,12 +6,15 @@
           <h2 class="fw-bold mb-0"><i class="bi bi-journal-text"></i> Cheat sheet</h2>
           <small class="text-muted">{{ topicName }} · your own notes. Write items, then let AI condense them for review.</small>
         </div>
-        <div class="d-flex gap-2">
-          <button v-if="isPentest && canStudy" class="btn btn-outline-warning" @click="genModal?.open()">
+        <div class="d-flex gap-2 no-print">
+          <button v-if="hasAi && canStudy" class="btn btn-outline-warning" @click="genModal?.open()">
             <i class="bi bi-stars"></i> Call AI
           </button>
-          <button v-if="isPentest && canStudy" class="btn btn-warning" :disabled="studying" @click="studyNotes">
+          <button v-if="hasAi && canStudy" class="btn btn-warning" :disabled="studying" @click="studyNotes">
             <span v-if="studying" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-arrow-repeat"></i> Study
+          </button>
+          <button v-if="notes.length" class="btn btn-outline-secondary" @click="exportPdf">
+            <i class="bi bi-file-earmark-pdf"></i> Export PDF
           </button>
           <button class="btn btn-outline-primary" @click="startNew">
             <i class="bi bi-plus-lg"></i> New note
@@ -20,7 +23,7 @@
       </div>
 
       <!-- toolbar: search + course filter + expand/collapse all -->
-      <div v-if="!loading && notes.length" class="d-flex flex-wrap align-items-center gap-2 mb-3">
+      <div v-if="!loading && notes.length" class="d-flex flex-wrap align-items-center gap-2 mb-3 no-print">
         <div class="input-group input-group-sm" style="max-width: 300px">
           <span class="input-group-text"><i class="bi bi-search"></i></span>
           <input v-model="search" class="form-control" placeholder="Tìm keyword trong cheatsheet…" />
@@ -43,7 +46,7 @@
       <div v-if="msg" class="alert py-2" :class="msgOk ? 'alert-success' : 'alert-danger'">{{ msg }}</div>
 
       <!-- editor popup (new or edit the selected item in place) -->
-      <div v-if="editing" class="cs-overlay" @click.self="cancel">
+      <div v-if="editing" class="cs-overlay no-print" @click.self="cancel">
         <div class="card cs-dialog border-0 shadow-lg">
           <div class="card-header bg-white d-flex align-items-center gap-2">
             <i class="bi" :class="form.id ? 'bi-pencil' : 'bi-plus-lg'"></i>
@@ -97,9 +100,12 @@
               <h6 class="fw-bold mb-0 flex-grow-1 min-w-0 text-truncate cs-title" @click="toggle(n.id)">
                 {{ n.title || firstLine(n.body) || '(không tiêu đề)' }}
               </h6>
-              <div class="d-flex gap-1 flex-shrink-0">
+              <div class="d-flex gap-1 flex-shrink-0 no-print">
                 <button v-if="!filtering" class="btn btn-sm btn-link p-0 text-muted" title="Move up" :disabled="idxOf(n) === 0 || busy" @click="move(n, -1)"><i class="bi bi-arrow-up"></i></button>
                 <button v-if="!filtering" class="btn btn-sm btn-link p-0 text-muted" title="Move down" :disabled="idxOf(n) === notes.length - 1 || busy" @click="move(n, 1)"><i class="bi bi-arrow-down"></i></button>
+                <button class="btn btn-sm btn-link p-0" :title="speakingId === n.id ? 'Dừng' : 'Nghe'" @click="speakNote(n)">
+                  <i class="bi" :class="speakingId === n.id ? 'bi-volume-up-fill text-primary' : 'bi-volume-up'"></i>
+                </button>
                 <button class="btn btn-sm btn-link p-0" title="Sửa" @click="startEdit(n)"><i class="bi bi-pencil"></i></button>
                 <button class="btn btn-sm btn-link p-0 text-danger" title="Xóa" @click="remove(n)"><i class="bi bi-trash"></i></button>
               </div>
@@ -115,7 +121,7 @@
         </div>
 
         <!-- AI cheat sheet -->
-        <div v-if="notes.length" class="card border-0 shadow-sm mt-4">
+        <div v-if="notes.length" class="card border-0 shadow-sm mt-4 no-print">
           <div class="card-body">
             <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-2">
               <h6 class="fw-bold mb-0"><i class="bi bi-stars text-warning"></i> AI cheat sheet</h6>
@@ -143,7 +149,7 @@
         </div>
 
         <!-- Ask AI about this course -->
-        <div class="card border-0 shadow-sm mt-4">
+        <div class="card border-0 shadow-sm mt-4 no-print">
           <div class="card-body">
             <h6 class="fw-bold mb-2"><i class="bi bi-chat-dots text-primary"></i> Ask AI about {{ topicName }}</h6>
             <CourseChat />
@@ -155,18 +161,19 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { api, errorMessage } from '../api'
 import { auth } from '../auth'
 import { currentPrefix } from '../router'
-import { loadSubjects, shortName, subject, subjectId, subjectSlug } from '../composables/useSubject'
+import { loadSubjects, shortName, subject, subjectId, subjectSlug, supportsCheatsheetAi } from '../composables/useSubject'
+import { RATE_REPLAY, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import { renderMarkdown } from '../utils/markdown'
 import CourseChat from '../components/CourseChat.vue'
 import GenerateQuestionsModal from '../components/GenerateQuestionsModal.vue'
 
 const router = useRouter()
-const isPentest = computed(() => subjectSlug.value === 'pentest')
+const hasAi = supportsCheatsheetAi // Call AI + Study: Pentest and PMP
 const canStudy = computed(() => auth.isAdmin) // studying materializes notes into shared cards (admin)
 const studying = ref(false)
 const genModal = ref<InstanceType<typeof GenerateQuestionsModal> | null>(null)
@@ -196,7 +203,10 @@ const render = (s: string) => renderMarkdown(s)
 // ---- search + course filter + collapse (collapsed by default) ----
 const search = ref('')
 const courseFilter = ref('')
-const courseChips = ['PT1', 'WEB1', 'CPTS']
+// filter chips match the [TAG] written in each section's body: cert tags for
+// Pentest, ECO domain tags for PMP
+const courseChips = computed(() =>
+  subjectSlug.value === 'pmp' ? ['[People]', '[Process]', '[Business]'] : ['PT1', 'WEB1', 'CPTS'])
 const expanded = ref<Set<number>>(new Set())
 const isOpen = (id: number) => expanded.value.has(id)
 function toggle(id: number) {
@@ -260,6 +270,65 @@ async function load() {
 
 function firstLine(s: string): string {
   return (s.split('\n').find((l) => l.trim()) ?? '').trim()
+}
+
+// ---- Listen (text-to-speech, same engine as NotesWidget's vocab "Listen" button) ----
+const { speakVietnamese, stop: stopSpeech } = useSpeechSynthesis()
+const speakingId = ref<number | null>(null)
+
+/** Strip markdown syntax (code fences, bold/italic, headings, links, bullets)
+ * so the speech engine reads the actual wording instead of `**`/`#`/```` etc. */
+function stripMarkdownForSpeech(src: string): string {
+  return src
+    .replace(/```[a-z]*\n?/gi, ' ')
+    .replace(/`/g, '')
+    .replace(/^#{1,6}\s*/gm, '')
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/\*(.*?)\*/g, '$1')
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    .replace(/^[-*]\s+/gm, '')
+    .replace(/\n{2,}/g, '. ')
+    .replace(/\n/g, '. ')
+    .trim()
+}
+
+function speakNote(n: Note) {
+  if (speakingId.value === n.id) {
+    stopSpeech()
+    speakingId.value = null
+    return
+  }
+  const text = [n.title, stripMarkdownForSpeech(n.body)].filter(Boolean).join('. ')
+  if (!text.trim()) return
+  speakingId.value = n.id
+  speakVietnamese(text, RATE_REPLAY)
+    .catch(() => {})
+    .finally(() => { if (speakingId.value === n.id) speakingId.value = null })
+}
+
+/** Export the cheat sheet as a PDF via the browser's native print dialog:
+ * expand every item, clear filters, then print (print-only CSS hides
+ * everything but the notes), restoring the previous view state after. */
+function exportPdf() {
+  const prevExpanded = new Set(expanded.value)
+  const prevSearch = search.value
+  const prevCourseFilter = courseFilter.value
+  const prevTitle = document.title
+  search.value = ''
+  courseFilter.value = ''
+  expanded.value = new Set(notes.value.map((n) => n.id))
+  document.title = `Cheat sheet - ${topicName.value || 'E-Learning'}`
+  nextTick(() => {
+    const restore = () => {
+      document.title = prevTitle
+      expanded.value = prevExpanded
+      search.value = prevSearch
+      courseFilter.value = prevCourseFilter
+      window.removeEventListener('afterprint', restore)
+    }
+    window.addEventListener('afterprint', restore)
+    window.print()
+  })
 }
 
 /**
@@ -414,8 +483,9 @@ async function reload() {
 }
 
 // switching topic in the menu reloads this course's notes
-watch(subjectId, (id, old) => { if (id && id !== old) { editing.value = false; load() } })
+watch(subjectId, (id, old) => { if (id && id !== old) { editing.value = false; stopSpeech(); speakingId.value = null; load() } })
 onMounted(load)
+onUnmounted(() => stopSpeech())
 </script>
 
 <style scoped>
@@ -427,6 +497,7 @@ onMounted(load)
 .md :deep(ul), .md :deep(ol) { margin: 0.2rem 0 0.4rem 1.1rem; padding: 0; }
 .md :deep(blockquote) { border-left: 3px solid #cbd5e1; margin: 0.3rem 0; padding-left: 0.7rem; color: #475569; }
 .md :deep(p) { margin: 0.3rem 0; }
+.md :deep(img) { max-width: 100%; height: auto; border-radius: 8px; margin: 0.5rem 0; border: 1px solid #e2e8f0; }
 .md :deep(a) { color: #4f46e5; }
 .md.summary :deep(hr) { margin: 0.6rem 0; }
 .cs-title { cursor: pointer; }
@@ -435,4 +506,16 @@ onMounted(load)
 .cs-overlay { position: fixed; inset: 0; z-index: 1060; background: rgba(15,23,42,0.5); display: flex; align-items: flex-start; justify-content: center; padding: 1.5rem 1rem; overflow-y: auto; }
 .cs-dialog { width: 100%; max-width: 640px; border-radius: 14px; }
 .cs-preview { max-height: 220px; overflow-y: auto; }
+
+@media print {
+  .no-print { display: none !important; }
+  .card { box-shadow: none !important; border: 1px solid #ddd !important; break-inside: avoid; }
+}
+</style>
+
+<style>
+@media print {
+  nav.navbar, .nudge { display: none !important; }
+  main.container { margin: 0 !important; max-width: 100% !important; }
+}
 </style>

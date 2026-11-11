@@ -175,8 +175,15 @@ const links = computed<NavLink[]>(() => {
       ...(auth.isAdmin ? [{ to: withPrefix('/courses'), label: 'Courses', icon: 'bi-mortarboard' }] : []),
     ],
   }
+  // PMP: English role-play with a difficult client sits next to the main links
+  const extra: NavLink[] = subjectSlug.value === 'pmp'
+    ? [
+        { to: withPrefix('/daily'), label: 'Daily 20', icon: 'bi-calendar-check' },
+        { to: withPrefix('/roleplay'), label: 'Roleplay', icon: 'bi-chat-quote' },
+      ]
+    : []
   const i = base.findIndex((l) => l.to === withPrefix('/devices'))
-  return i >= 0 ? [...base.slice(0, i), more, ...base.slice(i)] : [...base, more]
+  return i >= 0 ? [...base.slice(0, i), ...extra, more, ...base.slice(i)] : [...base, ...extra, more]
 })
 
 /** A dropdown parent is highlighted when the current route is one of its children. */

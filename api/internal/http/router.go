@@ -159,6 +159,18 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/course-notes/gen-questions", practiceLimit, h.GenerateCourseQuestions)
 		u.GET("/chat-models", h.ChatModels)
 
+		// PMP roleplay: play the PM with an AI-played difficult client (English speaking practice)
+		u.GET("/roleplay/scenarios", h.RoleplayScenarios)
+		u.POST("/roleplay/turn", practiceLimit, h.RoleplayTurn)
+		u.POST("/roleplay/feedback", practiceLimit, h.RoleplayFeedback)
+
+		// PMP "Daily 20": 20 AI-written PMP-style questions per day, scored on submit
+		u.GET("/pmp-daily", h.PMPDailyGet)
+		u.GET("/pmp-daily/history", h.PMPDailyHistory)
+		u.POST("/pmp-daily/generate", practiceLimit, h.PMPDailyGenerate)
+		u.POST("/pmp-daily/submit", h.PMPDailySubmit)
+		u.POST("/pmp-daily/report", h.PMPDailyReport)
+
 		u.GET("/writing/phrases", h.WritingPhrases)             // phrase bank (Writing page panel)
 		u.POST("/writing/phrases/study", h.StudyWritingPhrases) // add the whole bank to Study
 		u.POST("/writing", h.SubmitWriting)
