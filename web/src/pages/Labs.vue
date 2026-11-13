@@ -241,9 +241,15 @@
       </div>
       <div class="d-flex justify-content-between align-items-center mb-1">
         <p class="small text-muted mb-0">Bước {{ Math.min(curStep + 1, totalSteps) }} / {{ totalSteps }}</p>
-        <button v-if="curStep > 0" class="btn btn-sm btn-outline-secondary" @click="prev">
-          <i class="bi bi-arrow-left"></i> Bước trước
-        </button>
+        <div class="d-flex align-items-center gap-3">
+          <div class="form-check form-switch mb-0" title="Hiện lệnh mẫu để gõ lại; gõ đúng thì được hỏi có làm lại không">
+            <input id="practiceToggle" v-model="practice" class="form-check-input" type="checkbox" role="switch" />
+            <label class="form-check-label small" for="practiceToggle">Practice</label>
+          </div>
+          <button v-if="curStep > 0" class="btn btn-sm btn-outline-secondary" @click="prev">
+            <i class="bi bi-arrow-left"></i> Bước trước
+          </button>
+        </div>
       </div>
 
       <!-- finished -->
@@ -287,11 +293,16 @@
 
           <!-- command step: type the command -->
           <template v-else>
+            <!-- Practice: show the model command word by word (done / current / upcoming) -->
+            <div v-if="practice && practiceWords.length" class="practice-line font-monospace mb-2">
+              <span class="small text-muted me-2">Gõ lại:</span>
+              <span v-for="(w, i) in practiceWords" :key="i" class="pw" :class="'pw-' + w.state">{{ w.text }}</span>
+            </div>
             <div class="input-group mb-2">
               <span class="input-group-text font-monospace">$</span>
-              <input v-model="answer" type="text" class="form-control font-monospace" placeholder="Gõ lệnh ở đây..."
-                :class="{ 'is-invalid': feedback === 'wrong' }"
-                @keyup.enter="onEnter" autocomplete="off" spellcheck="false" />
+              <input ref="answerInput" v-model="answer" type="text" class="form-control font-monospace" placeholder="Gõ lệnh ở đây..."
+                :class="{ 'is-invalid': feedback === 'wrong' }" :readonly="askRedo"
+                @keydown.enter.prevent="onEnter" autocomplete="off" autocapitalize="off" spellcheck="false" />
             </div>
 
             <div class="d-flex gap-2 mb-2">
@@ -312,7 +323,12 @@
             </div>
             <div class="alert alert-success py-2 small mb-0">
               <i class="bi bi-check-circle"></i> {{ currentStep.explanation || 'Chính xác!' }}
-              <div class="mt-2">
+              <div v-if="askRedo" class="mt-2 d-flex flex-wrap align-items-center gap-2">
+                <span class="fw-semibold">Làm lại câu này?</span>
+                <button type="button" class="btn btn-sm btn-primary" @click="redoStep"><kbd>y</kbd> Làm lại</button>
+                <button type="button" class="btn btn-sm btn-outline-success" @click="next"><kbd>n</kbd> Sang câu tiếp</button>
+              </div>
+              <div v-else class="mt-2">
                 <button ref="nextStepBtn" class="btn btn-sm btn-success" @click="next">Bước tiếp theo <i class="bi bi-arrow-right"></i></button>
               </div>
             </div>
@@ -529,7 +545,9 @@ const showHint = ref(false)
 const showReference = ref(false)
 const progressPct = computed(() => totalSteps.value ? Math.round((curStep.value / totalSteps.value) * 100) : 0)
 
-watch(activeId, () => { answer.value = ''; feedback.value = 'idle'; showHint.value = false; showReference.value = false; chosenIndex.value = null })
+watch(activeId, () => { answer.value = ''; feedback.value = 'idle'; showHint.value = false; showReference.value = false; chosenIndex.value = null; askRedo.value = false })
+// new step / lab opened: the command box takes focus so typing can continue without the mouse
+watch(() => [activeCard.value?.id, curStep.value], focusInput, { flush: 'post' })
 
 function normalize(raw: string): string {
   return raw.trim().replace(/\s+/g, ' ')
@@ -561,6 +579,55 @@ function matchPattern(p: string, norm: string): boolean {
 }
 
 const nextStepBtn = ref<HTMLButtonElement | null>(null)
+const answerInput = ref<HTMLInputElement | null>(null)
+
+/** Put the cursor back in the command box (after Enter moved to a new step etc.). */
+function focusInput() {
+  nextTick(() => answerInput.value?.focus())
+}
+
+// --- Practice mode (off by default; remembered in this browser once switched on) ---
+const PRACTICE_KEY = 'elearn.labs.practice'
+function loadPractice(): boolean {
+  try { return localStorage.getItem(PRACTICE_KEY) === '1' } catch { return false }
+}
+const practice = ref(loadPractice())
+watch(practice, (v) => {
+  try { localStorage.setItem(PRACTICE_KEY, v ? '1' : '0') } catch { /* ignore */ }
+  if (!v) askRedo.value = false
+  if (v && feedback.value === 'correct' && currentStep.value.type !== 'choice') askRedo.value = true
+  else focusInput()
+})
+/** true while a correct answer is waiting for the "redo? y/n" decision */
+const askRedo = ref(false)
+
+/** Best-effort readable command from the step's first pattern (patterns are regexes). */
+function modelCommand(step: LabStep): string {
+  const p = step.patterns?.[0]
+  if (!p || step.type === 'choice') return ''
+  if (p.startsWith('@flags:')) {
+    const [, cmd = '', letters = ''] = p.split(':')
+    return letters ? `${cmd} -${letters}` : cmd
+  }
+  let t = p.replace(/^\^/, '').replace(/\$$/, '')
+  for (let i = 0; i < 5; i++) t = t.replace(/\((?:\?:)?([^()]*)\)/g, (_m, g: string) => g.split('|')[0])
+  t = t.replace(/\\s[+*]/g, ' ').replace(/\.\*/g, ' … ').replace(/\\(.)/g, '$1').replace(/\s+/g, ' ').trim()
+  return t
+}
+const practiceWords = computed(() => {
+  const words = modelCommand(currentStep.value).split(' ').filter(Boolean)
+  const raw = answer.value.replace(/^\s+/, '')
+  const typed = raw.split(/\s+/)
+  const trailing = raw === '' || /\s$/.test(raw)
+  const done = trailing ? typed.filter(Boolean).length : typed.length - 1
+  const partial = trailing ? '' : typed[typed.length - 1].toLowerCase()
+  return words.map((text, i) => {
+    let state: 'ok' | 'bad' | 'cur' | 'next' = 'next'
+    if (i < done) state = text === '…' || typed[i].toLowerCase() === text.toLowerCase() ? 'ok' : 'bad'
+    else if (i === done) state = partial && !text.toLowerCase().startsWith(partial) ? 'bad' : 'cur'
+    return { text, state }
+  })
+})
 /** After a correct answer, move focus to "Bước tiếp theo" so Enter/Space
  *  advances without reaching for the mouse. */
 function focusNextStep() {
@@ -574,11 +641,25 @@ function check() {
   feedback.value = ok ? 'correct' : 'wrong'
   if (ok) {
     resolveLabMistake(activeCard.value.id, curStep.value)
-    focusNextStep()
+    if (practice.value) {
+      askRedo.value = true
+      answerInput.value?.blur()
+    } else {
+      focusNextStep()
+    }
   } else {
     recordLabMistake(activeCard.value.id, curStep.value)
   }
   refreshMistakes()
+}
+
+/** Practice: "y" — wipe this step and type it again. */
+function redoStep() {
+  askRedo.value = false
+  answer.value = ''
+  feedback.value = 'idle'
+  showHint.value = false
+  focusInput()
 }
 
 function checkChoice(i: number) {
@@ -597,14 +678,23 @@ function checkChoice(i: number) {
 
 // Enter in the command input: check the answer, or — if already correct —
 // advance to the next step (so the learner can keep hitting Enter).
-function onEnter() {
-  if (!activeCard.value) return
+function onEnter(e?: KeyboardEvent) {
+  if (!activeCard.value || e?.isComposing || askRedo.value) return
   if (feedback.value === 'correct') { next(); return }
+  if (!answer.value.trim()) return
   check()
 }
 
 // Enter anywhere (no input to focus on choice steps): advance once correct.
 function handleGlobalKeydown(e: KeyboardEvent) {
+  if (askRedo.value) {
+    if (e.repeat || e.ctrlKey || e.metaKey || e.altKey) return
+    const k = e.key.toLowerCase()
+    if (k === 'y') { e.preventDefault(); redoStep() }
+    else if (k === 'n') { e.preventDefault(); next() }
+    else if (e.key === 'Enter') e.preventDefault() // don't let a double Enter skip the question
+    return
+  }
   if (e.key !== 'Enter') return
   if (!activeCard.value || finished.value) return
   if (currentStep.value.type === 'choice' && feedback.value === 'correct') {
@@ -630,6 +720,7 @@ function next() {
   feedback.value = 'idle'
   showHint.value = false
   chosenIndex.value = null
+  askRedo.value = false
 }
 
 function prev() {
@@ -641,6 +732,7 @@ function prev() {
   feedback.value = 'idle'
   showHint.value = false
   chosenIndex.value = null
+  askRedo.value = false
 }
 
 function restart() {
@@ -652,6 +744,7 @@ function restart() {
   feedback.value = 'idle'
   showHint.value = false
   chosenIndex.value = null
+  askRedo.value = false
 }
 
 // --- "Ôn lại câu sai" tab: local Leitner review queue for wrong/given-up steps ---
@@ -704,6 +797,12 @@ onUnmounted(() => clearInterval(mistakesTimer))
   color: #0f172a;
 }
 .cs-title { cursor: pointer; }
+.practice-line { line-height: 1.9; }
+.pw { margin-right: 0.45rem; padding: 0.05rem 0.3rem; border-radius: 4px; }
+.pw-next { color: #94a3b8; }
+.pw-cur { color: #0f172a; background: #e0e7ff; text-decoration: underline; }
+.pw-ok { color: #15803d; }
+.pw-bad { color: #b91c1c; background: #fee2e2; }
 .cs-title:hover { color: #4f46e5; }
 .reference-notes :deep(h1) { font-size: 1.25rem; }
 .reference-notes :deep(h2) { font-size: 1.15rem; }
