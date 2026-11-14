@@ -50,8 +50,14 @@
             {{ activeTab === 'thm' ? 'PT1/WEB1' : 'CPTS' }}. Một số link trỏ thẳng tới phòng (đã kiểm chứng URL), số còn lại
             trỏ qua tìm kiếm theo đúng tên (vì không chắc chắn được slug URL chính xác) để tránh link sai/gãy.
           </p>
+          <div v-if="availableTags.length" class="d-flex flex-wrap gap-1 mb-3 align-items-center">
+            <span class="small text-muted me-1"><i class="bi bi-funnel"></i> Lọc tag:</span>
+            <button type="button" class="btn btn-sm py-0" :class="tagFilter === '' ? 'btn-secondary' : 'btn-outline-secondary'" @click="tagFilter = ''">Tất cả</button>
+            <button v-for="t in availableTags" :key="t" type="button" class="btn btn-sm py-0" :class="tagFilter === t ? 'btn-primary' : 'btn-outline-secondary'" @click="tagFilter = (tagFilter === t ? '' : t)">{{ t }}</button>
+          </div>
+          <div v-if="!displayChallenges.length" class="small text-muted mb-2">Không có phòng nào khớp tag đang lọc.</div>
           <div class="row g-3">
-            <div v-for="c in (activeTab === 'thm' ? thmChallenges : htbChallenges)" :key="c.name" class="col-md-6">
+            <div v-for="c in displayChallenges" :key="c.name" class="col-md-6">
               <div class="card border-0 shadow-sm h-100 hoverable">
                 <div class="card-body d-flex flex-column">
                   <h6 class="fw-bold mb-1">{{ c.name }}</h6>
@@ -188,10 +194,15 @@
         </template>
 
         <template v-else>
-          <div v-if="!visibleCards.length" class="small text-muted">Chưa có bài nào ở mục này.</div>
+          <div v-if="availableTags.length" class="d-flex flex-wrap gap-1 mb-3 align-items-center">
+            <span class="small text-muted me-1"><i class="bi bi-funnel"></i> Lọc tag:</span>
+            <button type="button" class="btn btn-sm py-0" :class="tagFilter === '' ? 'btn-secondary' : 'btn-outline-secondary'" @click="tagFilter = ''">Tất cả</button>
+            <button v-for="t in availableTags" :key="t" type="button" class="btn btn-sm py-0" :class="tagFilter === t ? 'btn-primary' : 'btn-outline-secondary'" @click="tagFilter = (tagFilter === t ? '' : t)">{{ t }}</button>
+          </div>
+          <div v-if="!displayCards.length" class="small text-muted">{{ visibleCards.length ? 'Không có bài nào khớp tag đang lọc.' : 'Chưa có bài nào ở mục này.' }}</div>
 
           <div class="row g-3">
-            <div v-for="c in visibleCards" :key="c.id" class="col-md-6">
+            <div v-for="c in displayCards" :key="c.id" class="col-md-6">
               <div class="card border-0 shadow-sm h-100 hoverable">
                 <div class="card-body d-flex flex-column">
                   <h5 class="fw-bold mb-1">{{ c.front }}</h5>
@@ -415,13 +426,47 @@ async function loadNotes() {
     notesLoading.value = false
   }
 }
-watch(activeTab, (t) => { if (t === 'cheatsheet' && !notesLoaded) loadNotes() })
+watch(activeTab, (t) => { tagFilter.value = ''; if (t === 'cheatsheet' && !notesLoaded) loadNotes() })
 // "challenge_sim" cards are the user's own self-quiz per THM/HTB challenge (see
 // ChallengeQuestionManager) — they live in the same "labs" deck but are kept
 // out of the Lab/Assignment tabs and surfaced only on their own challenge card.
 const labOnlyCards = computed(() => labCards.value.filter((c) => c.payload.mode !== 'assignment' && c.payload.mode !== 'challenge_sim'))
 const assignmentCards = computed(() => labCards.value.filter((c) => c.payload.mode === 'assignment'))
 const visibleCards = computed(() => (activeTab.value === 'assignment' ? assignmentCards.value : labOnlyCards.value))
+
+// --- tag filter (difficulty + cert tags) for the Lab/Assignment/Challenge lists ---
+const tagFilter = ref('')
+function cardCertTags(c: any, isChallenge: boolean): string[] {
+  return (isChallenge ? c.cert_tags : c.payload?.cert_tags) ?? []
+}
+function cardDifficulty(c: any, isChallenge: boolean): string | undefined {
+  return isChallenge ? c.difficulty : c.payload?.difficulty
+}
+function cardTags(c: any, isChallenge: boolean): string[] {
+  const t: string[] = []
+  const d = cardDifficulty(c, isChallenge)
+  if (d) t.push(difficultyLabel(d))
+  for (const ct of cardCertTags(c, isChallenge)) t.push(ct)
+  return t
+}
+function matchesTag(c: any, isChallenge: boolean): boolean {
+  return !tagFilter.value || cardTags(c, isChallenge).includes(tagFilter.value)
+}
+const availableTags = computed<string[]>(() => {
+  const isCh = activeTab.value === 'thm' || activeTab.value === 'htb'
+  const list: any[] = isCh ? (activeTab.value === 'thm' ? thmChallenges : htbChallenges) : visibleCards.value
+  const diffs = new Set<string>()
+  const certs = new Set<string>()
+  for (const c of list) {
+    const d = cardDifficulty(c, isCh)
+    if (d) diffs.add(difficultyLabel(d))
+    for (const ct of cardCertTags(c, isCh)) certs.add(ct)
+  }
+  const order = ['Cơ bản', 'Trung bình', 'Nâng cao']
+  return [...[...diffs].sort((a, b) => order.indexOf(a) - order.indexOf(b)), ...[...certs].sort()]
+})
+const displayCards = computed(() => visibleCards.value.filter((c) => matchesTag(c, false)))
+const displayChallenges = computed(() => (activeTab.value === 'thm' ? thmChallenges : htbChallenges).filter((c) => matchesTag(c, true)))
 
 const labsDeckId = computed<number | null>(() => subject.value?.decks.find((d) => d.slug === 'labs')?.id ?? null)
 const simCardByKey = computed<Record<string, Card>>(() => {

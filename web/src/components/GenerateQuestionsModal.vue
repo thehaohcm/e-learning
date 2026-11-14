@@ -22,7 +22,11 @@
         </p>
 
         <label class="form-label small mb-1">Chủ đề / mục cần ôn <span class="text-muted">(để trống = toàn bộ cheatsheet)</span></label>
-        <input v-model="topic" class="form-control mb-2" maxlength="200" :placeholder="isCommandSubject ? 'VD: Active Directory, Recon, privilege escalation… (khớp đúng tên mục ghi chú)' : 'VD: Risk, EVM, Scrum, Procurement… (khớp tên mục; chỉ ghi chú của mục đó được dùng)'" />
+        <select v-model="topic" class="form-select mb-2">
+          <option value="">Toàn bộ cheatsheet</option>
+          <option v-for="t in topics" :key="t" :value="t">{{ t }}</option>
+        </select>
+        <p v-if="!topics.length" class="small text-muted mb-2">Chưa có mục nào trong cheatsheet để chọn.</p>
 
         <div v-if="format === 'lab'" class="form-check mb-2">
           <input id="gq-exhaustive" v-model="exhaustive" class="form-check-input" type="checkbox" />
@@ -73,6 +77,7 @@ const show = ref(false)
 const format = ref<'lab' | 'mcq'>('lab')
 const exhaustive = ref(false)
 const topic = ref('')
+const topics = ref<string[]>([])
 const model = ref('')
 const models = ref<string[]>([])
 const busy = ref(false)
@@ -87,14 +92,29 @@ async function loadModels() {
   try { models.value = (await api.get('/chat-models')).data.models ?? [] } catch { models.value = [] }
 }
 
+async function loadTopics() {
+  topics.value = []
+  if (!subjectId.value) return
+  try {
+    const { data } = await api.get('/course-notes', { params: { subject_id: subjectId.value } })
+    const seen = new Set<string>()
+    for (const n of (data.notes ?? [])) {
+      const t = (n.title ?? '').trim()
+      if (t && !seen.has(t)) { seen.add(t); topics.value.push(t) }
+    }
+  } catch { topics.value = [] }
+}
+
 function open() {
   // topics without shell commands (PMP) only have multiple-choice
   if (!isCommandSubject.value) format.value = 'mcq'
   err.value = ''
   okMsg.value = ''
   pendingDone.value = null
+  topic.value = ''
   show.value = true
   loadModels()
+  loadTopics()
 }
 function proceed() {
   if (!pendingDone.value) return

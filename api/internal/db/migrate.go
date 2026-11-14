@@ -69,6 +69,11 @@ func Migrate(gdb *gorm.DB, fsys fs.FS) error {
 	sort.Strings(files)
 
 	for _, name := range files {
+		// Skip macOS AppleDouble sidecars (._foo.sql) and any other dotfile
+		// that fs.Glob("*.sql") can match but is not a real migration.
+		if base := name[strings.LastIndex(name, "/")+1:]; strings.HasPrefix(base, ".") {
+			continue
+		}
 		version := strings.TrimSuffix(name, ".sql")
 		if applied[version] {
 			continue

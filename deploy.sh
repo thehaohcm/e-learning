@@ -57,7 +57,8 @@ echo "Folder: $REMOTE_DIR"
 echo "(enter the ssh password once if asked)"
 echo ""
 
-tar czf - \
+COPYFILE_DISABLE=1 tar czf - \
+    --exclude="._*" --exclude=".DS_Store" \
     --exclude=".git" --exclude="node_modules" --exclude=".env" --exclude="dist" \
     --exclude="go.dev.mod" --exclude="go.dev.sum" \
     --exclude="elearn-device-*[0-9].bin" --exclude="*-bootloader.bin" --exclude="*-partitions.bin" \
