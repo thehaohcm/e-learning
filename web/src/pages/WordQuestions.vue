@@ -1,6 +1,6 @@
 <template>
   <div class="row justify-content-center">
-    <div class="col-lg-7">
+    <div class="col-12">
       <h2 class="fw-bold mb-1"><i class="bi bi-ui-checks"></i> Check the words</h2>
       <p class="text-muted small mb-3">
         One question per word: which sentence uses it correctly, its closest meaning, or the word that goes with it.

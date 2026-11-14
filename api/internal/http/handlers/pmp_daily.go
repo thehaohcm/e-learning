@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,15 +19,18 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// PMP "Daily 20": each day the learner can generate 20 PMP-style practice
-// questions (English, scenario-based), written by the AI from their own PMP
-// cheatsheet notes and weighted like the exam domains (People 33%, Process 41%,
-// Business Environment 26%). The set is stored per (user, day) so reopening the
-// page shows the same questions; the score is computed here on submit.
+// "Daily 20": each day the learner can generate 20 scenario practice questions
+// (English) from their own notes. Originally PMP-only; now subject-aware (PMP
+// uses the exam-domain weighting; English draws from the learner's vocabulary).
+// More than one set can exist per (user, subject, day) so the learner can
+// generate another batch, and a saved set can be re-taken later. The table is
+// still called pmp_daily_sets for history compatibility.
 
 type pmpDailySet struct {
 	ID          int64       `gorm:"primaryKey"`
 	UserID      int64       `gorm:"column:user_id"`
+	SubjectID   int64       `gorm:"column:subject_id"`
+	Seq         int         `gorm:"column:seq"`
 	Day         time.Time   `gorm:"type:date"`
 	Questions   models.JSON `gorm:"type:jsonb"`
 	Result      models.JSON `gorm:"type:jsonb"`
@@ -39,8 +43,13 @@ func (pmpDailySet) TableName() string { return "pmp_daily_sets" }
 
 var dayRe = regexp.MustCompile(`^\d{4}-\d{2}-\d{2}$`)
 
-// dailyDomains: question counts per exam domain (sum 20) and the note tag that
-// marks a cheatsheet section as belonging to it.
+var (
+	errDailyNoNotes = errors.New("add cheatsheet notes first")
+	errDailyNoVocab = errors.New("add some vocabulary words first")
+)
+
+// dailyDomains: question counts per PMP exam domain (sum 20) and the note tag
+// that marks a cheatsheet section as belonging to it.
 var dailyDomains = []struct {
 	Name  string
 	Tag   string
@@ -58,7 +67,8 @@ type dailyResult struct {
 	ByDomain  map[string][2]int `json:"by_domain"` // domain -> [right, total]
 	Correct   []bool            `json:"correct"`
 	Submitted bool              `json:"submitted"`
-	Reported  []int             `json:"reported"` // questions the learner reported as possibly wrong
+	Reported  []int             `json:"reported"`            // questions the learner reported as possibly wrong
+	AiReview  string            `json:"ai_review,omitempty"` // persisted AI review of the mistakes
 }
 
 // parseDay validates a YYYY-MM-DD date from the client: it must be a real date
@@ -79,6 +89,19 @@ func parseDay(s string) (time.Time, bool) {
 	return d, true
 }
 
+// dailySubject resolves the subject slug (default "pmp") to a subject row.
+func (h *Handler) dailySubject(slug string) (models.Subject, bool) {
+	slug = strings.TrimSpace(slug)
+	if slug == "" {
+		slug = "pmp"
+	}
+	var s models.Subject
+	if err := h.DB.Where("slug = ?", slug).Limit(1).Find(&s).Error; err != nil || s.ID == 0 {
+		return s, false
+	}
+	return s, true
+}
+
 func dailyView(s *pmpDailySet) gin.H {
 	var res dailyResult
 	_ = json.Unmarshal(s.Result, &res)
@@ -87,6 +110,8 @@ func dailyView(s *pmpDailySet) gin.H {
 		score = *s.Score
 	}
 	return gin.H{
+		"id":        s.ID,
+		"seq":       s.Seq,
 		"date":      s.Day.Format("2006-01-02"),
 		"questions": json.RawMessage(s.Questions),
 		"submitted": s.SubmittedAt != nil,
@@ -95,9 +120,22 @@ func dailyView(s *pmpDailySet) gin.H {
 	}
 }
 
-func (h *Handler) loadDaily(uid int64, day time.Time) (*pmpDailySet, error) {
+func (h *Handler) loadDailyByID(uid, id int64) (*pmpDailySet, error) {
 	var s pmpDailySet
-	err := h.DB.Where("user_id = ? AND day = ?", uid, day.Format("2006-01-02")).Limit(1).Find(&s).Error
+	if err := h.DB.Where("id = ? AND user_id = ?", id, uid).Limit(1).Find(&s).Error; err != nil {
+		return nil, err
+	}
+	if s.ID == 0 {
+		return nil, nil
+	}
+	return &s, nil
+}
+
+// latestDaily returns the most recent set (highest seq) for a subject on a day.
+func (h *Handler) latestDaily(uid, subjectID int64, day time.Time) (*pmpDailySet, error) {
+	var s pmpDailySet
+	err := h.DB.Where("user_id = ? AND subject_id = ? AND day = ?", uid, subjectID, day.Format("2006-01-02")).
+		Order("seq DESC").Limit(1).Find(&s).Error
 	if err != nil {
 		return nil, err
 	}
@@ -107,14 +145,46 @@ func (h *Handler) loadDaily(uid int64, day time.Time) (*pmpDailySet, error) {
 	return &s, nil
 }
 
-// PMPDailyGet: GET /api/pmp-daily?date=YYYY-MM-DD -> {"set": {...} | null}
+func (h *Handler) nextDailySeq(uid, subjectID int64, day time.Time) int {
+	var maxSeq *int
+	h.DB.Model(&pmpDailySet{}).
+		Where("user_id = ? AND subject_id = ? AND day = ?", uid, subjectID, day.Format("2006-01-02")).
+		Select("MAX(seq)").Scan(&maxSeq)
+	if maxSeq == nil {
+		return 1
+	}
+	return *maxSeq + 1
+}
+
+// PMPDailyGet: GET /api/pmp-daily?subject=<slug>&date=YYYY-MM-DD  (latest set
+// that day) or GET /api/pmp-daily?id=<id> (a specific set). -> {"set": {...}|null}
 func (h *Handler) PMPDailyGet(c *gin.Context) {
+	uid := userID(c)
+	if idStr := c.Query("id"); idStr != "" {
+		id, _ := strconv.ParseInt(idStr, 10, 64)
+		s, err := h.loadDailyByID(uid, id)
+		if err != nil {
+			internal(c, err)
+			return
+		}
+		if s == nil {
+			c.JSON(http.StatusOK, gin.H{"set": nil})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"set": dailyView(s)})
+		return
+	}
+	subj, ok := h.dailySubject(c.Query("subject"))
+	if !ok {
+		abort(c, http.StatusBadRequest, "subject not found")
+		return
+	}
 	day, ok := parseDay(c.Query("date"))
 	if !ok {
 		abort(c, http.StatusBadRequest, "invalid date")
 		return
 	}
-	s, err := h.loadDaily(userID(c), day)
+	s, err := h.latestDaily(uid, subj.ID, day)
 	if err != nil {
 		internal(c, err)
 		return
@@ -126,10 +196,17 @@ func (h *Handler) PMPDailyGet(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"set": dailyView(s)})
 }
 
-// PMPDailyHistory: GET /api/pmp-daily/history -> last 30 days {date, score, total, submitted}
+// PMPDailyHistory: GET /api/pmp-daily/history?subject=<slug>
+// -> last sets {id, date, seq, score, total, submitted, has_review}
 func (h *Handler) PMPDailyHistory(c *gin.Context) {
+	subj, ok := h.dailySubject(c.Query("subject"))
+	if !ok {
+		abort(c, http.StatusBadRequest, "subject not found")
+		return
+	}
 	var rows []pmpDailySet
-	if err := h.DB.Where("user_id = ?", userID(c)).Order("day DESC").Limit(30).Find(&rows).Error; err != nil {
+	if err := h.DB.Where("user_id = ? AND subject_id = ?", userID(c), subj.ID).
+		Order("day DESC, seq DESC").Limit(40).Find(&rows).Error; err != nil {
 		internal(c, err)
 		return
 	}
@@ -137,21 +214,28 @@ func (h *Handler) PMPDailyHistory(c *gin.Context) {
 	for _, r := range rows {
 		var qs []json.RawMessage
 		_ = json.Unmarshal(r.Questions, &qs)
+		var res dailyResult
+		_ = json.Unmarshal(r.Result, &res)
 		score := 0
 		if r.Score != nil {
 			score = *r.Score
 		}
-		out = append(out, gin.H{"date": r.Day.Format("2006-01-02"), "score": score, "total": len(qs), "submitted": r.SubmittedAt != nil})
+		out = append(out, gin.H{
+			"id": r.ID, "date": r.Day.Format("2006-01-02"), "seq": r.Seq,
+			"score": score, "total": len(qs), "submitted": r.SubmittedAt != nil,
+			"has_review": res.AiReview != "",
+		})
 	}
 	c.JSON(http.StatusOK, gin.H{"days": out})
 }
 
-// PMPDailyGenerate: POST /api/pmp-daily/generate {date, model?}
-// Idempotent: returns today's set if it exists, otherwise has the AI write it.
+// PMPDailyGenerate: POST /api/pmp-daily/generate {date, subject?, model?}
+// Always creates a NEW set (the next batch for that subject+day).
 func (h *Handler) PMPDailyGenerate(c *gin.Context) {
 	var req struct {
-		Date  string `json:"date"`
-		Model string `json:"model"`
+		Date    string `json:"date"`
+		Subject string `json:"subject"`
+		Model   string `json:"model"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		bad(c, err)
@@ -162,33 +246,14 @@ func (h *Handler) PMPDailyGenerate(c *gin.Context) {
 		abort(c, http.StatusBadRequest, "invalid date")
 		return
 	}
-	uid := userID(c)
-	if s, err := h.loadDaily(uid, day); err != nil {
-		internal(c, err)
-		return
-	} else if s != nil {
-		c.JSON(http.StatusOK, gin.H{"set": dailyView(s)})
+	subj, ok := h.dailySubject(req.Subject)
+	if !ok {
+		abort(c, http.StatusBadRequest, "subject not found")
 		return
 	}
+	uid := userID(c)
 	if !h.AI.Enabled() {
 		abort(c, http.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
-		return
-	}
-
-	// the learner's PMP cheatsheet notes
-	var subject models.Subject
-	if err := h.DB.Where("slug = ?", "pmp").Limit(1).Find(&subject).Error; err != nil || subject.ID == 0 {
-		abort(c, http.StatusBadRequest, "PMP subject not found")
-		return
-	}
-	var notes []models.CourseNote
-	if err := h.DB.Where("user_id = ? AND subject_id = ?", uid, subject.ID).
-		Order("sort_order ASC, id ASC").Limit(maxCourseNotes).Find(&notes).Error; err != nil {
-		internal(c, err)
-		return
-	}
-	if len(notes) == 0 {
-		abort(c, http.StatusBadRequest, "add PMP cheatsheet notes first")
 		return
 	}
 
@@ -200,8 +265,62 @@ func (h *Handler) PMPDailyGenerate(c *gin.Context) {
 		return
 	}
 
-	avoid := h.recentDailyStems(uid)
-	seed := uid*1000003 + day.Unix()
+	seq := h.nextDailySeq(uid, subj.ID, day)
+	seed := uid*1000003 + day.Unix() + int64(seq)*7919
+
+	var all []ai.DailyQuestion
+	var genErr error
+	if subj.Slug == "english" {
+		all, genErr = h.generateEnglishDaily(ctx, model, uid, subj, seed)
+	} else {
+		all, genErr = h.generatePMPDaily(ctx, model, uid, subj, day, seed)
+	}
+	if genErr != nil {
+		switch {
+		case errors.Is(genErr, errDailyNoNotes):
+			abort(c, http.StatusBadRequest, "add cheatsheet notes first")
+			return
+		case errors.Is(genErr, errDailyNoVocab):
+			abort(c, http.StatusBadRequest, "add some vocabulary words to study first")
+			return
+		case errors.Is(genErr, ai.ErrNotConfigured):
+			abort(c, http.StatusServiceUnavailable, genErr.Error())
+			return
+		}
+	}
+	if len(all) < 16 {
+		abort(c, http.StatusBadGateway, "AI could not write enough valid questions, please try again")
+		return
+	}
+	// mix the questions like the real exam
+	r := rand.New(rand.NewSource(seed))
+	r.Shuffle(len(all), func(a, b int) { all[a], all[b] = all[b], all[a] })
+
+	raw, err := json.Marshal(all)
+	if err != nil {
+		internal(c, err)
+		return
+	}
+	set := pmpDailySet{UserID: uid, SubjectID: subj.ID, Seq: seq, Day: day, Questions: models.JSON(raw), Result: models.JSON("{}"), CreatedAt: time.Now().UTC()}
+	if err := h.DB.Create(&set).Error; err != nil {
+		internal(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"set": dailyView(&set)})
+}
+
+// generatePMPDaily writes the 20 PMP questions, weighted by exam domain, from
+// the learner's PMP cheatsheet notes.
+func (h *Handler) generatePMPDaily(ctx context.Context, model string, uid int64, subject models.Subject, day time.Time, seed int64) ([]ai.DailyQuestion, error) {
+	var notes []models.CourseNote
+	if err := h.DB.Where("user_id = ? AND subject_id = ?", uid, subject.ID).
+		Order("sort_order ASC, id ASC").Limit(maxCourseNotes).Find(&notes).Error; err != nil {
+		return nil, err
+	}
+	if len(notes) == 0 {
+		return nil, errDailyNoNotes
+	}
+	avoid := h.recentDailyStems(uid, subject.ID)
 
 	results := make([][]ai.DailyQuestion, len(dailyDomains))
 	errs := make([]error, len(dailyDomains))
@@ -225,34 +344,42 @@ func (h *Handler) PMPDailyGenerate(c *gin.Context) {
 		}
 		all = append(all, results[i]...)
 	}
-	if len(all) < 16 {
-		if firstErr != nil && errors.Is(firstErr, ai.ErrNotConfigured) {
-			abort(c, http.StatusServiceUnavailable, firstErr.Error())
-			return
-		}
-		abort(c, http.StatusBadGateway, "AI could not write enough valid questions, please try again")
-		return
+	if len(all) == 0 && firstErr != nil {
+		return nil, firstErr
 	}
-	// mix the domains like the real exam
-	r := rand.New(rand.NewSource(seed))
-	r.Shuffle(len(all), func(a, b int) { all[a], all[b] = all[b], all[a] })
+	return all, nil
+}
 
-	raw, err := json.Marshal(all)
-	if err != nil {
-		internal(c, err)
-		return
+// generateEnglishDaily writes 20 TOEIC/IELTS-style questions from a random
+// sample of the learner's English vocabulary cards.
+func (h *Handler) generateEnglishDaily(ctx context.Context, model string, uid int64, subject models.Subject, seed int64) ([]ai.DailyQuestion, error) {
+	var cards []models.Card
+	if err := h.DB.Joins("JOIN decks ON decks.id = cards.deck_id").
+		Where("decks.subject_id = ? AND cards.kind = ?", subject.ID, models.KindVocab).
+		Order("RANDOM()").Limit(70).Find(&cards).Error; err != nil {
+		return nil, err
 	}
-	set := pmpDailySet{UserID: uid, Day: day, Questions: models.JSON(raw), Result: models.JSON("{}"), CreatedAt: time.Now().UTC()}
-	if err := h.DB.Create(&set).Error; err != nil {
-		// a parallel request may have created it first
-		if s, e2 := h.loadDaily(uid, day); e2 == nil && s != nil {
-			c.JSON(http.StatusOK, gin.H{"set": dailyView(s)})
-			return
+	if len(cards) < 8 {
+		return nil, errDailyNoVocab
+	}
+	words := make([]ai.EnglishWord, 0, len(cards))
+	for _, cd := range cards {
+		var p struct {
+			Senses []struct {
+				MeaningEN string `json:"meaning_en"`
+				MeaningVI string `json:"meaning_vi"`
+			} `json:"senses"`
+			Topic string `json:"topic"`
 		}
-		internal(c, err)
-		return
+		_ = json.Unmarshal(cd.Payload, &p)
+		me, mv := "", ""
+		if len(p.Senses) > 0 {
+			me, mv = p.Senses[0].MeaningEN, p.Senses[0].MeaningVI
+		}
+		words = append(words, ai.EnglishWord{Word: cd.Front, MeaningEN: me, MeaningVI: mv, Topic: p.Topic})
 	}
-	c.JSON(http.StatusOK, gin.H{"set": dailyView(&set)})
+	rng := rand.New(rand.NewSource(seed))
+	return h.AI.GenerateEnglishDaily(ctx, model, 20, words, rng)
 }
 
 // notesForDomain orders the notes for one domain's prompt: sections tagged for
@@ -283,12 +410,13 @@ func notesForDomain(notes []models.CourseNote, tag string, pinFormulas bool, rng
 	return out
 }
 
-// recentDailyStems: short stems of the last three sets per domain, so new
-// questions do not repeat the same scenarios.
-func (h *Handler) recentDailyStems(uid int64) map[string][]string {
+// recentDailyStems: short stems of the last three sets (for this subject), so
+// new questions do not repeat the same scenarios.
+func (h *Handler) recentDailyStems(uid, subjectID int64) map[string][]string {
 	out := map[string][]string{}
 	var rows []pmpDailySet
-	if err := h.DB.Where("user_id = ?", uid).Order("day DESC").Limit(3).Find(&rows).Error; err != nil {
+	if err := h.DB.Where("user_id = ? AND subject_id = ?", uid, subjectID).
+		Order("day DESC, seq DESC").Limit(3).Find(&rows).Error; err != nil {
 		return out
 	}
 	for _, r := range rows {
@@ -307,11 +435,11 @@ func (h *Handler) recentDailyStems(uid int64) map[string][]string {
 	return out
 }
 
-// PMPDailySubmit: POST /api/pmp-daily/submit {date, picks:[[idx]...], flagged:[i...], seconds}
+// PMPDailySubmit: POST /api/pmp-daily/submit {id, picks:[[idx]...], flagged:[i...], seconds}
 // Scores the set (sets can be submitted once) and returns the stored set.
 func (h *Handler) PMPDailySubmit(c *gin.Context) {
 	var req struct {
-		Date    string  `json:"date"`
+		ID      int64   `json:"id"`
 		Picks   [][]int `json:"picks"`
 		Flagged []int   `json:"flagged"`
 		Seconds int     `json:"seconds"`
@@ -320,19 +448,14 @@ func (h *Handler) PMPDailySubmit(c *gin.Context) {
 		bad(c, err)
 		return
 	}
-	day, ok := parseDay(req.Date)
-	if !ok {
-		abort(c, http.StatusBadRequest, "invalid date")
-		return
-	}
 	uid := userID(c)
-	s, err := h.loadDaily(uid, day)
+	s, err := h.loadDailyByID(uid, req.ID)
 	if err != nil {
 		internal(c, err)
 		return
 	}
 	if s == nil {
-		abort(c, http.StatusNotFound, "no set for that day")
+		abort(c, http.StatusNotFound, "set not found")
 		return
 	}
 	if s.SubmittedAt != nil {
@@ -399,14 +522,13 @@ func (h *Handler) PMPDailySubmit(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"set": dailyView(s)})
 }
 
-// PMPDailyReport: POST /api/pmp-daily/report {date, index}
-// The learner flags a question whose answer or explanation looks wrong (AI
-// written questions can be wrong). Stored in the set's result so it can be
-// reviewed later.
-func (h *Handler) PMPDailyReport(c *gin.Context) {
+// PMPDailyRetake: POST /api/pmp-daily/retake {id, date}
+// Clones a saved set's questions into a new set for the given day, so the
+// learner can take the same exam again (fresh answers and score).
+func (h *Handler) PMPDailyRetake(c *gin.Context) {
 	var req struct {
-		Date  string `json:"date"`
-		Index int    `json:"index"`
+		ID   int64  `json:"id"`
+		Date string `json:"date"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		bad(c, err)
@@ -414,16 +536,45 @@ func (h *Handler) PMPDailyReport(c *gin.Context) {
 	}
 	day, ok := parseDay(req.Date)
 	if !ok {
-		abort(c, http.StatusBadRequest, "invalid date")
+		day = time.Now().UTC()
+	}
+	uid := userID(c)
+	src, err := h.loadDailyByID(uid, req.ID)
+	if err != nil {
+		internal(c, err)
 		return
 	}
-	s, err := h.loadDaily(userID(c), day)
+	if src == nil {
+		abort(c, http.StatusNotFound, "set not found")
+		return
+	}
+	seq := h.nextDailySeq(uid, src.SubjectID, day)
+	set := pmpDailySet{UserID: uid, SubjectID: src.SubjectID, Seq: seq, Day: day, Questions: src.Questions, Result: models.JSON("{}"), CreatedAt: time.Now().UTC()}
+	if err := h.DB.Create(&set).Error; err != nil {
+		internal(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"set": dailyView(&set)})
+}
+
+// PMPDailyReport: POST /api/pmp-daily/report {id, index}
+// The learner flags a question whose answer or explanation looks wrong.
+func (h *Handler) PMPDailyReport(c *gin.Context) {
+	var req struct {
+		ID    int64 `json:"id"`
+		Index int   `json:"index"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		bad(c, err)
+		return
+	}
+	s, err := h.loadDailyByID(userID(c), req.ID)
 	if err != nil {
 		internal(c, err)
 		return
 	}
 	if s == nil {
-		abort(c, http.StatusNotFound, "no set for that day")
+		abort(c, http.StatusNotFound, "set not found")
 		return
 	}
 	var qs []json.RawMessage
@@ -447,4 +598,73 @@ func (h *Handler) PMPDailyReport(c *gin.Context) {
 	}
 	s.Result = models.JSON(raw)
 	c.JSON(http.StatusOK, gin.H{"set": dailyView(s)})
+}
+
+// PMPDailyAiReview: POST /api/pmp-daily/ai-review {id, model?, wrong:[...]}
+// Returns a Vietnamese review of the concepts the learner got wrong, and
+// persists it in the set so it is still there on the next load.
+func (h *Handler) PMPDailyAiReview(c *gin.Context) {
+	var req struct {
+		ID    int64            `json:"id"`
+		Model string           `json:"model"`
+		Wrong []ai.MistakeItem `json:"wrong"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		abort(c, http.StatusBadRequest, "bad request")
+		return
+	}
+	if !h.AI.Enabled() {
+		abort(c, http.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
+		return
+	}
+	uid := userID(c)
+	s, err := h.loadDailyByID(uid, req.ID)
+	if err != nil {
+		internal(c, err)
+		return
+	}
+	if s == nil {
+		abort(c, http.StatusNotFound, "set not found")
+		return
+	}
+	// return a persisted review if one exists already
+	var res dailyResult
+	_ = json.Unmarshal(s.Result, &res)
+	if res.AiReview != "" {
+		c.JSON(http.StatusOK, gin.H{"review": res.AiReview})
+		return
+	}
+	if len(req.Wrong) == 0 {
+		c.JSON(http.StatusOK, gin.H{"review": "Bạn không sai câu nào — xuất sắc! 🎉"})
+		return
+	}
+	if len(req.Wrong) > 30 {
+		req.Wrong = req.Wrong[:30]
+	}
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 120*time.Second)
+	defer cancel()
+	if req.Model != "" && !h.chatModelAllowed(ctx, req.Model) {
+		abort(c, http.StatusBadRequest, "model not allowed")
+		return
+	}
+	courseName := "PMP"
+	var sj models.Subject
+	if h.DB.Where("id = ?", s.SubjectID).Limit(1).Find(&sj).Error == nil && sj.Slug == "english" {
+		courseName = "English (TOEIC/IELTS)"
+	}
+	review, err := h.AI.ReviewDailyMistakes(ctx, req.Model, courseName, req.Wrong)
+	if err != nil {
+		if errors.Is(err, ai.ErrNotConfigured) {
+			abort(c, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		abort(c, http.StatusBadGateway, "AI review failed: "+err.Error())
+		return
+	}
+	// persist into the set's result
+	res.AiReview = review
+	if raw, e := json.Marshal(res); e == nil {
+		h.DB.Model(&pmpDailySet{}).Where("id = ?", s.ID).Update("result", models.JSON(raw))
+	}
+	c.JSON(http.StatusOK, gin.H{"review": review})
 }

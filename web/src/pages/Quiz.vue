@@ -46,7 +46,7 @@
     </div>
 
     <div v-else-if="idx < questions.length" class="row justify-content-center">
-      <div class="col-lg-8">
+      <div class="col-12">
         <div class="d-flex justify-content-between small text-muted mb-2">
           <span>
             <button type="button" class="btn btn-sm btn-outline-secondary py-0 me-2" :disabled="idx === 0" title="Previous question (←)" @click="back">

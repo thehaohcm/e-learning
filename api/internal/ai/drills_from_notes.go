@@ -11,7 +11,7 @@ import (
 // TYPE a command for a goal; the answer is checked against lenient regex
 // patterns (matched case-insensitively anywhere in the input). topic (optional)
 // focuses the drills. It never invents commands outside the notes.
-func (c *Client) GenerateDrillsFromNotes(ctx context.Context, model, courseName, topic string, count int, notes []CheatNote) ([]GeneratedCard, error) {
+func (c *Client) GenerateDrillsFromNotes(ctx context.Context, model, courseName, topic string, count int, notes []CheatNote, language string) ([]GeneratedCard, error) {
 	if !c.Enabled() {
 		return nil, ErrNotConfigured
 	}
@@ -77,6 +77,12 @@ Return JSON: {"cards": [
     {"prompt": "Type the command to ...", "patterns": ["tool\\s+-flag", "\\btool\\b"], "hint": "optional short hint", "explanation": "tool -flag <target>", "note": "what the command does and what each argument/flag means", "lesson": "when to use it and why"}
   ]}}
 ]}`, courseName, b.String(), countInstr, focus)
+
+	if language == "en" {
+		user += "\n\nIMPORTANT — LANGUAGE: Write prompt, note and lesson in ENGLISH. Keep commands, flags and code exact."
+	} else {
+		user += "\n\nQUAN TRỌNG — NGÔN NGỮ: Viết prompt, note và lesson bằng TIẾNG VIỆT. Giữ nguyên lệnh, cờ và code (không dịch)."
+	}
 
 	var out struct {
 		Cards []GeneratedCard `json:"cards"`

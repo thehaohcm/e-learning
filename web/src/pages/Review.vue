@@ -42,17 +42,22 @@
       </div>
     </div>
 
+    <div v-if="practiceMode && isAdmin && item" class="d-flex gap-2 mb-3">
+      <button type="button" class="btn btn-sm btn-outline-secondary" @click="openEdit"><i class="bi bi-pencil"></i> Sửa câu</button>
+      <button type="button" class="btn btn-sm btn-outline-danger" :disabled="deletingCard" @click="deleteCurrent"><i class="bi bi-trash3"></i> Xoá câu</button>
+    </div>
+
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
 
     <!-- end of a round: fill in the blanks with the words just studied -->
     <div v-if="showCloze" class="row justify-content-center">
-      <div class="col-lg-8">
+      <div class="col-12">
         <ClozeRound :words="roundWords.slice(-10)" @done="afterCloze" />
       </div>
     </div>
 
     <div v-else-if="item" class="row justify-content-center">
-      <div class="col-lg-8">
+      <div class="col-12">
         <ForgottenWords :words="forgotten" compact class="mb-3" />
         <div class="d-flex justify-content-end mb-1">
           <button type="button" class="btn btn-sm btn-outline-secondary" :disabled="idx === 0" @click="goBack">
@@ -348,6 +353,46 @@
     </div>
 
     <div v-else class="text-center py-5"><div class="spinner-border"></div></div>
+
+    <!-- drill: edit the current card (admin) -->
+    <div v-if="editing && item" class="rv-overlay" @click.self="editing = false">
+      <div class="rv-modal card shadow-lg">
+        <div class="card-body">
+          <div class="d-flex align-items-center mb-3">
+            <h6 class="fw-bold mb-0"><i class="bi bi-pencil"></i> Sửa câu hỏi</h6>
+            <button type="button" class="btn-close ms-auto" @click="editing = false"></button>
+          </div>
+          <label class="form-label small mb-1">{{ item.card.kind === 'mcq' ? 'Câu hỏi' : 'Tiêu đề' }}</label>
+          <input v-model="edFront" class="form-control form-control-sm mb-2" />
+          <template v-if="item.card.kind === 'mcq'">
+            <label class="form-label small mb-1">Đáp án (chọn nút tròn = đáp án đúng)</label>
+            <div v-for="(c, i) in edChoices" :key="i" class="input-group input-group-sm mb-1">
+              <span class="input-group-text"><input type="radio" class="form-check-input mt-0" :value="i" v-model.number="edAnswer" /></span>
+              <input v-model="edChoices[i]" class="form-control" :placeholder="'Đáp án ' + 'ABCD'[i]" />
+            </div>
+            <label class="form-label small mb-1 mt-2">Giải thích</label>
+            <textarea v-model="edExplanation" class="form-control form-control-sm" rows="2"></textarea>
+          </template>
+          <template v-else-if="item.card.kind === 'lab'">
+            <label class="form-label small mb-1">Yêu cầu (prompt)</label>
+            <textarea v-model="edPrompt" class="form-control form-control-sm mb-2" rows="2"></textarea>
+            <label class="form-label small mb-1">Gợi ý / lệnh mẫu (hint)</label>
+            <input v-model="edHint" class="form-control form-control-sm font-monospace mb-2" />
+            <label class="form-label small mb-1">Patterns chấp nhận (mỗi dòng 1 regex)</label>
+            <textarea v-model="edPatterns" class="form-control form-control-sm font-monospace mb-2" rows="3"></textarea>
+            <label class="form-label small mb-1">Giải thích</label>
+            <textarea v-model="edExplanation" class="form-control form-control-sm" rows="2"></textarea>
+          </template>
+          <div v-if="edErr" class="text-danger small mt-2">{{ edErr }}</div>
+          <div class="d-flex gap-2 mt-3">
+            <button type="button" class="btn btn-sm btn-primary" :disabled="edBusy" @click="saveEdit">
+              <span v-if="edBusy" class="spinner-border spinner-border-sm me-1"></span>Lưu
+            </button>
+            <button type="button" class="btn btn-sm btn-link" @click="editing = false">Huỷ</button>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -458,6 +503,92 @@ const picked = ref<number | null>(null)
 const sending = ref(false)
 const loaded = ref(false)
 const error = ref('')
+
+// drill: inline edit / delete of the current card (admin only)
+const editing = ref(false)
+const deletingCard = ref(false)
+const edFront = ref('')
+const edExplanation = ref('')
+const edPrompt = ref('')
+const edHint = ref('')
+const edPatterns = ref('')
+const edChoices = ref<string[]>(['', '', '', ''])
+const edAnswer = ref(0)
+const edErr = ref('')
+const edBusy = ref(false)
+
+function openEdit() {
+  if (!item.value) return
+  const c = item.value.card
+  const p: any = c.payload ?? {}
+  edErr.value = ''
+  edFront.value = c.front ?? ''
+  if (c.kind === 'mcq') {
+    const ch = p.choices ?? []
+    edChoices.value = [ch[0] ?? '', ch[1] ?? '', ch[2] ?? '', ch[3] ?? '']
+    edAnswer.value = typeof p.answer === 'number' ? p.answer : 0
+    edExplanation.value = p.explanation ?? ''
+  } else if (c.kind === 'lab') {
+    const st: any = (p.steps && p.steps[0]) || {}
+    edPrompt.value = st.prompt ?? ''
+    edHint.value = st.hint ?? ''
+    edPatterns.value = (st.patterns ?? []).join('\n')
+    edExplanation.value = st.explanation ?? ''
+  }
+  editing.value = true
+}
+
+async function saveEdit() {
+  if (!item.value) return
+  const c = item.value.card
+  const p: any = { ...(c.payload ?? {}) }  // keep topic/scenario/other fields
+  if (c.kind === 'mcq') {
+    p.choices = edChoices.value
+    p.answer = edAnswer.value
+    p.explanation = edExplanation.value
+  } else if (c.kind === 'lab') {
+    const steps: any[] = Array.isArray(p.steps) && p.steps.length ? [...p.steps] : [{}]
+    steps[0] = {
+      ...steps[0],
+      prompt: edPrompt.value,
+      hint: edHint.value,
+      patterns: edPatterns.value.split('\n').map((x) => x.trim()).filter(Boolean),
+      explanation: edExplanation.value,
+    }
+    p.steps = steps
+  }
+  edBusy.value = true
+  edErr.value = ''
+  try {
+    await api.put(`/cards/${c.id}`, { front: edFront.value, kind: c.kind, payload: p })
+    const i = idx.value
+    queue.value = queue.value.map((it, k) => (k === i ? { ...it, card: { ...it.card, front: edFront.value, payload: p } } : it))
+    editing.value = false
+  } catch (e) {
+    edErr.value = errorMessage(e)
+  } finally {
+    edBusy.value = false
+  }
+}
+
+async function deleteCurrent() {
+  if (!item.value) return
+  if (!window.confirm('Xoá hẳn câu hỏi này khỏi ngân hàng? Không hoàn tác được.')) return
+  deletingCard.value = true
+  error.value = ''
+  try {
+    await api.delete(`/cards/${item.value.card.id}`)
+    const i = idx.value
+    const q = queue.value.filter((_, k) => k !== i)
+    queue.value = q
+    if (q.length === 0) { practiceDone.value = true; return }
+    if (idx.value > q.length - 1) idx.value = q.length - 1
+  } catch (e) {
+    error.value = errorMessage(e)
+  } finally {
+    deletingCard.value = false
+  }
+}
 const autoSpeak = ref(storageGet('elearn.autospeak') !== 'false')
 // recall first: options hidden until "Show options", so the meaning is remembered, not recognised
 const recallFirst = ref(storageGet('elearn.recallfirst') !== 'false')
@@ -903,7 +1034,20 @@ function onKey(e: KeyboardEvent) {
 }
 
 watch(() => route.fullPath, load)
-watch(subjectId, (id, old) => { if (old && id !== old && !route.query.deck_id) load() })
+watch(subjectId, (id, old) => {
+  if (!old || id === old) return
+  // switched topic: a section-drill (if any) belongs to the old topic, so end it
+  // (otherwise its cards keep showing under the new topic, e.g. Pentest cards in English)
+  if (practiceMode.value || practiceDone.value) {
+    practiceMode.value = false
+    practiceDone.value = false
+    practiceLabel.value = ''
+    queue.value = []
+    missedThisRound.value = []
+    editing.value = false
+  }
+  if (!route.query.deck_id) load()
+})
 onMounted(() => {
   load()
   window.addEventListener('keydown', onKey)
@@ -921,6 +1065,8 @@ onUnmounted(() => {
 
 <style scoped>
 .idk { border-style: dashed; }
+.rv-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 1080; display: flex; align-items: flex-start; justify-content: center; padding: 5vh 1rem; overflow-y: auto; }
+.rv-modal { width: 100%; max-width: 540px; border-radius: 14px !important; }
 .speak-btn {
   width: 40px;
   height: 40px;

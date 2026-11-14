@@ -141,7 +141,7 @@ async function drill() {
     // more sections are checked, keep only cards from those sections here —
     // lets the picker combine several sections in one drill with one request.
     const { data } = await api.get('/study/practice', {
-      params: { subject_id: subjectId.value, kind: kind.value, limit: 200 },
+      params: { subject_id: subjectId.value, kind: kind.value, limit: 2000 },
     })
     let items: QueueItem[] = data ?? []
     if (selectedTopics.value.length > 0) {

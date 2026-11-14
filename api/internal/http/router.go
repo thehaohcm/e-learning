@@ -164,12 +164,19 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/roleplay/turn", practiceLimit, h.RoleplayTurn)
 		u.POST("/roleplay/feedback", practiceLimit, h.RoleplayFeedback)
 
-		// PMP "Daily 20": 20 AI-written PMP-style questions per day, scored on submit
+		// "Daily 20": AI-written scenario questions per subject/day (PMP + English)
 		u.GET("/pmp-daily", h.PMPDailyGet)
 		u.GET("/pmp-daily/history", h.PMPDailyHistory)
 		u.POST("/pmp-daily/generate", practiceLimit, h.PMPDailyGenerate)
 		u.POST("/pmp-daily/submit", h.PMPDailySubmit)
+		u.POST("/pmp-daily/retake", practiceLimit, h.PMPDailyRetake)
 		u.POST("/pmp-daily/report", h.PMPDailyReport)
+		u.POST("/pmp-daily/ai-review", practiceLimit, h.PMPDailyAiReview)
+		// learner-uploaded audio notes attached to a Daily set
+		u.POST("/pmp-daily/audio", h.DailyAudioUpload)
+		u.GET("/pmp-daily/audio", h.DailyAudioList)
+		u.GET("/pmp-daily/audio/:id", h.DailyAudioGet)
+		u.DELETE("/pmp-daily/audio/:id", h.DailyAudioDelete)
 
 		u.GET("/writing/phrases", h.WritingPhrases)             // phrase bank (Writing page panel)
 		u.POST("/writing/phrases/study", h.StudyWritingPhrases) // add the whole bank to Study

@@ -1,6 +1,6 @@
 <template>
   <div class="row justify-content-center">
-    <div class="col-lg-7">
+    <div class="col-12">
       <h2 class="fw-bold mb-3"><i class="bi bi-box-arrow-in-down"></i> Save a word</h2>
 
       <div class="card border-0 shadow-sm">

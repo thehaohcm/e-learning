@@ -49,6 +49,7 @@ const router = createRouter({
         { path: 'practice/check', component: () => import('./pages/WordQuestions.vue') }, // ?ids=1,2,3: AI multiple choice (shared with the device)
         { path: 'writing', component: () => import('./pages/Writing.vue') },
         { path: 'cheatsheet', component: () => import('./pages/CheatSheet.vue') }, // per-course notes + AI cheat sheet
+        { path: 'cases', component: () => import('./pages/CaseStudies.vue') }, // PMP narrative case studies (read-only)
         { path: 'roleplay', component: () => import('./pages/Roleplay.vue') }, // PMP: play the PM with an AI client (English speaking)
         { path: 'daily', component: () => import('./pages/DailyQuiz.vue') }, // PMP: Daily 20 exam-style questions
         { path: 'courses', component: () => import('./pages/Courses.vue') }, // admin: manage subjects/decks/cards

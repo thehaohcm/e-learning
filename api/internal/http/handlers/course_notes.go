@@ -429,6 +429,7 @@ func (h *Handler) GenerateCourseQuestions(c *gin.Context) {
 		Model      string `json:"model"`
 		Format     string `json:"format"`     // "lab" = typed-command drills, else "mcq"
 		Exhaustive bool   `json:"exhaustive"` // lab only: deterministically extract every command line from the matching notes' code blocks and make exactly one drill per line (see ai.ExtractCommandLines), instead of letting the AI decide how many/which commands to cover
+		Language   string `json:"language"`   // output language for generated questions: "vi" (default) or "en"
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.SubjectID <= 0 {
 		abort(c, http.StatusBadRequest, "subject_id is required")
@@ -484,16 +485,35 @@ func (h *Handler) GenerateCourseQuestions(c *gin.Context) {
 		return
 	}
 
+	genLang := "vi"
+	if req.Language == "en" {
+		genLang = "en"
+	}
+	// Block regenerating a section that already has questions: the learner
+	// must delete the old items for this section first (avoids silent
+	// duplicates piling up under the same "MỤC" bucket).
+	if gt := strings.TrimSpace(req.Topic); gt != "" {
+		label := gt
+		if genLang == "en" {
+			label += " (EN)"
+		}
+		var existing int64
+		h.DB.Model(&models.Card{}).Where("deck_id = ? AND payload->>'topic' = ?", deck.ID, label).Count(&existing)
+		if existing > 0 {
+			abort(c, http.StatusConflict, fmt.Sprintf("Mục %q đã có %d câu hỏi. Hãy xóa các câu của mục này trước khi tạo lại.", label, existing))
+			return
+		}
+	}
 	extractedTotal := 0
 	var gen []ai.GeneratedCard
 	var err error
 	switch {
 	case isLab && req.Exhaustive:
-		gen, extractedTotal, err = h.generateExhaustiveLabDrills(ctx, req.Model, req.Topic, subject.Name, notes)
+		gen, extractedTotal, err = h.generateExhaustiveLabDrills(ctx, req.Model, req.Topic, subject.Name, notes, genLang)
 	case isLab:
-		gen, err = h.AI.GenerateDrillsFromNotes(ctx, req.Model, subject.Name, req.Topic, req.Count, items)
+		gen, err = h.AI.GenerateDrillsFromNotes(ctx, req.Model, subject.Name, req.Topic, req.Count, items, genLang)
 	default:
-		gen, err = h.AI.GenerateQuestionsFromNotes(ctx, req.Model, subject.Name, req.Topic, req.Count, items)
+		gen, err = h.AI.GenerateQuestionsFromNotes(ctx, req.Model, subject.Name, req.Topic, req.Count, items, genLang)
 	}
 	if err != nil {
 		if errors.Is(err, ai.ErrNotConfigured) {
@@ -508,6 +528,12 @@ func (h *Handler) GenerateCourseQuestions(c *gin.Context) {
 	ids := []int64{}
 	skipped := 0
 	topic := strings.TrimSpace(req.Topic)
+	// English questions get an "(EN)" suffix on their section label so they
+	// form a separate bucket in the Study "MỤC" picker instead of mixing with
+	// the default Vietnamese drills of the same section.
+	if topic != "" && genLang == "en" {
+		topic += " (EN)"
+	}
 	for _, g := range gen {
 		front := strings.TrimSpace(g.Front)
 		raw := g.Payload
@@ -599,7 +625,7 @@ func filterQuizWorthy(notes []models.CourseNote) []models.CourseNote {
 // always equals the number of commands extracted. Returns the generated
 // cards, the total number of commands extracted (for the caller to report),
 // and an error only when nothing could be extracted at all.
-func (h *Handler) generateExhaustiveLabDrills(ctx context.Context, model, topic, courseName string, notes []models.CourseNote) ([]ai.GeneratedCard, int, error) {
+func (h *Handler) generateExhaustiveLabDrills(ctx context.Context, model, topic, courseName string, notes []models.CourseNote, language string) ([]ai.GeneratedCard, int, error) {
 	topic = strings.TrimSpace(topic)
 	scoped := notes
 	if topic != "" {
@@ -630,7 +656,7 @@ func (h *Handler) generateExhaustiveLabDrills(ctx context.Context, model, topic,
 			end = len(lines)
 		}
 		batch := lines[start:end]
-		cards, err := h.AI.GenerateExactDrills(ctx, model, courseName, batch)
+		cards, err := h.AI.GenerateExactDrills(ctx, model, courseName, batch, language)
 		if err != nil {
 			log.Printf("[ai] exhaustive drill batch [%d:%d]/%d: %v", start, end, len(lines), err)
 			cards = nil // fall through: every line in this batch gets the AI-free fallback below

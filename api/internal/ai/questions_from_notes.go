@@ -11,7 +11,7 @@ import (
 // one part of the notes. The returned cards are MCQ (payload: choices, answer,
 // explanation); the caller validates each with content.Normalize and inserts
 // them. It never invents facts outside the notes.
-func (c *Client) GenerateQuestionsFromNotes(ctx context.Context, model, courseName, topic string, count int, notes []CheatNote) ([]GeneratedCard, error) {
+func (c *Client) GenerateQuestionsFromNotes(ctx context.Context, model, courseName, topic string, count int, notes []CheatNote, language string) ([]GeneratedCard, error) {
 	if !c.Enabled() {
 		return nil, ErrNotConfigured
 	}
@@ -66,6 +66,12 @@ Rules:
 Return JSON: {"cards": [
   {"front": "question text", "payload": {"choices": ["A","B","C","D"], "answer": 0, "explanation": "why it is correct"}}
 ]}`, courseName, b.String(), countInstr, focus)
+
+	if language == "en" {
+		user += "\n\nIMPORTANT — LANGUAGE: Write every question, all 4 choices and the explanation in ENGLISH. Keep commands, code and technical terms exact."
+	} else {
+		user += "\n\nQUAN TRỌNG — NGÔN NGỮ: Viết toàn bộ câu hỏi, 4 đáp án và giải thích bằng TIẾNG VIỆT. Giữ nguyên lệnh, code, cờ và thuật ngữ kỹ thuật (không dịch)."
+	}
 
 	var out struct {
 		Cards []GeneratedCard `json:"cards"`

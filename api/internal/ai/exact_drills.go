@@ -15,7 +15,7 @@ import (
 // advisory and validate the count: if the model returns fewer cards than
 // requested, fill any missing index with BuildFallbackDrillCard so no
 // command is ever silently dropped.
-func (c *Client) GenerateExactDrills(ctx context.Context, model, courseName string, lines []CommandLine) ([]GeneratedCard, error) {
+func (c *Client) GenerateExactDrills(ctx context.Context, model, courseName string, lines []CommandLine, language string) ([]GeneratedCard, error) {
 	if !c.Enabled() {
 		return nil, ErrNotConfigured
 	}
@@ -52,6 +52,12 @@ Return JSON: {"cards": [
     {"prompt": "...", "patterns": ["..."], "explanation": "...", "note": "...", "lesson": "..."}
   ]}}
 ]} — the "cards" array must have exactly %d items, in command order.`, courseName, len(lines), len(lines), b.String(), len(lines))
+
+	if language == "en" {
+		user += "\n\nIMPORTANT — LANGUAGE: Write prompt, note and lesson in ENGLISH. Keep commands, flags and code exact."
+	} else {
+		user += "\n\nQUAN TRỌNG — NGÔN NGỮ: Viết prompt, note và lesson bằng TIẾNG VIỆT. Giữ nguyên lệnh, cờ và code (không dịch)."
+	}
 
 	var out struct {
 		Cards []GeneratedCard `json:"cards"`

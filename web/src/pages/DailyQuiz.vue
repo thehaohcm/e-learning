@@ -1,10 +1,10 @@
 <template>
   <div class="row justify-content-center">
-    <div class="col-12 col-lg-9 col-xl-8">
+    <div class="col-12">
       <div class="d-flex flex-wrap justify-content-between align-items-end mb-3 gap-2">
         <div>
-          <h2 class="fw-bold mb-0"><i class="bi bi-calendar-check"></i> PMP Daily 20</h2>
-          <small class="text-muted">20 câu tình huống bằng tiếng Anh mỗi ngày, theo tỷ trọng domain của đề thật. Câu hỏi do AI viết từ cheatsheet của bạn.</small>
+          <h2 class="fw-bold mb-0"><i class="bi bi-calendar-check"></i> {{ subjectTitle }} Daily 20</h2>
+          <small class="text-muted">{{ subjectBlurb }}</small>
         </div>
         <div v-if="streak > 0" class="badge text-bg-warning fs-6"><i class="bi bi-fire"></i> {{ streak }} ngày liên tiếp</div>
       </div>
@@ -12,19 +12,24 @@
       <div v-if="err" class="alert alert-danger py-2 small">{{ err }}</div>
       <div v-if="loading" class="text-center py-5"><div class="spinner-border text-primary"></div></div>
 
-      <!-- no set yet today -->
+      <!-- no set loaded -->
       <template v-else-if="!set">
         <div class="card border-0 shadow-sm mb-3">
           <div class="card-body">
-            <p class="mb-2">Bộ hôm nay ({{ today }}) chưa được tạo. Mỗi ngày có một bộ; mở lại trong ngày sẽ thấy đúng bộ đó.</p>
-            <ul class="small text-muted mb-3">
+            <p class="mb-2">Chưa có bộ nào hôm nay ({{ today }}). Tạo một bộ 20 câu để bắt đầu; bạn có thể tạo thêm bộ mới bất cứ lúc nào.</p>
+            <ul v-if="isPmp" class="small text-muted mb-3">
               <li>7 câu People, 8 câu Process, 5 câu Business Environment, trộn lẫn như đề thật</li>
               <li>Khoảng 40% predictive, 60% agile/hybrid; có câu chọn 2 đáp án và câu tính toán</li>
               <li>Đồng hồ ~27 phút (80 giây mỗi câu); sau khi nộp có phân tích từng đáp án</li>
             </ul>
+            <ul v-else class="small text-muted mb-3">
+              <li>20 câu trắc nghiệm tiếng Anh (TOEIC/IELTS) từ chính các từ bạn đang học</li>
+              <li>Điền từ, chọn nghĩa gần nhất, hoặc chọn câu dùng từ đúng</li>
+              <li>Sau khi nộp có giải thích từng đáp án và nghĩa tiếng Việt</li>
+            </ul>
             <button class="btn btn-primary" :disabled="generating" @click="generate">
               <span v-if="generating" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-magic"></i>
-              {{ generating ? 'AI đang viết 20 câu… (có thể mất 1–2 phút)' : 'Tạo bộ 20 câu hôm nay' }}
+              {{ generating ? 'AI đang viết 20 câu… (có thể mất 1–2 phút)' : 'Tạo bộ 20 câu' }}
             </button>
           </div>
         </div>
@@ -97,7 +102,44 @@
               <div class="small d-flex justify-content-between"><span>{{ d }}</span><span>{{ v[0] }}/{{ v[1] }}</span></div>
               <div class="progress" style="height: 6px"><div class="progress-bar" :style="{ width: (v[1] ? (100 * v[0]) / v[1] : 0) + '%' }"></div></div>
             </div>
-            <p class="small text-muted mt-2 mb-0">Bộ mới sẽ có vào ngày mai. Xem lại các câu sai bên dưới và đọc phần giải thích từng đáp án.</p>
+            <div class="d-flex flex-wrap gap-2 mt-3">
+              <button class="btn btn-sm btn-outline-primary" :disabled="retaking" @click="retake">
+                <span v-if="retaking" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-arrow-repeat"></i>
+                Làm lại bộ này
+              </button>
+              <button class="btn btn-sm btn-primary" :disabled="generating" @click="generate">
+                <span v-if="generating" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-plus-circle"></i>
+                {{ generating ? 'Đang tạo…' : 'Tạo bộ 20 câu mới' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- audio notes for this exam -->
+        <div class="card border-0 shadow-sm mb-3">
+          <div class="card-body">
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+              <h6 class="fw-bold mb-0"><i class="bi bi-music-note-beamed"></i> Audio ôn tập (của bạn)</h6>
+              <small class="text-muted">mp3 / m4a · tối đa 25MB/file</small>
+              <label class="btn btn-sm btn-outline-primary ms-auto mb-0">
+                <span v-if="audioBusy" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-upload"></i>
+                Tải audio lên
+                <input type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg" multiple class="d-none" :disabled="audioBusy" @change="uploadAudio" />
+              </label>
+            </div>
+            <div v-if="audioErr" class="alert alert-danger py-2 small mb-2">{{ audioErr }}</div>
+            <p v-if="!audioFiles.length" class="small text-muted mb-0">Chưa có file nào. Tải lên bản tóm tắt NotebookLM hay ghi âm của bạn để nghe lại.</p>
+            <div v-for="a in audioFiles" :key="a.id" class="d-flex flex-wrap align-items-center gap-2 py-2 border-top">
+              <div class="flex-grow-1">
+                <div class="small fw-semibold text-truncate" style="max-width: 420px">{{ a.name }}</div>
+                <div class="text-muted" style="font-size: 0.75rem">{{ sizeMB(a.bytes) }}</div>
+              </div>
+              <audio v-if="audioUrls[a.id]" :src="audioUrls[a.id]" controls preload="none" style="height: 36px"></audio>
+              <button v-else class="btn btn-sm btn-outline-secondary" :disabled="audioLoading[a.id]" @click="loadBlob(a.id)">
+                <span v-if="audioLoading[a.id]" class="spinner-border spinner-border-sm"></span><template v-else><i class="bi bi-play-circle"></i> Nghe</template>
+              </button>
+              <button class="btn btn-sm btn-outline-danger" @click="deleteAudio(a.id)" title="Xoá"><i class="bi bi-trash"></i></button>
+            </div>
           </div>
         </div>
 
@@ -132,7 +174,7 @@
             <div class="bg-light rounded p-2 mt-2">
               <div class="small fw-bold mb-1">Explanation</div>
               <div class="small">{{ item.q.explanation }}</div>
-              <div v-if="item.q.section" class="small text-muted mt-1"><i class="bi bi-journal-text"></i> Cheatsheet: {{ item.q.section }}</div>
+              <div v-if="item.q.section" class="small text-muted mt-1"><i class="bi bi-journal-text"></i> {{ isPmp ? 'Cheatsheet' : 'Từ' }}: {{ item.q.section }}</div>
               <div v-if="item.q.terms && item.q.terms.length" class="small mt-1">
                 <span v-for="(t, ti) in item.q.terms" :key="ti" class="me-3"><b>{{ t.en }}</b> = {{ t.vi }}</span>
               </div>
@@ -144,17 +186,33 @@
             </div>
           </div>
         </div>
+
+        <div class="text-center my-4">
+          <button class="btn btn-warning" :disabled="aiReviewBusy" @click="runAiReview">
+            <span v-if="aiReviewBusy" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-stars"></i>
+            AI đánh giá bài làm (tiếng Việt)
+          </button>
+          <div v-if="aiReviewErr" class="text-danger small mt-2">{{ aiReviewErr }}</div>
+        </div>
+        <div v-if="aiReviewText" class="card border-0 shadow-sm mb-4">
+          <div class="card-body">
+            <h6 class="fw-bold mb-2"><i class="bi bi-robot"></i> AI đánh giá — phần cần nhớ để tránh lặp lỗi</h6>
+            <div class="md" v-html="renderMarkdown(aiReviewText)"></div>
+          </div>
+        </div>
       </template>
 
-      <!-- last days -->
+      <!-- recent sets (clickable to review) -->
       <div v-if="!loading && history.length" class="card border-0 shadow-sm mt-4">
         <div class="card-body py-2">
-          <div class="small fw-bold mb-1">Các ngày gần đây</div>
+          <div class="small fw-bold mb-1">Các bộ gần đây <span class="text-muted fw-normal">· bấm để xem lại</span></div>
           <div class="d-flex flex-wrap gap-2">
-            <span v-for="h in history" :key="h.date" class="badge border" :class="h.submitted ? 'text-bg-light' : 'text-bg-secondary'"
-              :title="h.submitted ? h.score + '/' + h.total : 'chưa nộp'">
-              {{ h.date.slice(5) }} · {{ h.submitted ? h.score + '/' + h.total : '—' }}
-            </span>
+            <button v-for="h in history" :key="h.id" type="button" class="badge border btn-badge"
+              :class="[h.id === (set && set.id) ? 'text-bg-primary' : h.submitted ? 'text-bg-light' : 'text-bg-secondary']"
+              :title="h.submitted ? h.score + '/' + h.total : 'chưa nộp'" @click="openHistory(h.id)">
+              {{ h.date.slice(5) }}<span v-if="h.seq > 1">#{{ h.seq }}</span> · {{ h.submitted ? h.score + '/' + h.total : '—' }}
+              <i v-if="h.has_review" class="bi bi-stars text-warning ms-1"></i>
+            </button>
           </div>
         </div>
       </div>
@@ -165,11 +223,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, errorMessage } from '../api'
+import { renderMarkdown } from '../utils/markdown'
 import { useSpeechSynthesis } from '../composables/useSpeechSynthesis'
+import { subjectSlug } from '../composables/useSubject'
 
-// PMP Daily 20: one stored set of 20 AI-written, exam-style questions per day.
-// Progress (answers, marks, start time) is kept in localStorage while the set
-// is open; the server scores it on submit.
+// "Daily 20": a stored set of 20 AI-written, exam-style questions per subject.
+// PMP uses the exam-domain weighting; English draws from the learner's vocab.
+// More than one set can exist per day (generate another, or re-take a saved
+// one). Progress is kept in localStorage per set while it is open.
 
 interface Opt { text: string; why: string }
 interface Term { en: string; vi: string }
@@ -180,19 +241,30 @@ interface Q {
 }
 interface Result {
   picks: number[][] | null; flagged: number[] | null; seconds: number
-  by_domain: Record<string, [number, number]> | null; correct: boolean[] | null; reported: number[] | null
+  by_domain: Record<string, [number, number]> | null; correct: boolean[] | null
+  reported: number[] | null; ai_review?: string
 }
-interface DSet { date: string; questions: Q[]; submitted: boolean; score: number; result: Result }
-interface Day { date: string; score: number; total: number; submitted: boolean }
+interface DSet { id: number; seq: number; date: string; questions: Q[]; submitted: boolean; score: number; result: Result }
+interface Day { id: number; date: string; seq: number; score: number; total: number; submitted: boolean; has_review: boolean }
+interface AudioFile { id: number; name: string; mime: string; bytes: number }
 
 const SECONDS_PER_QUESTION = 80
 const letters = ['A', 'B', 'C', 'D', 'E']
 
-const today = new Date().toLocaleDateString('en-CA') // YYYY-MM-DD in the local time zone
+const isPmp = computed(() => subjectSlug.value !== 'english')
+const subjectTitle = computed(() => (isPmp.value ? 'PMP' : 'English'))
+const subjectBlurb = computed(() =>
+  isPmp.value
+    ? '20 câu tình huống bằng tiếng Anh mỗi ngày, theo tỷ trọng domain của đề thật. Câu hỏi do AI viết từ cheatsheet của bạn.'
+    : '20 câu trắc nghiệm tiếng Anh (TOEIC/IELTS) mỗi ngày, do AI viết từ chính các từ bạn đang học.',
+)
+
+const today = new Date().toLocaleDateString('en-CA') // YYYY-MM-DD local
 const set = ref<DSet | null>(null)
 const history = ref<Day[]>([])
 const loading = ref(true)
 const generating = ref(false)
+const retaking = ref(false)
 const submitting = ref(false)
 const confirmSubmit = ref(false)
 const err = ref('')
@@ -205,7 +277,17 @@ const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
 
 const filter = ref<'all' | 'wrong' | 'flagged'>('all')
+const aiReviewText = ref('')
+const aiReviewBusy = ref(false)
+const aiReviewErr = ref('')
 const tts = useSpeechSynthesis()
+
+// audio notes
+const audioFiles = ref<AudioFile[]>([])
+const audioUrls = ref<Record<number, string>>({})
+const audioLoading = ref<Record<number, boolean>>({})
+const audioBusy = ref(false)
+const audioErr = ref('')
 
 const q = computed(() => set.value?.questions[cur.value] ?? null)
 const total = computed(() => set.value?.questions.length ?? 0)
@@ -221,7 +303,6 @@ const unanswered = computed(() => picks.value.filter((p) => !p || p.length === 0
 const pct = computed(() => (set.value && total.value ? Math.round((100 * set.value.score) / total.value) : 0))
 
 const streak = computed(() => {
-  // consecutive submitted days ending today (or yesterday if today is not done yet)
   const done = new Set(history.value.filter((h) => h.submitted).map((h) => h.date))
   let n = 0
   const d = new Date()
@@ -234,9 +315,12 @@ function minutes(sec: number): string {
   const m = Math.floor((sec || 0) / 60)
   return `${m} phút ${String((sec || 0) % 60).padStart(2, '0')} giây`
 }
+function sizeMB(b: number): string {
+  return b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB'
+}
 
-// ---- progress in localStorage (best effort) ----
-const storeKey = () => `pmp-daily-${today}`
+// ---- progress in localStorage (best effort), keyed by set id ----
+const storeKey = () => `daily-${subjectSlug.value}-${set.value?.id ?? 0}`
 function saveProgress() {
   if (!set.value || set.value.submitted) return
   try {
@@ -259,24 +343,38 @@ function restoreProgress() {
 }
 watch([picks, flagged, cur], saveProgress, { deep: true })
 
+function startTimer() { if (!timer) timer = setInterval(() => { now.value = Date.now() }, 1000) }
+function stopTimer() { if (timer) { clearInterval(timer); timer = null } }
+
 // ---- loading ----
 async function loadHistory() {
   try {
-    const { data } = await api.get('/pmp-daily/history')
+    const { data } = await api.get('/pmp-daily/history', { params: { subject: subjectSlug.value } })
     history.value = data.days ?? []
   } catch { /* history is optional */ }
+}
+
+function clearAudio() {
+  for (const k in audioUrls.value) { try { URL.revokeObjectURL(audioUrls.value[+k]) } catch { /* ignore */ } }
+  audioUrls.value = {}
+  audioLoading.value = {}
+  audioFiles.value = []
+  audioErr.value = ''
 }
 
 function adopt(s: DSet | null) {
   set.value = s
   confirmSubmit.value = false
+  aiReviewErr.value = ''
+  aiReviewText.value = s?.result?.ai_review ?? ''
+  clearAudio()
   if (s && !s.submitted) {
     cur.value = 0
     restoreProgress()
-    if (!timer) timer = setInterval(() => { now.value = Date.now() }, 1000)
-  } else if (timer) {
-    clearInterval(timer)
-    timer = null
+    startTimer()
+  } else {
+    stopTimer()
+    if (s && s.submitted) loadAudio(s.id)
   }
 }
 
@@ -284,7 +382,7 @@ async function load() {
   loading.value = true
   err.value = ''
   try {
-    const { data } = await api.get('/pmp-daily', { params: { date: today } })
+    const { data } = await api.get('/pmp-daily', { params: { subject: subjectSlug.value, date: today } })
     adopt(data.set ?? null)
     await loadHistory()
   } catch (e) {
@@ -298,13 +396,45 @@ async function generate() {
   generating.value = true
   err.value = ''
   try {
-    const { data } = await api.post('/pmp-daily/generate', { date: today }, { timeout: 180000 })
+    const { data } = await api.post('/pmp-daily/generate', { date: today, subject: subjectSlug.value }, { timeout: 180000 })
     adopt(data.set)
     await loadHistory()
+    window.scrollTo({ top: 0 })
   } catch (e) {
     err.value = errorMessage(e)
   } finally {
     generating.value = false
+  }
+}
+
+async function retake() {
+  if (!set.value) return
+  retaking.value = true
+  err.value = ''
+  try {
+    const { data } = await api.post('/pmp-daily/retake', { id: set.value.id, date: today })
+    adopt(data.set)
+    await loadHistory()
+    window.scrollTo({ top: 0 })
+  } catch (e) {
+    err.value = errorMessage(e)
+  } finally {
+    retaking.value = false
+  }
+}
+
+async function openHistory(id: number) {
+  if (set.value && set.value.id === id) return
+  loading.value = true
+  err.value = ''
+  try {
+    const { data } = await api.get('/pmp-daily', { params: { id } })
+    adopt(data.set ?? null)
+    window.scrollTo({ top: 0 })
+  } catch (e) {
+    err.value = errorMessage(e)
+  } finally {
+    loading.value = false
   }
 }
 
@@ -320,7 +450,7 @@ function choose(qi: number, oi: number) {
     const at = list.indexOf(oi)
     if (at >= 0) list.splice(at, 1)
     else if (list.length < 2) list.push(oi)
-    else { list.shift(); list.push(oi) } // a third choice replaces the oldest
+    else { list.shift(); list.push(oi) }
   } else {
     list.splice(0, list.length, oi)
   }
@@ -339,7 +469,7 @@ async function submit() {
   err.value = ''
   try {
     const { data } = await api.post('/pmp-daily/submit', {
-      date: set.value.date,
+      id: set.value.id,
       picks: picks.value,
       flagged: flagged.value,
       seconds: elapsed.value,
@@ -381,13 +511,90 @@ const reviewItems = computed(() => {
     .filter((it) => filter.value === 'all' || (filter.value === 'wrong' && !it.right) || (filter.value === 'flagged' && wasFlagged(it.i)))
 })
 
+async function runAiReview() {
+  const sv = set.value
+  if (!sv) return
+  const wrong = sv.questions
+    .map((qq, i) => ({ qq, i }))
+    .filter(({ i }) => !isRight(i))
+    .map(({ qq, i }) => ({
+      stem: qq.stem,
+      correct: qq.correct.map((ci) => qq.options[ci]?.text ?? '').filter(Boolean),
+      picked: pickOf(i).map((pi) => qq.options[pi]?.text ?? '').filter(Boolean),
+      explanation: qq.explanation,
+      section: qq.section,
+      terms: (qq.terms ?? []).map((t) => `${t.en} = ${t.vi}`),
+    }))
+  aiReviewBusy.value = true
+  aiReviewErr.value = ''
+  try {
+    const { data } = await api.post('/pmp-daily/ai-review', { id: sv.id, wrong }, { timeout: 120000 })
+    aiReviewText.value = data.review ?? ''
+    await loadHistory()
+  } catch (e) {
+    aiReviewErr.value = errorMessage(e)
+  } finally {
+    aiReviewBusy.value = false
+  }
+}
+
 async function report(i: number) {
   if (!set.value) return
   try {
-    const { data } = await api.post('/pmp-daily/report', { date: set.value.date, index: i })
+    const { data } = await api.post('/pmp-daily/report', { id: set.value.id, index: i })
     set.value = data.set
   } catch (e) {
     err.value = errorMessage(e)
+  }
+}
+
+// ---- audio notes ----
+async function loadAudio(setId: number) {
+  try {
+    const { data } = await api.get('/pmp-daily/audio', { params: { set_id: setId } })
+    audioFiles.value = data.files ?? []
+  } catch { audioFiles.value = [] }
+}
+
+async function uploadAudio(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = input.files
+  if (!files || !files.length || !set.value) return
+  audioBusy.value = true
+  audioErr.value = ''
+  try {
+    const fd = new FormData()
+    fd.append('set_id', String(set.value.id))
+    for (const f of Array.from(files)) fd.append('files', f)
+    await api.post('/pmp-daily/audio', fd, { timeout: 300000 })
+    await loadAudio(set.value.id)
+  } catch (err2) {
+    audioErr.value = errorMessage(err2)
+  } finally {
+    audioBusy.value = false
+    input.value = ''
+  }
+}
+
+async function loadBlob(id: number) {
+  audioLoading.value = { ...audioLoading.value, [id]: true }
+  try {
+    const { data } = await api.get(`/pmp-daily/audio/${id}`, { responseType: 'blob' })
+    audioUrls.value = { ...audioUrls.value, [id]: URL.createObjectURL(data) }
+  } catch (e) {
+    audioErr.value = errorMessage(e)
+  } finally {
+    audioLoading.value = { ...audioLoading.value, [id]: false }
+  }
+}
+
+async function deleteAudio(id: number) {
+  try {
+    await api.delete(`/pmp-daily/audio/${id}`)
+    if (audioUrls.value[id]) { try { URL.revokeObjectURL(audioUrls.value[id]) } catch { /* ignore */ } }
+    audioFiles.value = audioFiles.value.filter((a) => a.id !== id)
+  } catch (e) {
+    audioErr.value = errorMessage(e)
   }
 }
 
@@ -397,8 +604,9 @@ async function say(text: string) {
 
 onMounted(load)
 onUnmounted(() => {
-  if (timer) clearInterval(timer)
+  stopTimer()
   tts.stop()
+  clearAudio()
 })
 </script>
 
@@ -411,4 +619,6 @@ onUnmounted(() => {
 .rv { border: 1px solid #e2e8f0; }
 .rv-ok { background: #ecfdf5; border-color: #10b981; }
 .rv-bad { background: #fef2f2; border-color: #ef4444; }
+.btn-badge { cursor: pointer; border: 1px solid #cbd5e1; }
+.btn-badge:hover { filter: brightness(0.97); }
 </style>

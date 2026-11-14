@@ -21,6 +21,13 @@
           {{ format === 'lab' ?'Trong Study bạn gõ lệnh, hệ thống so khớp (cờ không cần đúng thứ tự, vd ss -tunlp = ss -utpln).' : 'Chọn 1 trong 4 đáp án, ôn trong Study.' }}
         </p>
 
+        <label class="form-label small mb-1">Ngôn ngữ câu hỏi</label>
+        <div class="btn-group w-100 mb-2" role="group">
+          <input id="lang-vi" v-model="lang" type="radio" class="btn-check" value="vi" />
+          <label class="btn btn-outline-primary" for="lang-vi">Tiếng Việt</label>
+          <input id="lang-en" v-model="lang" type="radio" class="btn-check" value="en" />
+          <label class="btn btn-outline-primary" for="lang-en">English</label>
+        </div>
         <label class="form-label small mb-1">Chủ đề / mục cần ôn <span class="text-muted">(để trống = toàn bộ cheatsheet)</span></label>
         <select v-model="topic" class="form-select mb-2">
           <option value="">Toàn bộ cheatsheet</option>
@@ -78,6 +85,7 @@ const format = ref<'lab' | 'mcq'>('lab')
 const exhaustive = ref(false)
 const topic = ref('')
 const topics = ref<string[]>([])
+const lang = ref<'vi' | 'en'>('vi')
 const model = ref('')
 const models = ref<string[]>([])
 const busy = ref(false)
@@ -98,9 +106,14 @@ async function loadTopics() {
   try {
     const { data } = await api.get('/course-notes', { params: { subject_id: subjectId.value } })
     const seen = new Set<string>()
+    // These PMP cheatsheet sections are exam meta-info (exam format, eligibility,
+    // PMI mindset), not study content worth generating practice questions from.
+    const SKIP = ['Thông tin kỳ thi', 'Điều kiện thi', 'Mindset PMI']
     for (const n of (data.notes ?? [])) {
       const t = (n.title ?? '').trim()
-      if (t && !seen.has(t)) { seen.add(t); topics.value.push(t) }
+      if (!t || seen.has(t)) continue
+      if (SKIP.some((k) => t.includes(k))) continue
+      seen.add(t); topics.value.push(t)
     }
   } catch { topics.value = [] }
 }
@@ -112,6 +125,7 @@ function open() {
   okMsg.value = ''
   pendingDone.value = null
   topic.value = ''
+  lang.value = 'vi'
   show.value = true
   loadModels()
   loadTopics()
@@ -133,7 +147,7 @@ async function generate() {
   okMsg.value = ''
   try {
     const { data } = await api.post('/course-notes/gen-questions',
-      { subject_id: subjectId.value, topic: topic.value.trim(), model: model.value || undefined, format: format.value,
+      { subject_id: subjectId.value, topic: topic.value.trim(), language: lang.value, model: model.value || undefined, format: format.value,
         exhaustive: format.value === 'lab' && exhaustive.value },
       { timeout: 180000 })
     if (!data.created) {

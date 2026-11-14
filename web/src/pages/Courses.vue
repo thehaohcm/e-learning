@@ -1,6 +1,6 @@
 <template>
   <div class="row justify-content-center">
-    <div class="col-lg-9">
+    <div class="col-12">
       <div class="d-flex flex-wrap justify-content-between align-items-end mb-3 gap-2">
         <div>
           <h2 class="fw-bold mb-0"><i class="bi bi-mortarboard"></i> Courses</h2>

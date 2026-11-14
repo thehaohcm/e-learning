@@ -1,6 +1,6 @@
 <template>
   <div id="app">
-    <nav v-if="auth.token" class="navbar navbar-expand-lg navbar-dark shadow-lg modern-navbar">
+    <nav v-if="auth.token" class="navbar navbar-expand-xl navbar-dark shadow-lg modern-navbar">
       <div class="container">
         <router-link class="navbar-brand d-flex align-items-center gap-2 fw-bold" :to="homeLink">
           <div class="brand-icon">
@@ -23,7 +23,7 @@
           <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" :class="{ show: navOpen }">
-          <ul class="navbar-nav ms-auto align-items-lg-center gap-1">
+          <ul class="navbar-nav ms-auto align-items-xl-center gap-1 flex-wrap justify-content-end">
             <template v-for="l in links" :key="l.to">
               <!-- Practice: dropdown on desktop, plain list inside the collapsed menu on phones -->
               <li v-if="l.children" class="nav-item dropdown">
@@ -59,7 +59,9 @@
       <StudyNudge v-if="auth.token" />
       <router-view v-slot="{ Component }">
         <transition name="page-fade" mode="out-in">
-          <component :is="Component" />
+          <!-- key by path so switching topic (prefix changes, same component) remounts
+               the page and it refetches for the new subject instead of keeping stale data -->
+          <component :is="Component" :key="route.path" />
         </transition>
       </router-view>
     </main>
@@ -182,9 +184,12 @@ const links = computed<NavLink[]>(() => {
   const extra: NavLink[] = isPmp
     ? [
         { to: withPrefix('/cheatsheet'), label: 'Cheat sheet', icon: 'bi-journal-text' },
+        { to: withPrefix('/cases'), label: 'Case Study', icon: 'bi-journal-richtext' },
         { to: withPrefix('/daily'), label: 'Daily 20', icon: 'bi-calendar-check' },
         { to: withPrefix('/roleplay'), label: 'Roleplay', icon: 'bi-chat-quote' },
       ]
+    : subjectSlug.value === 'english'
+    ? [{ to: withPrefix('/daily'), label: 'Daily 20', icon: 'bi-calendar-check' }]
     : []
   const i = base.findIndex((l) => l.to === withPrefix('/devices'))
   return i >= 0 ? [...base.slice(0, i), ...extra, more, ...base.slice(i)] : [...base, ...extra, more]
@@ -226,13 +231,23 @@ async function signOut() {
 // Each topic has its own URL prefix (/eng, /pmp, /pentest, /aws) so pages are
 // shareable/bookmarkable per topic and the address bar always shows which
 // one is open.
+// Pages that exist only for certain topics; switching to a topic that lacks the
+// current page drops to that topic's home instead of showing the wrong content.
+const SUBJECT_ONLY_PAGES: Record<string, string[]> = { '/cases': ['pmp'], '/labs': ['pentest'], '/daily': ['pmp', 'english'] }
+function pageAllowedForSubject(rest: string, slug: string): boolean {
+  for (const p in SUBJECT_ONLY_PAGES) {
+    if (rest === p || rest.startsWith(p + '/')) return SUBJECT_ONLY_PAGES[p].includes(slug)
+  }
+  return true
+}
 async function chooseSubject(slug: string) {
   if (slug === subjectSlug.value) return
   setSubject(slug)
   const prefix = SUBJECT_PREFIXES[slug] ?? 'eng'
   // same page, new topic's prefix; drop deck_id/subject_id query (belonged to the old topic)
   const rest = stripPrefix(route.path)
-  const target = (!isEnglish.value && ENGLISH_ONLY.some((p) => rest.startsWith(p))) ? '/practice' : rest
+  let target = (!isEnglish.value && ENGLISH_ONLY.some((p) => rest.startsWith(p))) ? '/practice' : rest
+  if (!pageAllowedForSubject(target, slug)) target = '/'
   router.push(`/${prefix}${target === '/' ? '' : target}`)
 }
 
@@ -277,6 +292,17 @@ watch(() => auth.token, (t) => { if (t) syncPush() })
 
 main {
   flex: 1;
+}
+
+/* One consistent content width across every page. Bootstrap's .container steps
+   up to 1140/1320px at xl/xxl, which made list pages wide and single-column
+   pages (studying, forms) look narrow and mismatched. Cap it so navbar, footer
+   and every page share the same frame on desktops; smaller breakpoints keep the
+   responsive container width. */
+@media (min-width: 1200px) {
+  .container {
+    max-width: 1120px;
+  }
 }
 
 /* ========== MODERN NAVBAR ========== */
@@ -331,17 +357,19 @@ main {
 }
 
 /* Nav Pills */
-.subject-switch { background: rgba(255,255,255,0.08); border-radius: 50px; padding: 2px; }
+.subject-switch { background: rgba(255,255,255,0.08); border-radius: 50px; padding: 2px; flex-wrap: wrap; }
 .subject-switch .btn { border-radius: 50px; padding: 0.2rem 0.8rem; font-size: 0.82rem; border: 0; }
 .subject-switch .btn-outline-light { color: rgba(255,255,255,0.75); }
 .subject-switch .btn-outline-light:hover { background: rgba(255,255,255,0.12); color: #fff; }
+.navbar-nav { flex-wrap: wrap; row-gap: 0.25rem; }
 .nav-pill {
   border-radius: 50px !important;
-  padding: 0.4rem 0.8rem !important;
+  padding: 0.35rem 0.6rem !important;
   margin: 0 1px;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
+  white-space: nowrap;
   color: rgba(255,255,255,0.7) !important;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
 }

@@ -1,6 +1,6 @@
 <template>
   <div class="row justify-content-center">
-    <div class="col-lg-8">
+    <div class="col-12">
       <div class="d-flex flex-wrap justify-content-between align-items-end gap-2 mb-3">
         <div>
           <h2 class="fw-bold mb-0"><i class="bi bi-translate"></i> Practise forgotten words</h2>

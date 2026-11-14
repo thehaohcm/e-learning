@@ -254,9 +254,9 @@ func (h *Handler) Practice(c *gin.Context) {
 	if !ok {
 		return
 	}
-	limit := queryInt(c, "limit", 100)
-	if limit <= 0 || limit > 200 {
-		limit = 100
+	limit := queryInt(c, "limit", 2000)
+	if limit <= 0 || limit > 2000 {
+		limit = 2000
 	}
 	q := h.DB.Where("deck_id = ? AND kind = ?", deck.ID, kind)
 	if topic := strings.TrimSpace(c.Query("topic")); topic != "" {
