@@ -168,16 +168,20 @@ const links = computed<NavLink[]>(() => {
 
   // other subjects (English/PMP/AWS) keep the existing shape: Practice
   // dropdown, Browse top-level, "More" holding Cheat sheet (+ Courses, admin)
+  const isPmp = subjectSlug.value === 'pmp'
   const more: NavLink = {
     to: '#more', label: 'More', icon: 'bi-grid-3x3-gap',
     children: [
-      { to: withPrefix('/cheatsheet'), label: 'Cheat sheet', icon: 'bi-journal-text' },
+      // PMP surfaces Cheat sheet top-level (below), so keep it out of "More" there
+      ...(isPmp ? [] : [{ to: withPrefix('/cheatsheet'), label: 'Cheat sheet', icon: 'bi-journal-text' }]),
       ...(auth.isAdmin ? [{ to: withPrefix('/courses'), label: 'Courses', icon: 'bi-mortarboard' }] : []),
     ],
   }
-  // PMP: English role-play with a difficult client sits next to the main links
-  const extra: NavLink[] = subjectSlug.value === 'pmp'
+  // PMP: Cheat sheet (holds the AI question generator) is opened constantly, so
+  // it sits top-level next to Daily 20 and the difficult-client Roleplay.
+  const extra: NavLink[] = isPmp
     ? [
+        { to: withPrefix('/cheatsheet'), label: 'Cheat sheet', icon: 'bi-journal-text' },
         { to: withPrefix('/daily'), label: 'Daily 20', icon: 'bi-calendar-check' },
         { to: withPrefix('/roleplay'), label: 'Roleplay', icon: 'bi-chat-quote' },
       ]
