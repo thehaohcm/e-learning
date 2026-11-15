@@ -117,6 +117,25 @@
                 <i class="bi bi-link-45deg"></i> {{ lnk.label || lnk.url }}
               </a>
             </div>
+            <div v-if="isOpen(n.id)" class="mt-3 pt-2 border-top no-print">
+              <div class="d-flex flex-wrap align-items-center gap-2 mb-1">
+                <span class="small fw-semibold"><i class="bi bi-music-note-beamed text-primary"></i> Audio mục này</span>
+                <small class="text-muted">mp3/m4a · ≤25MB · nghe chạy nền</small>
+                <label class="btn btn-sm btn-outline-primary ms-auto mb-0 py-0">
+                  <span v-if="audioBusy[n.id]" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-upload"></i> Tải lên
+                  <input type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg" multiple class="d-none" :disabled="audioBusy[n.id]" @change="uploadNoteAudio(n.id, $event)" />
+                </label>
+              </div>
+              <div v-for="a in (noteAudios[n.id] ?? [])" :key="a.id" class="d-flex align-items-center gap-2 py-1">
+                <button class="btn btn-sm btn-outline-secondary py-0" :disabled="audioLoad[a.id]" @click="playNoteAudio(a)" title="Nghe">
+                  <span v-if="audioLoad[a.id]" class="spinner-border spinner-border-sm"></span><template v-else><i class="bi bi-play-circle"></i></template>
+                </button>
+                <span class="small text-truncate flex-grow-1">{{ a.name }}</span>
+                <span class="text-muted" style="font-size: 0.72rem">{{ sizeMB(a.bytes) }}</span>
+                <button class="btn btn-sm btn-outline-danger py-0" @click="deleteNoteAudio(n.id, a.id)" title="Xoá"><i class="bi bi-trash"></i></button>
+              </div>
+              <div v-if="!(noteAudios[n.id] ?? []).length" class="small text-muted">Chưa có audio. Tải bản ghi/tóm tắt cho mục này để nghe lại.</div>
+            </div>
           </div>
         </div>
 
@@ -168,6 +187,7 @@ import { auth } from '../auth'
 import { currentPrefix } from '../router'
 import { loadSubjects, shortName, subject, subjectId, subjectSlug, supportsCheatsheetAi } from '../composables/useSubject'
 import { RATE_REPLAY, useSpeechSynthesis } from '../composables/useSpeechSynthesis'
+import { useAudioPlayer } from '../composables/useAudioPlayer'
 import { renderMarkdown } from '../utils/markdown'
 import CourseChat from '../components/CourseChat.vue'
 import GenerateQuestionsModal from '../components/GenerateQuestionsModal.vue'
@@ -211,7 +231,8 @@ const expanded = ref<Set<number>>(new Set())
 const isOpen = (id: number) => expanded.value.has(id)
 function toggle(id: number) {
   const nx = new Set(expanded.value)
-  nx.has(id) ? nx.delete(id) : nx.add(id)
+  if (nx.has(id)) nx.delete(id)
+  else { nx.add(id); if (!(id in noteAudios.value)) loadNoteAudio(id) }
   expanded.value = nx
 }
 const filtering = computed(() => !!search.value.trim() || !!courseFilter.value)
@@ -228,7 +249,7 @@ const filteredNotes = computed(() => {
 const allOpen = computed(() => filteredNotes.value.length > 0 && filteredNotes.value.every((n) => expanded.value.has(n.id)))
 function toggleAll() {
   if (allOpen.value) { expanded.value = new Set() }
-  else { expanded.value = new Set(filteredNotes.value.map((n) => n.id)) }
+  else { expanded.value = new Set(filteredNotes.value.map((n) => n.id)); filteredNotes.value.forEach((n) => { if (!(n.id in noteAudios.value)) loadNoteAudio(n.id) }) }
 }
 const idxOf = (n: Note) => notes.value.findIndex((x) => x.id === n.id)
 function addLink() { form.links.push({ url: '', label: '' }) }
@@ -274,6 +295,36 @@ function firstLine(s: string): string {
 
 // ---- Listen (text-to-speech, same engine as NotesWidget's vocab "Listen" button) ----
 const { speakVietnamese, stop: stopSpeech } = useSpeechSynthesis()
+const player = useAudioPlayer()
+
+interface AudioFile { id: number; name: string; mime: string; bytes: number }
+const noteAudios = ref<Record<number, AudioFile[]>>({})
+const audioBusy = ref<Record<number, boolean>>({})
+const audioLoad = ref<Record<number, boolean>>({})
+function sizeMB(b: number): string { return b >= 1048576 ? (b / 1048576).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB' }
+async function loadNoteAudio(noteId: number) {
+  try { const { data } = await api.get('/note-audio', { params: { note_id: noteId } }); noteAudios.value = { ...noteAudios.value, [noteId]: data.files ?? [] } } catch { /* ignore */ }
+}
+async function uploadNoteAudio(noteId: number, e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = input.files
+  if (!files || !files.length) return
+  audioBusy.value = { ...audioBusy.value, [noteId]: true }
+  try {
+    const fd = new FormData(); fd.append('note_id', String(noteId))
+    for (const f of Array.from(files)) fd.append('files', f)
+    await api.post('/note-audio', fd, { timeout: 300000 })
+    await loadNoteAudio(noteId)
+  } catch (err) { flash(errorMessage(err), false) } finally { audioBusy.value = { ...audioBusy.value, [noteId]: false }; input.value = '' }
+}
+async function playNoteAudio(a: AudioFile) {
+  audioLoad.value = { ...audioLoad.value, [a.id]: true }
+  try { const { data } = await api.get(`/note-audio/${a.id}`, { responseType: 'blob' }); player.play(URL.createObjectURL(data), a.name, true) }
+  catch (e) { flash(errorMessage(e), false) } finally { audioLoad.value = { ...audioLoad.value, [a.id]: false } }
+}
+async function deleteNoteAudio(noteId: number, id: number) {
+  try { await api.delete(`/note-audio/${id}`); noteAudios.value = { ...noteAudios.value, [noteId]: (noteAudios.value[noteId] ?? []).filter((x) => x.id !== id) } } catch (e) { flash(errorMessage(e), false) }
+}
 const speakingId = ref<number | null>(null)
 
 /** Strip markdown syntax (code fences, bold/italic, headings, links, bullets)

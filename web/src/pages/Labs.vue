@@ -50,12 +50,17 @@
             {{ activeTab === 'thm' ? 'PT1/WEB1' : 'CPTS' }}. Một số link trỏ thẳng tới phòng (đã kiểm chứng URL), số còn lại
             trỏ qua tìm kiếm theo đúng tên (vì không chắc chắn được slug URL chính xác) để tránh link sai/gãy.
           </p>
+          <div class="input-group input-group-sm mb-2" style="max-width: 360px">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input v-model="kw" class="form-control" placeholder="Tìm theo tên / từ khoá / lệnh…" />
+            <button v-if="kw" class="btn btn-outline-secondary" type="button" @click="kw = ''" title="Xoá tìm kiếm"><i class="bi bi-x-lg"></i></button>
+          </div>
           <div v-if="availableTags.length" class="d-flex flex-wrap gap-1 mb-3 align-items-center">
             <span class="small text-muted me-1"><i class="bi bi-funnel"></i> Lọc tag:</span>
             <button type="button" class="btn btn-sm py-0" :class="tagFilter === '' ? 'btn-secondary' : 'btn-outline-secondary'" @click="tagFilter = ''">Tất cả</button>
             <button v-for="t in availableTags" :key="t" type="button" class="btn btn-sm py-0" :class="tagFilter === t ? 'btn-primary' : 'btn-outline-secondary'" @click="tagFilter = (tagFilter === t ? '' : t)">{{ t }}</button>
           </div>
-          <div v-if="!displayChallenges.length" class="small text-muted mb-2">Không có phòng nào khớp tag đang lọc.</div>
+          <div v-if="!displayChallenges.length" class="small text-muted mb-2">Không có phòng nào khớp bộ lọc / từ khoá.</div>
           <div class="row g-3">
             <div v-for="c in displayChallenges" :key="c.name" class="col-md-6">
               <div class="card border-0 shadow-sm h-100 hoverable">
@@ -90,6 +95,9 @@
                     <router-link v-if="simCardFor(c)" :to="`/labs?id=${simCardFor(c)!.id}`" class="btn btn-success">
                       <i class="bi bi-joystick"></i> Làm Simulation
                       <span class="badge bg-light text-dark ms-1">{{ simCardFor(c)!.payload.steps?.length ?? 0 }}</span>
+                    </router-link>
+                    <router-link v-if="simCardFor(c) && hasThinking(simCardFor(c))" :to="`/labs?id=${simCardFor(c)!.id}&review=1`" class="btn btn-outline-info">
+                      <i class="bi bi-list-check"></i> Review
                     </router-link>
                     <button type="button" class="btn btn-outline-secondary" @click="manageTarget = c">
                       <i class="bi bi-pencil-square"></i> Quản lý câu hỏi
@@ -194,12 +202,17 @@
         </template>
 
         <template v-else>
+          <div class="input-group input-group-sm mb-2" style="max-width: 360px">
+            <span class="input-group-text"><i class="bi bi-search"></i></span>
+            <input v-model="kw" class="form-control" placeholder="Tìm theo tên / từ khoá / lệnh…" />
+            <button v-if="kw" class="btn btn-outline-secondary" type="button" @click="kw = ''" title="Xoá tìm kiếm"><i class="bi bi-x-lg"></i></button>
+          </div>
           <div v-if="availableTags.length" class="d-flex flex-wrap gap-1 mb-3 align-items-center">
             <span class="small text-muted me-1"><i class="bi bi-funnel"></i> Lọc tag:</span>
             <button type="button" class="btn btn-sm py-0" :class="tagFilter === '' ? 'btn-secondary' : 'btn-outline-secondary'" @click="tagFilter = ''">Tất cả</button>
             <button v-for="t in availableTags" :key="t" type="button" class="btn btn-sm py-0" :class="tagFilter === t ? 'btn-primary' : 'btn-outline-secondary'" @click="tagFilter = (tagFilter === t ? '' : t)">{{ t }}</button>
           </div>
-          <div v-if="!displayCards.length" class="small text-muted">{{ visibleCards.length ? 'Không có bài nào khớp tag đang lọc.' : 'Chưa có bài nào ở mục này.' }}</div>
+          <div v-if="!displayCards.length" class="small text-muted">{{ visibleCards.length ? 'Không có bài nào khớp bộ lọc / từ khoá.' : 'Chưa có bài nào ở mục này.' }}</div>
 
           <div class="row g-3">
             <div v-for="c in displayCards" :key="c.id" class="col-md-6">
@@ -221,6 +234,9 @@
                   <router-link :to="`/labs?id=${c.id}`" class="btn mt-auto align-self-start"
                     :class="isDone(c) ? 'btn-outline-success' : 'btn-primary'">
                     {{ isDone(c) ? 'Làm lại' : (stepIndex(c.id) > 0 ? 'Tiếp tục' : 'Bắt đầu') }}
+                  </router-link>
+                  <router-link v-if="hasThinking(c)" :to="`/labs?id=${c.id}&review=1`" class="btn btn-sm btn-outline-info mt-2 align-self-start">
+                    <i class="bi bi-list-check"></i> Review tổng hợp
                   </router-link>
                 </div>
               </div>
@@ -250,7 +266,7 @@
       <div class="progress mb-3" style="height: 8px;">
         <div class="progress-bar bg-success" :style="{ width: progressPct + '%' }"></div>
       </div>
-      <div class="d-flex justify-content-between align-items-center mb-1">
+      <div v-if="!reviewMode" class="d-flex justify-content-between align-items-center mb-1">
         <p class="small text-muted mb-0">Bước {{ Math.min(curStep + 1, totalSteps) }} / {{ totalSteps }}</p>
         <div class="d-flex align-items-center gap-3">
           <div class="form-check form-switch mb-0" title="Hiện lệnh mẫu để gõ lại; gõ đúng thì được hỏi có làm lại không">
@@ -260,11 +276,17 @@
           <button v-if="curStep > 0" class="btn btn-sm btn-outline-secondary" @click="prev">
             <i class="bi bi-arrow-left"></i> Bước trước
           </button>
+          <button v-if="auth.isAdmin && !finished" class="btn btn-sm btn-outline-primary" @click="openEditStep" title="Sửa câu này">
+            <i class="bi bi-pencil"></i> Sửa
+          </button>
+          <button v-if="auth.isAdmin && !finished" class="btn btn-sm btn-outline-danger" @click="deleteStep" title="Xoá câu này">
+            <i class="bi bi-trash"></i> Xoá
+          </button>
         </div>
       </div>
 
       <!-- finished -->
-      <div v-if="finished" class="alert alert-success">
+      <div v-if="finished && !reviewMode" class="alert alert-success">
         <i class="bi bi-trophy"></i> <strong>Hoàn thành lab!</strong> Bạn đã gõ đúng toàn bộ {{ totalSteps }} bước.
         <div class="mt-2">
           <router-link to="/labs" class="btn btn-sm btn-success">Quay lại danh sách</router-link>
@@ -273,7 +295,7 @@
       </div>
 
       <!-- current step -->
-      <div v-else class="card border-0 shadow-sm">
+      <div v-else-if="!reviewMode" class="card border-0 shadow-sm">
         <div class="card-body">
           <div v-if="contextOutput" class="mb-2">
             <div class="small text-muted mb-1"><i class="bi bi-terminal"></i> Kết quả bước trước:</div>
@@ -300,6 +322,9 @@
             <button v-if="currentStep.hint" class="btn btn-outline-secondary btn-sm mb-2" @click="showHint = !showHint">
               {{ showHint ? 'Ẩn gợi ý' : 'Xem gợi ý' }}
             </button>
+            <button v-if="feedback !== 'correct'" class="btn btn-outline-secondary btn-sm mb-2 ms-2" @click="skip" title="Bỏ qua câu này, sang câu tiếp">
+              Bỏ qua <i class="bi bi-skip-forward"></i>
+            </button>
           </div>
 
           <!-- command step: type the command -->
@@ -320,6 +345,9 @@
               <button class="btn btn-primary" :disabled="!answer.trim()" @click="check">Kiểm tra</button>
               <button v-if="currentStep.hint" class="btn btn-outline-secondary" @click="showHint = !showHint">
                 {{ showHint ? 'Ẩn gợi ý' : 'Xem gợi ý' }}
+              </button>
+              <button v-if="feedback !== 'correct'" class="btn btn-outline-secondary ms-auto" @click="skip" title="Bỏ qua câu này, sang câu tiếp">
+                Bỏ qua <i class="bi bi-skip-forward"></i>
               </button>
             </div>
           </template>
@@ -347,6 +375,71 @@
         </div>
       </div>
 
+      <!-- summary / recap of the whole flow (on finish, or review from the list) -->
+      <div v-if="(finished && hasThinking(activeCard)) || reviewMode" class="card border-0 shadow-sm mb-3">
+        <div class="card-body">
+          <h6 class="fw-bold mb-3"><i class="bi bi-list-check text-primary"></i> Tổng hợp luồng — {{ (activeCard?.payload.steps ?? []).length }} bước</h6>
+          <div v-for="(st, i) in (activeCard?.payload.steps ?? [])" :key="i" class="pb-2 mb-2 border-bottom">
+            <div class="small text-muted mb-1">Bước {{ i + 1 }} · {{ st.type === 'choice' ? 'Tư duy' : 'Lệnh' }}</div>
+            <div class="fw-semibold mb-1">{{ st.prompt }}</div>
+            <div class="mb-1">
+              <i class="bi bi-check-circle-fill text-success me-1"></i>
+              <code v-if="st.type !== 'choice'" class="text-dark">{{ modelCommand(st) }}</code>
+              <span v-else class="fw-semibold">{{ (st.choices ?? [])[st.answer ?? 0] }}</span>
+            </div>
+            <div v-if="st.explanation" class="small text-muted">{{ st.explanation }}</div>
+          </div>
+          <div class="d-flex flex-wrap gap-2 mt-2">
+            <router-link to="/labs" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Danh sách lab</router-link>
+            <button v-if="reviewMode" class="btn btn-sm btn-success" @click="startFromReview"><i class="bi bi-joystick"></i> Luyện lại</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- edit current step (admin) -->
+      <div v-if="editing" class="lb-overlay" @click.self="editing = false">
+        <div class="card border-0 shadow-lg lb-modal">
+          <div class="card-header bg-white d-flex align-items-center gap-2">
+            <span class="fw-bold"><i class="bi bi-pencil"></i> Sửa câu {{ curStep + 1 }}</span>
+            <button type="button" class="btn-close ms-auto" @click="editing = false"></button>
+          </div>
+          <div class="card-body">
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <label class="form-label small mb-0">Loại:</label>
+              <select v-model="editForm.type" class="form-select form-select-sm" style="max-width: 170px">
+                <option value="command">Gõ lệnh</option>
+                <option value="choice">Trắc nghiệm</option>
+              </select>
+            </div>
+            <label class="form-label small mb-1">Câu hỏi / yêu cầu</label>
+            <textarea v-model="editForm.prompt" class="form-control form-control-sm mb-2" rows="2"></textarea>
+            <div v-if="editForm.type !== 'choice'">
+              <label class="form-label small mb-1">Đáp án chấp nhận <span class="text-muted">(mỗi dòng 1 regex, không phân biệt hoa/thường)</span></label>
+              <textarea v-model="editForm.patternsText" class="form-control form-control-sm font-monospace mb-2" rows="2"></textarea>
+            </div>
+            <template v-else>
+              <label class="form-label small mb-1">Các lựa chọn <span class="text-muted">(mỗi dòng 1 lựa chọn)</span></label>
+              <textarea v-model="editForm.choicesText" class="form-control form-control-sm mb-2" rows="4"></textarea>
+              <label class="form-label small mb-1">Đáp án đúng</label>
+              <select v-model.number="editForm.answer" class="form-select form-select-sm mb-2">
+                <option v-for="(ln, li) in linesOf(editForm.choicesText)" :key="li" :value="li">{{ li + 1 }}. {{ ln }}</option>
+              </select>
+            </template>
+            <label class="form-label small mb-1">Giải thích</label>
+            <textarea v-model="editForm.explanation" class="form-control form-control-sm mb-2" rows="2"></textarea>
+            <label class="form-label small mb-1">Gợi ý</label>
+            <textarea v-model="editForm.hint" class="form-control form-control-sm mb-2" rows="2"></textarea>
+            <div v-if="editErr" class="alert alert-danger py-2 small mb-2">{{ editErr }}</div>
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-primary btn-sm" :disabled="editBusy || !editForm.prompt.trim()" @click="saveEditStep">
+                <span v-if="editBusy" class="spinner-border spinner-border-sm me-1"></span> Lưu
+              </button>
+              <button type="button" class="btn btn-link btn-sm" :disabled="editBusy" @click="editing = false">Huỷ</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- reference / study notes, for review -->
       <div v-if="activeCard.payload.reference" class="mt-3">
         <button class="btn btn-sm btn-outline-secondary" @click="showReference = !showReference">
@@ -365,17 +458,19 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { api } from '../api'
 import { loadSubjects, subject, subjectId } from '../composables/useSubject'
 import { currentPrefix } from '../router'
 import { renderMarkdown } from '../utils/markdown'
 import type { Card, LabStep } from '../types'
 import { challengeKey, challengeUrl, htbChallenges, thmChallenges, type Challenge } from '../data/pentestChallenges'
+import { auth } from '../auth'
 import ChallengeQuestionManager from '../components/ChallengeQuestionManager.vue'
 import { dueLabMistakes, recordLabMistake, resolveLabMistake, type LabMistake } from '../composables/labMistakes'
 
 const route = useRoute()
+const router = useRouter()
 
 const loading = ref(true)
 const labCards = ref<Card[]>([])
@@ -426,7 +521,7 @@ async function loadNotes() {
     notesLoading.value = false
   }
 }
-watch(activeTab, (t) => { tagFilter.value = ''; if (t === 'cheatsheet' && !notesLoaded) loadNotes() })
+watch(activeTab, (t) => { tagFilter.value = ''; kw.value = ''; if (t === 'cheatsheet' && !notesLoaded) loadNotes() })
 // "challenge_sim" cards are the user's own self-quiz per THM/HTB challenge (see
 // ChallengeQuestionManager) — they live in the same "labs" deck but are kept
 // out of the Lab/Assignment tabs and surfaced only on their own challenge card.
@@ -452,6 +547,26 @@ function cardTags(c: any, isChallenge: boolean): string[] {
 function matchesTag(c: any, isChallenge: boolean): boolean {
   return !tagFilter.value || cardTags(c, isChallenge).includes(tagFilter.value)
 }
+
+// --- keyword search across the visible lab / challenge list ---
+const kw = ref('')
+function searchHaystack(c: any, isChallenge: boolean): string {
+  const parts: string[] = []
+  if (isChallenge) {
+    parts.push(c.name, c.category ?? '', c.note ?? '', c.platform ?? '', ...(c.cert_tags ?? []))
+  } else {
+    parts.push(c.front ?? '')
+    const p = c.payload ?? {}
+    parts.push(p.scenario ?? '')
+    for (const st of (p.steps ?? [])) parts.push(st?.prompt ?? '')
+    parts.push(...(p.cert_tags ?? []))
+  }
+  return parts.join(' ').toLowerCase()
+}
+function matchesKw(c: any, isChallenge: boolean): boolean {
+  const q = kw.value.trim().toLowerCase()
+  return !q || searchHaystack(c, isChallenge).includes(q)
+}
 const availableTags = computed<string[]>(() => {
   const isCh = activeTab.value === 'thm' || activeTab.value === 'htb'
   const list: any[] = isCh ? (activeTab.value === 'thm' ? thmChallenges : htbChallenges) : visibleCards.value
@@ -465,8 +580,8 @@ const availableTags = computed<string[]>(() => {
   const order = ['Cơ bản', 'Trung bình', 'Nâng cao']
   return [...[...diffs].sort((a, b) => order.indexOf(a) - order.indexOf(b)), ...[...certs].sort()]
 })
-const displayCards = computed(() => visibleCards.value.filter((c) => matchesTag(c, false)))
-const displayChallenges = computed(() => (activeTab.value === 'thm' ? thmChallenges : htbChallenges).filter((c) => matchesTag(c, true)))
+const displayCards = computed(() => visibleCards.value.filter((c) => matchesTag(c, false) && matchesKw(c, false)))
+const displayChallenges = computed(() => (activeTab.value === 'thm' ? thmChallenges : htbChallenges).filter((c) => matchesTag(c, true) && matchesKw(c, true)))
 
 const labsDeckId = computed<number | null>(() => subject.value?.decks.find((d) => d.slug === 'labs')?.id ?? null)
 const simCardByKey = computed<Record<string, Card>>(() => {
@@ -572,6 +687,9 @@ const activeCard = computed(() => labCards.value.find((c) => c.id === activeId.v
 const totalSteps = computed(() => activeCard.value ? totalStepsOf(activeCard.value) : 0)
 const curStep = computed(() => activeCard.value ? stepIndex(activeCard.value.id) : 0)
 const finished = computed(() => totalSteps.value > 0 && curStep.value >= totalSteps.value)
+const reviewMode = computed(() => route.query.review === '1')
+function hasThinking(card?: Card | null): boolean { return !!card?.payload.steps?.some((st) => st.type === 'choice') }
+function startFromReview() { if (activeCard.value) router.push(`/labs?id=${activeCard.value.id}`) }
 const currentStep = computed<LabStep>(() => activeCard.value?.payload.steps?.[curStep.value] ?? { prompt: '', patterns: [] })
 const contextOutput = computed<string>(() => {
   if (currentStep.value.type === 'choice' && currentStep.value.output) {
@@ -655,8 +773,19 @@ function modelCommand(step: LabStep): string {
     return letters ? `${cmd} -${letters}` : cmd
   }
   let t = p.replace(/^\^/, '').replace(/\$$/, '')
-  for (let i = 0; i < 5; i++) t = t.replace(/\((?:\?:)?([^()]*)\)/g, (_m, g: string) => g.split('|')[0])
-  t = t.replace(/\\s[+*]/g, ' ').replace(/\.\*/g, ' … ').replace(/\\(.)/g, '$1').replace(/\s+/g, ' ').trim()
+  // (?:...) / (...) groups, optionally quantified -> first alternative, drop the quantifier
+  for (let i = 0; i < 6; i++) t = t.replace(/\((?:\?:)?([^()]*)\)[?*+]?/g, (_m, g: string) => g.split('|')[0])
+  // character class -> its first (unescaped) char
+  t = t.replace(/\[([^\]]*)\]/g, (_m, g: string) => (g.replace(/\\(.)/g, '$1')[0] ?? ''))
+  // whitespace token (with any quantifier) -> a single space
+  t = t.replace(/\\s[+*?]?/g, ' ')
+  // dot wildcard with quantifier -> ellipsis
+  t = t.replace(/\.[*+]/g, ' … ')
+  // unescape \X -> X
+  t = t.replace(/\\(.)/g, '$1')
+  // drop any leftover standalone quantifier after a token
+  t = t.replace(/([^\s…])[?*+]/g, '$1')
+  t = t.replace(/\s+/g, ' ').trim()
   return t
 }
 const practiceWords = computed(() => {
@@ -768,6 +897,15 @@ function next() {
   askRedo.value = false
 }
 
+// Bỏ qua câu hiện tại: sang câu tiếp mà không cần gõ đúng. Ghi nhận là câu
+// chưa thuộc để nó quay lại ở tab "Ôn lại câu sai".
+function skip() {
+  if (!activeCard.value || finished.value) return
+  recordLabMistake(activeCard.value.id, curStep.value)
+  refreshMistakes()
+  next()
+}
+
 function prev() {
   if (!activeCard.value || curStep.value === 0) return
   const p = { ...progress.value, [activeCard.value.id]: curStep.value - 1 }
@@ -778,6 +916,87 @@ function prev() {
   showHint.value = false
   chosenIndex.value = null
   askRedo.value = false
+}
+
+// --- edit / delete the current step (admin) ---
+const editing = ref(false)
+const editForm = ref({ type: 'command' as 'command' | 'choice', prompt: '', patternsText: '', choicesText: '', answer: 0, explanation: '', hint: '' })
+function linesOf(text: string): string[] { return text.split('\n').map((x) => x.trim()).filter(Boolean) }
+const editBusy = ref(false)
+const editErr = ref('')
+
+function openEditStep() {
+  const st = currentStep.value
+  editForm.value = {
+    type: st.type === 'choice' ? 'choice' : 'command',
+    prompt: st.prompt ?? '',
+    patternsText: (st.patterns ?? []).join('\n'),
+    choicesText: (st.choices ?? []).join('\n'),
+    answer: typeof st.answer === 'number' ? st.answer : 0,
+    explanation: st.explanation ?? '',
+    hint: st.hint ?? '',
+  }
+  editErr.value = ''
+  editing.value = true
+}
+
+async function saveEditStep() {
+  const card = activeCard.value
+  if (!card) return
+  editBusy.value = true; editErr.value = ''
+  try {
+    const f = editForm.value
+    const steps = (card.payload.steps ?? []).map((st, i) => {
+      if (i !== curStep.value) return st
+      const base: any = { type: f.type, prompt: f.prompt.trim(), explanation: f.explanation.trim(), hint: f.hint.trim() || undefined }
+      if (st.output) base.output = st.output
+      if (f.type === 'choice') {
+        base.choices = linesOf(f.choicesText)
+        base.answer = Math.max(0, Math.min(f.answer, base.choices.length - 1))
+      } else {
+        base.patterns = f.patternsText.split('\n').map((x) => x.trim()).filter(Boolean)
+      }
+      return base
+    })
+    const { data } = await api.put(`/cards/${card.id}`, { deck_id: card.deck_id, kind: card.kind, front: card.front, payload: { ...card.payload, steps } })
+    const idx = labCards.value.findIndex((c) => c.id === card.id)
+    if (idx >= 0) labCards.value[idx] = data as Card
+    editing.value = false
+  } catch (e) {
+    editErr.value = errorMessage(e)
+  } finally {
+    editBusy.value = false
+  }
+}
+
+async function deleteStep() {
+  const card = activeCard.value
+  if (!card) return
+  const steps = card.payload.steps ?? []
+  if (steps.length <= 1) {
+    editErr.value = ''
+    alert('Đây là câu duy nhất của lab — xoá cả lab thì dùng "Quản lý câu hỏi" hoặc trang Browse.')
+    return
+  }
+  if (!confirm(`Xoá câu ${curStep.value + 1} khỏi lab này?`)) return
+  editBusy.value = true
+  try {
+    const newSteps = steps.filter((_, i) => i !== curStep.value)
+    const { data } = await api.put(`/cards/${card.id}`, { deck_id: card.deck_id, kind: card.kind, front: card.front, payload: { ...card.payload, steps: newSteps } })
+    const idx = labCards.value.findIndex((c) => c.id === card.id)
+    if (idx >= 0) labCards.value[idx] = data as Card
+    // keep the same index (the next question shifts into this slot); clamp if we deleted the last one
+    if (curStep.value >= newSteps.length) {
+      const pr = { ...progress.value, [card.id]: Math.max(0, newSteps.length - 1) }
+      progress.value = pr; saveProgress(pr)
+    }
+    answer.value = ''; feedback.value = 'idle'; showHint.value = false
+    editing.value = false
+  } catch (e) {
+    alert(errorMessage(e))
+  } finally {
+    editBusy.value = false
+  }
 }
 
 function restart() {
@@ -946,4 +1165,9 @@ onUnmounted(() => clearInterval(mistakesTimer))
   border-top: 1px solid #e2e8f0;
   margin: 1rem 0;
 }
+.lb-overlay {
+  position: fixed; inset: 0; z-index: 1060; background: rgba(15, 23, 42, 0.5);
+  display: flex; align-items: flex-start; justify-content: center; padding: 1.5rem 1rem; overflow-y: auto;
+}
+.lb-modal { width: 100%; max-width: 560px; border-radius: 14px; }
 </style>

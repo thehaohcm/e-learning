@@ -157,6 +157,13 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/course-notes/adopt-summary", h.AdoptSummary)
 		u.POST("/course-notes/ask", practiceLimit, h.AskCourse)
 		u.POST("/course-notes/gen-questions", practiceLimit, h.GenerateCourseQuestions)
+		u.POST("/course-notes/extract-steps", practiceLimit, h.ExtractCourseSteps) // sync cheatsheet commands into a specific challenge/lab
+		u.POST("/course-notes/thinking-flow", practiceLimit, h.ThinkingFlow) // AI methodology flow (choice + command) for a challenge
+		// audio attached to a cheatsheet section (course_note); works for all subjects
+		u.POST("/note-audio", h.NoteAudioUpload)
+		u.GET("/note-audio", h.NoteAudioList)
+		u.GET("/note-audio/:id", h.NoteAudioGet)
+		u.DELETE("/note-audio/:id", h.NoteAudioDelete)
 		u.GET("/chat-models", h.ChatModels)
 
 		// PMP roleplay: play the PM with an AI-played difficult client (English speaking practice)
@@ -170,6 +177,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/pmp-daily/generate", practiceLimit, h.PMPDailyGenerate)
 		u.POST("/pmp-daily/submit", h.PMPDailySubmit)
 		u.POST("/pmp-daily/retake", practiceLimit, h.PMPDailyRetake)
+		u.POST("/pmp-daily/notes", h.PMPDailyNotes)
 		u.POST("/pmp-daily/report", h.PMPDailyReport)
 		u.POST("/pmp-daily/ai-review", practiceLimit, h.PMPDailyAiReview)
 		// learner-uploaded audio notes attached to a Daily set

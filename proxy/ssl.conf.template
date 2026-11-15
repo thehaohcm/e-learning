@@ -12,6 +12,15 @@ server {
 
     set $web_upstream web:8080;
 
+    # Default request-body cap for all endpoints.
+    client_max_body_size 5m;
+
+    # Audio uploads (daily sets + cheatsheet sections) — allow a bigger body here.
+    location ~ ^/api/(pmp-daily/audio|note-audio) {
+        client_max_body_size 60m;
+        include /etc/nginx/snippets/proxy_params.conf;
+    }
+
     location / {
         include /etc/nginx/snippets/proxy_params.conf;
     }

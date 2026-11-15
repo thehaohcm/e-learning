@@ -734,3 +734,164 @@ func normLinks(raw *json.RawMessage) models.JSON {
 	}
 	return models.JSON(b)
 }
+
+// ExtractCourseSteps: POST /course-notes/extract-steps {subject_id, topic, model?, language?}
+// Deterministically extracts every command line from the matching cheatsheet
+// section (same engine as the exhaustive lab generator) and returns them as
+// ready-to-use practice steps (prompt / patterns / explanation / note / lesson)
+// WITHOUT persisting anything. Used by the "sync từ cheatsheet" feature to fill
+// a specific challenge or lab's question list, which the learner then reviews
+// and saves.
+func (h *Handler) ExtractCourseSteps(c *gin.Context) {
+	var req struct {
+		SubjectID int64  `json:"subject_id"`
+		Topic     string `json:"topic"`
+		Model     string `json:"model"`
+		Language  string `json:"language"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.SubjectID <= 0 {
+		abort(c, http.StatusBadRequest, "subject_id is required")
+		return
+	}
+	if !h.AI.Enabled() {
+		abort(c, http.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
+		return
+	}
+	uid := userID(c)
+	var notes []models.CourseNote
+	if err := h.DB.Where("user_id = ? AND subject_id = ?", uid, req.SubjectID).
+		Order("sort_order ASC, id ASC").Limit(maxCourseNotes).Find(&notes).Error; err != nil {
+		internal(c, err)
+		return
+	}
+	if len(notes) == 0 {
+		abort(c, http.StatusBadRequest, "add some notes first")
+		return
+	}
+	var subject models.Subject
+	h.DB.First(&subject, req.SubjectID)
+
+	// Cloudflare cuts the origin connection at ~120s, so bound the work well
+	// under that: the AI writes drills for as many commands as fit in the
+	// budget, then each remaining command falls back to an AI-free literal
+	// match (see generateExhaustiveLabDrills) so the response is complete and
+	// returns in time (no 524).
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 100*time.Second)
+	defer cancel()
+	if req.Model != "" && !h.chatModelAllowed(ctx, req.Model) {
+		abort(c, http.StatusBadRequest, "model not allowed")
+		return
+	}
+	genLang := "vi"
+	if req.Language == "en" {
+		genLang = "en"
+	}
+	gen, extracted, err := h.generateExhaustiveLabDrills(ctx, req.Model, req.Topic, subject.Name, notes, genLang)
+	if err != nil {
+		if errors.Is(err, ai.ErrNotConfigured) {
+			abort(c, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		abort(c, http.StatusBadGateway, "không trích được lệnh: "+err.Error())
+		return
+	}
+	type outStep struct {
+		Prompt      string   `json:"prompt"`
+		Patterns    []string `json:"patterns"`
+		Explanation string   `json:"explanation"`
+		Hint        string   `json:"hint,omitempty"`
+		Note        string   `json:"note,omitempty"`
+		Lesson      string   `json:"lesson,omitempty"`
+	}
+	steps := make([]outStep, 0, len(gen))
+	for _, g := range gen {
+		var p struct {
+			Steps []struct {
+				Prompt      string   `json:"prompt"`
+				Patterns    []string `json:"patterns"`
+				Explanation string   `json:"explanation"`
+				Hint        string   `json:"hint"`
+				Note        string   `json:"note"`
+				Lesson      string   `json:"lesson"`
+			} `json:"steps"`
+		}
+		if json.Unmarshal(g.Payload, &p) != nil {
+			continue
+		}
+		for _, s := range p.Steps {
+			if strings.TrimSpace(s.Prompt) == "" || len(s.Patterns) == 0 {
+				continue
+			}
+			steps = append(steps, outStep{Prompt: s.Prompt, Patterns: s.Patterns, Explanation: s.Explanation, Hint: s.Hint, Note: s.Note, Lesson: s.Lesson})
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"steps": steps, "extracted": extracted})
+}
+
+// ThinkingFlow: POST /course-notes/thinking-flow {subject_id, topic, model?, language?}
+// Generates a situational methodology flow (mix of decision "choice" steps and
+// key "command" steps) for a cheatsheet section, WITHOUT persisting. Used by the
+// challenge question manager to teach methodology, not rote syntax.
+func (h *Handler) ThinkingFlow(c *gin.Context) {
+	var req struct {
+		SubjectID int64  `json:"subject_id"`
+		Topic     string `json:"topic"`
+		Model     string `json:"model"`
+		Language  string `json:"language"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.SubjectID <= 0 {
+		abort(c, http.StatusBadRequest, "subject_id is required")
+		return
+	}
+	if !h.AI.Enabled() {
+		abort(c, http.StatusServiceUnavailable, ai.ErrNotConfigured.Error())
+		return
+	}
+	uid := userID(c)
+	var notes []models.CourseNote
+	if err := h.DB.Where("user_id = ? AND subject_id = ?", uid, req.SubjectID).
+		Order("sort_order ASC, id ASC").Limit(maxCourseNotes).Find(&notes).Error; err != nil {
+		internal(c, err)
+		return
+	}
+	if len(notes) == 0 {
+		abort(c, http.StatusBadRequest, "add some notes first")
+		return
+	}
+	var subject models.Subject
+	h.DB.First(&subject, req.SubjectID)
+
+	scoped := scopeNotesByTopic(notes, req.Topic)
+	items := make([]ai.CheatNote, len(scoped))
+	for i, n := range scoped {
+		items[i] = ai.CheatNote{Title: n.Title, Body: n.Body}
+	}
+
+	// Cloudflare cuts the origin at ~120s, so stay well under it.
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 100*time.Second)
+	defer cancel()
+	if req.Model != "" && !h.chatModelAllowed(ctx, req.Model) {
+		abort(c, http.StatusBadRequest, "model not allowed")
+		return
+	}
+	genLang := "vi"
+	if req.Language == "en" {
+		genLang = "en"
+	}
+	var steps []ai.FlowStep
+	var err error
+	if subject.Slug == "pmp" {
+		steps, err = h.AI.GeneratePmpFlow(ctx, req.Model, req.Topic, items, genLang)
+	} else {
+		steps, err = h.AI.GenerateThinkingFlow(ctx, req.Model, subject.Name, req.Topic, items, genLang)
+	}
+	if err != nil {
+		if errors.Is(err, ai.ErrNotConfigured) {
+			abort(c, http.StatusServiceUnavailable, err.Error())
+			return
+		}
+		abort(c, http.StatusBadGateway, "không tạo được luồng tư duy: "+err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"steps": steps})
+}

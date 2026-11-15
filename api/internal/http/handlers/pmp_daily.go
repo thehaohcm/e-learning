@@ -69,6 +69,7 @@ type dailyResult struct {
 	Submitted bool              `json:"submitted"`
 	Reported  []int             `json:"reported"`            // questions the learner reported as possibly wrong
 	AiReview  string            `json:"ai_review,omitempty"` // persisted AI review of the mistakes
+	Notes     []string          `json:"notes,omitempty"`     // learner note per question (index-aligned)
 }
 
 // parseDay validates a YYYY-MM-DD date from the client: it must be a real date
@@ -439,10 +440,11 @@ func (h *Handler) recentDailyStems(uid, subjectID int64) map[string][]string {
 // Scores the set (sets can be submitted once) and returns the stored set.
 func (h *Handler) PMPDailySubmit(c *gin.Context) {
 	var req struct {
-		ID      int64   `json:"id"`
-		Picks   [][]int `json:"picks"`
-		Flagged []int   `json:"flagged"`
-		Seconds int     `json:"seconds"`
+		ID      int64    `json:"id"`
+		Picks   [][]int  `json:"picks"`
+		Flagged []int    `json:"flagged"`
+		Seconds int      `json:"seconds"`
+		Notes   []string `json:"notes"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		bad(c, err)
@@ -473,6 +475,7 @@ func (h *Handler) PMPDailySubmit(c *gin.Context) {
 		ByDomain:  map[string][2]int{},
 		Correct:   make([]bool, len(qs)),
 		Submitted: true,
+		Notes:     clampNotes(req.Notes, len(qs)),
 	}
 	for _, f := range req.Flagged {
 		if f >= 0 && f < len(qs) {
@@ -555,6 +558,51 @@ func (h *Handler) PMPDailyRetake(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"set": dailyView(&set)})
+}
+
+func clampNotes(notes []string, n int) []string {
+	if len(notes) == 0 {
+		return nil
+	}
+	out := make([]string, n)
+	for i := 0; i < n && i < len(notes); i++ {
+		out[i] = strings.TrimSpace(notes[i])
+	}
+	return out
+}
+
+// PMPDailyNotes: POST /api/pmp-daily/notes {id, notes:[...]} — save per-question
+// notes (works before or after submit).
+func (h *Handler) PMPDailyNotes(c *gin.Context) {
+	var req struct {
+		ID    int64    `json:"id"`
+		Notes []string `json:"notes"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		bad(c, err)
+		return
+	}
+	s, err := h.loadDailyByID(userID(c), req.ID)
+	if err != nil {
+		internal(c, err)
+		return
+	}
+	if s == nil {
+		abort(c, http.StatusNotFound, "set not found")
+		return
+	}
+	var qs []json.RawMessage
+	_ = json.Unmarshal(s.Questions, &qs)
+	var res dailyResult
+	_ = json.Unmarshal(s.Result, &res)
+	res.Notes = clampNotes(req.Notes, len(qs))
+	raw, _ := json.Marshal(res)
+	if err := h.DB.Model(&pmpDailySet{}).Where("id = ?", s.ID).Update("result", models.JSON(raw)).Error; err != nil {
+		internal(c, err)
+		return
+	}
+	s.Result = models.JSON(raw)
+	c.JSON(http.StatusOK, gin.H{"set": dailyView(s)})
 }
 
 // PMPDailyReport: POST /api/pmp-daily/report {id, index}

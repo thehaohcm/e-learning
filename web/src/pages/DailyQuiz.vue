@@ -59,6 +59,10 @@
               <input class="form-check-input" :type="q.type === 'multi' ? 'checkbox' : 'radio'" :checked="isPicked(cur, oi)" @click.stop="choose(cur, oi)" />
               <label class="form-check-label"><b>{{ letters[oi] }}.</b> {{ o.text }}</label>
             </div>
+            <div class="mt-3">
+              <label class="form-label small mb-1"><i class="bi bi-pencil"></i> Ghi chú câu này</label>
+              <textarea v-model="notes[cur]" class="form-control form-control-sm" rows="2" placeholder="Suy nghĩ / lý do chọn / điều cần nhớ…"></textarea>
+            </div>
           </div>
         </div>
 
@@ -134,8 +138,7 @@
                 <div class="small fw-semibold text-truncate" style="max-width: 420px">{{ a.name }}</div>
                 <div class="text-muted" style="font-size: 0.75rem">{{ sizeMB(a.bytes) }}</div>
               </div>
-              <audio v-if="audioUrls[a.id]" :src="audioUrls[a.id]" controls preload="none" style="height: 36px"></audio>
-              <button v-else class="btn btn-sm btn-outline-secondary" :disabled="audioLoading[a.id]" @click="loadBlob(a.id)">
+              <button class="btn btn-sm" :class="player.isCurrent('') ? 'btn-outline-secondary' : 'btn-outline-secondary'" :disabled="audioLoading[a.id]" @click="playAudio(a)">
                 <span v-if="audioLoading[a.id]" class="spinner-border spinner-border-sm"></span><template v-else><i class="bi bi-play-circle"></i> Nghe</template>
               </button>
               <button class="btn btn-sm btn-outline-danger" @click="deleteAudio(a.id)" title="Xoá"><i class="bi bi-trash"></i></button>
@@ -143,9 +146,17 @@
           </div>
         </div>
 
-        <div class="btn-group btn-group-sm mb-3" role="group">
-          <button v-for="f in filters" :key="f.id" class="btn" :class="filter === f.id ? 'btn-primary' : 'btn-outline-primary'" @click="filter = f.id">
-            {{ f.label }} ({{ f.count }})
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+          <div class="btn-group btn-group-sm" role="group">
+            <button v-for="f in filters" :key="f.id" class="btn" :class="filter === f.id ? 'btn-primary' : 'btn-outline-primary'" @click="filter = f.id">
+              {{ f.label }} ({{ f.count }})
+            </button>
+          </div>
+          <button class="btn btn-sm btn-outline-secondary ms-auto" @click="copyQuestions" :title="'Copy nội dung ' + reviewItems.length + ' câu đang hiện (đề + đáp án) — không gửi AI'">
+            <i class="bi" :class="copied ? 'bi-check2' : 'bi-clipboard'"></i> {{ copied ? 'Đã copy' : 'Copy câu hỏi + đáp án' }}
+          </button>
+          <button class="btn btn-sm btn-outline-secondary" @click="downloadQuestions" title="Tải nội dung câu đang hiện ra file .txt">
+            <i class="bi bi-download"></i> Tải .txt
           </button>
         </div>
 
@@ -179,6 +190,10 @@
                 <span v-for="(t, ti) in item.q.terms" :key="ti" class="me-3"><b>{{ t.en }}</b> = {{ t.vi }}</span>
               </div>
             </div>
+            <div class="mt-2">
+              <label class="form-label small mb-1"><i class="bi bi-pencil"></i> Ghi chú của bạn</label>
+              <textarea v-model="notes[item.i]" class="form-control form-control-sm" rows="2" placeholder="Ghi chú câu này (tự lưu khi ngừng gõ)…" @input="scheduleSaveNotes" @blur="saveNotes"></textarea>
+            </div>
             <div class="text-end mt-2">
               <button class="btn btn-sm btn-link text-muted" :disabled="isReported(item.i)" @click="report(item.i)">
                 <i class="bi bi-exclamation-triangle"></i> {{ isReported(item.i) ? 'Đã báo' : 'Báo câu này có thể sai' }}
@@ -196,7 +211,12 @@
         </div>
         <div v-if="aiReviewText" class="card border-0 shadow-sm mb-4">
           <div class="card-body">
-            <h6 class="fw-bold mb-2"><i class="bi bi-robot"></i> AI đánh giá — phần cần nhớ để tránh lặp lỗi</h6>
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+              <h6 class="fw-bold mb-0"><i class="bi bi-robot"></i> AI đánh giá — phần cần nhớ để tránh lặp lỗi</h6>
+              <button class="btn btn-sm btn-outline-secondary ms-auto" @click="copyAiReview">
+                <i class="bi" :class="aiCopied ? 'bi-check2' : 'bi-clipboard'"></i> {{ aiCopied ? 'Đã copy' : 'Copy nội dung' }}
+              </button>
+            </div>
             <div class="md" v-html="renderMarkdown(aiReviewText)"></div>
           </div>
         </div>
@@ -226,6 +246,7 @@ import { api, errorMessage } from '../api'
 import { renderMarkdown } from '../utils/markdown'
 import { useSpeechSynthesis } from '../composables/useSpeechSynthesis'
 import { subjectSlug } from '../composables/useSubject'
+import { useAudioPlayer } from '../composables/useAudioPlayer'
 
 // "Daily 20": a stored set of 20 AI-written, exam-style questions per subject.
 // PMP uses the exam-domain weighting; English draws from the learner's vocab.
@@ -242,7 +263,7 @@ interface Q {
 interface Result {
   picks: number[][] | null; flagged: number[] | null; seconds: number
   by_domain: Record<string, [number, number]> | null; correct: boolean[] | null
-  reported: number[] | null; ai_review?: string
+  reported: number[] | null; ai_review?: string; notes?: string[] | null
 }
 interface DSet { id: number; seq: number; date: string; questions: Q[]; submitted: boolean; score: number; result: Result }
 interface Day { id: number; date: string; seq: number; score: number; total: number; submitted: boolean; has_review: boolean }
@@ -272,6 +293,7 @@ const err = ref('')
 const cur = ref(0)
 const picks = ref<number[][]>([])
 const flagged = ref<number[]>([])
+const notes = ref<string[]>([])
 const startedAt = ref(0)
 const now = ref(Date.now())
 let timer: ReturnType<typeof setInterval> | null = null
@@ -280,11 +302,59 @@ const filter = ref<'all' | 'wrong' | 'flagged'>('all')
 const aiReviewText = ref('')
 const aiReviewBusy = ref(false)
 const aiReviewErr = ref('')
+const copied = ref(false)
+const aiCopied = ref(false)
+
+// Copy the currently-shown questions (built locally — NOT sent to the AI, so no
+// token cost): stem + options (marking the correct one and the learner's pick)
+// + explanation.
+function questionsText(): string {
+  const lines: string[] = []
+  for (const it of reviewItems.value) {
+    const qq = it.q, i = it.i
+    lines.push(`Câu ${i + 1} (${qq.domain} · ${qq.approach})${it.right ? '' : ' — SAI'}`)
+    lines.push(qq.stem)
+    qq.options.forEach((o, oi) => {
+      const mark = qq.correct.includes(oi) ? '  ✅ (đáp án đúng)' : (pickOf(i).includes(oi) ? '  ❌ (bạn chọn)' : '')
+      lines.push(`  ${letters[oi]}. ${o.text}${mark}`)
+    })
+    if (qq.explanation) lines.push(`Giải thích: ${qq.explanation}`)
+    if (qq.section) lines.push(`Cheatsheet: ${qq.section}`)
+    if ((notes.value[i] ?? '').trim()) lines.push(`Ghi chú của bạn: ${notes.value[i].trim()}`)
+    lines.push('')
+  }
+  return lines.join('\n').trim()
+}
+async function copyAiReview() {
+  try {
+    await navigator.clipboard.writeText(aiReviewText.value)
+    aiCopied.value = true
+    setTimeout(() => { aiCopied.value = false }, 1800)
+  } catch { /* clipboard unavailable */ }
+}
+async function copyQuestions() {
+  try {
+    await navigator.clipboard.writeText(questionsText())
+    copied.value = true
+    setTimeout(() => { copied.value = false }, 1800)
+  } catch { /* clipboard unavailable */ }
+}
+function downloadQuestions() {
+  const blob = new Blob([questionsText()], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `daily-${subjectSlug.value}-${set.value?.date ?? today}.txt`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
 const tts = useSpeechSynthesis()
+const player = useAudioPlayer()
 
 // audio notes
 const audioFiles = ref<AudioFile[]>([])
-const audioUrls = ref<Record<number, string>>({})
 const audioLoading = ref<Record<number, boolean>>({})
 const audioBusy = ref(false)
 const audioErr = ref('')
@@ -324,7 +394,7 @@ const storeKey = () => `daily-${subjectSlug.value}-${set.value?.id ?? 0}`
 function saveProgress() {
   if (!set.value || set.value.submitted) return
   try {
-    localStorage.setItem(storeKey(), JSON.stringify({ picks: picks.value, flagged: flagged.value, startedAt: startedAt.value, cur: cur.value }))
+    localStorage.setItem(storeKey(), JSON.stringify({ picks: picks.value, flagged: flagged.value, startedAt: startedAt.value, cur: cur.value, notes: notes.value }))
   } catch { /* storage unavailable */ }
 }
 function restoreProgress() {
@@ -339,9 +409,10 @@ function restoreProgress() {
     if (Array.isArray(p.flagged)) flagged.value = p.flagged
     if (typeof p.startedAt === 'number' && p.startedAt > 0) startedAt.value = p.startedAt
     if (typeof p.cur === 'number' && p.cur >= 0 && p.cur < total.value) cur.value = p.cur
+    if (Array.isArray(p.notes)) p.notes.forEach((n: unknown, i: number) => { if (typeof n === 'string' && i < notes.value.length) notes.value[i] = n })
   } catch { /* ignore a corrupt value */ }
 }
-watch([picks, flagged, cur], saveProgress, { deep: true })
+watch([picks, flagged, cur, notes], saveProgress, { deep: true })
 
 function startTimer() { if (!timer) timer = setInterval(() => { now.value = Date.now() }, 1000) }
 function stopTimer() { if (timer) { clearInterval(timer); timer = null } }
@@ -355,8 +426,6 @@ async function loadHistory() {
 }
 
 function clearAudio() {
-  for (const k in audioUrls.value) { try { URL.revokeObjectURL(audioUrls.value[+k]) } catch { /* ignore */ } }
-  audioUrls.value = {}
   audioLoading.value = {}
   audioFiles.value = []
   audioErr.value = ''
@@ -364,6 +433,7 @@ function clearAudio() {
 
 function adopt(s: DSet | null) {
   set.value = s
+  notes.value = Array.from({ length: s?.questions.length ?? 0 }, (_, i) => (s?.result?.notes?.[i] ?? ''))
   confirmSubmit.value = false
   aiReviewErr.value = ''
   aiReviewText.value = s?.result?.ai_review ?? ''
@@ -473,6 +543,7 @@ async function submit() {
       picks: picks.value,
       flagged: flagged.value,
       seconds: elapsed.value,
+      notes: notes.value,
     })
     try { localStorage.removeItem(storeKey()) } catch { /* ignore */ }
     adopt(data.set)
@@ -514,17 +585,21 @@ const reviewItems = computed(() => {
 async function runAiReview() {
   const sv = set.value
   if (!sv) return
-  const wrong = sv.questions
-    .map((qq, i) => ({ qq, i }))
-    .filter(({ i }) => !isRight(i))
-    .map(({ qq, i }) => ({
-      stem: qq.stem,
-      correct: qq.correct.map((ci) => qq.options[ci]?.text ?? '').filter(Boolean),
-      picked: pickOf(i).map((pi) => qq.options[pi]?.text ?? '').filter(Boolean),
-      explanation: qq.explanation,
-      section: qq.section,
-      terms: (qq.terms ?? []).map((t) => `${t.en} = ${t.vi}`),
-    }))
+  const build = (qq: Q, i: number, right: boolean) => ({
+    stem: qq.stem,
+    correct: qq.correct.map((ci) => qq.options[ci]?.text ?? '').filter(Boolean),
+    picked: pickOf(i).map((pi) => qq.options[pi]?.text ?? '').filter(Boolean),
+    explanation: qq.explanation,
+    section: qq.section,
+    terms: (qq.terms ?? []).map((t) => `${t.en} = ${t.vi}`),
+    note: notes.value[i] ?? '',
+    right,
+  })
+  // all wrong questions + correct questions that have a note (so AI can respond to them)
+  const wrong = [
+    ...sv.questions.map((qq, i) => ({ qq, i })).filter(({ i }) => !isRight(i)).map(({ qq, i }) => build(qq, i, false)),
+    ...sv.questions.map((qq, i) => ({ qq, i })).filter(({ i }) => isRight(i) && (notes.value[i] ?? '').trim()).map(({ qq, i }) => build(qq, i, true)),
+  ]
   aiReviewBusy.value = true
   aiReviewErr.value = ''
   try {
@@ -536,6 +611,17 @@ async function runAiReview() {
   } finally {
     aiReviewBusy.value = false
   }
+}
+
+let notesTimer: ReturnType<typeof setTimeout> | null = null
+function scheduleSaveNotes() {
+  if (notesTimer) clearTimeout(notesTimer)
+  notesTimer = setTimeout(() => { saveNotes() }, 900)
+}
+async function saveNotes() {
+  if (notesTimer) { clearTimeout(notesTimer); notesTimer = null }
+  if (!set.value) return
+  try { await api.post('/pmp-daily/notes', { id: set.value.id, notes: notes.value }) } catch { /* best effort */ }
 }
 
 async function report(i: number) {
@@ -576,22 +662,21 @@ async function uploadAudio(e: Event) {
   }
 }
 
-async function loadBlob(id: number) {
-  audioLoading.value = { ...audioLoading.value, [id]: true }
+async function playAudio(a: AudioFile) {
+  audioLoading.value = { ...audioLoading.value, [a.id]: true }
   try {
-    const { data } = await api.get(`/pmp-daily/audio/${id}`, { responseType: 'blob' })
-    audioUrls.value = { ...audioUrls.value, [id]: URL.createObjectURL(data) }
+    const { data } = await api.get(`/pmp-daily/audio/${a.id}`, { responseType: 'blob' })
+    player.play(URL.createObjectURL(data), a.name, true)
   } catch (e) {
     audioErr.value = errorMessage(e)
   } finally {
-    audioLoading.value = { ...audioLoading.value, [id]: false }
+    audioLoading.value = { ...audioLoading.value, [a.id]: false }
   }
 }
 
 async function deleteAudio(id: number) {
   try {
     await api.delete(`/pmp-daily/audio/${id}`)
-    if (audioUrls.value[id]) { try { URL.revokeObjectURL(audioUrls.value[id]) } catch { /* ignore */ } }
     audioFiles.value = audioFiles.value.filter((a) => a.id !== id)
   } catch (e) {
     audioErr.value = errorMessage(e)

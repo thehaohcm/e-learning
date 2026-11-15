@@ -78,7 +78,7 @@ type LabStep struct {
 	Type        string   `json:"type,omitempty"`        // "command" (default) or "choice"
 	Patterns    []string `json:"patterns,omitempty"`    // accepted command regexes (type == "command")
 	Choices     []string `json:"choices,omitempty"`     // answer options (type == "choice")
-	Answer      int      `json:"answer,omitempty"`      // correct index into Choices (type == "choice")
+	Answer      int      `json:"answer"`                // correct index into Choices (type == "choice"); NO omitempty, else answer index 0 is dropped from JSON
 	Explanation string   `json:"explanation,omitempty"` // shown after a correct answer
 	Note        string   `json:"note,omitempty"`        // plain-language breakdown: what the command does and what each parameter means
 	Lesson      string   `json:"lesson,omitempty"`      // the teaching point: when to use this and why

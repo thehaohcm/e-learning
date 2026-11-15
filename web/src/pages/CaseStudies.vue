@@ -6,6 +6,58 @@
       và Khủng hoảng &amp; Đạo đức. Đọc theo chương để nắm mạch quy trình, chú ý các <b>concept</b> và <b>bẫy thi</b>.
     </p>
 
+    <!-- AI decision flow (methodology drill) -->
+    <div class="card border-0 shadow-sm mb-3" style="border-left: 3px solid #4f46e5 !important">
+      <div class="card-body">
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+          <h5 class="fw-bold mb-0"><i class="bi bi-diagram-3 text-primary"></i> Luồng quyết định (AI)</h5>
+          <small class="text-muted">Một tình huống diễn tiến theo bước — chọn "PM nên làm gì tiếp theo?" để luyện tư duy PMI end-to-end.</small>
+        </div>
+        <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+          <select v-model="flowTopic" class="form-select form-select-sm" style="max-width: 300px">
+            <option value="">Toàn bộ cheatsheet</option>
+            <option v-for="t in flowTopics" :key="t" :value="t">{{ t }}</option>
+          </select>
+          <div class="btn-group btn-group-sm" role="group" aria-label="Ngôn ngữ">
+            <input id="fl-vi" v-model="flowLang" type="radio" class="btn-check" value="vi" />
+            <label class="btn btn-outline-secondary" for="fl-vi">VI</label>
+            <input id="fl-en" v-model="flowLang" type="radio" class="btn-check" value="en" />
+            <label class="btn btn-outline-secondary" for="fl-en">EN</label>
+          </div>
+          <button class="btn btn-sm btn-primary" :disabled="flowBusy" @click="genFlow">
+            <span v-if="flowBusy" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-magic"></i>
+            {{ flowBusy ? 'AI đang viết luồng…' : (flowSteps.length ? 'Tạo luồng khác' : 'Tạo luồng') }}
+          </button>
+        </div>
+        <div v-if="flowErr" class="alert alert-danger py-2 small mb-2">{{ flowErr }}</div>
+
+        <template v-if="flowSteps.length">
+          <div v-if="!flowFinished">
+            <div class="progress mb-2" style="height: 6px"><div class="progress-bar" :style="{ width: (100 * flowIdx / flowSteps.length) + '%' }"></div></div>
+            <p class="small text-muted mb-1">Bước {{ flowIdx + 1 }} / {{ flowSteps.length }}</p>
+            <p class="fw-semibold">{{ curFlow.prompt }}</p>
+            <div class="d-grid gap-2 mb-2">
+              <button v-for="(opt, i) in curFlow.choices" :key="i" class="btn text-start" :class="flowBtnClass(i)" :disabled="flowRevealed" @click="pickFlow(i)">
+                <b>{{ letters[i] }}.</b> {{ opt }}
+              </button>
+            </div>
+            <div v-if="flowRevealed" class="alert py-2 small mb-2" :class="flowPicked === curFlow.answer ? 'alert-success' : 'alert-danger'">
+              <b>{{ flowPicked === curFlow.answer ? 'Chính xác!' : 'Chưa đúng.' }}</b> {{ curFlow.explanation }}
+              <div v-if="curFlow.hint" class="text-muted mt-1"><i class="bi bi-lightbulb"></i> {{ curFlow.hint }}</div>
+            </div>
+            <button v-if="flowRevealed" class="btn btn-sm btn-success" @click="flowNext">
+              {{ flowIdx + 1 < flowSteps.length ? 'Bước tiếp theo' : 'Xem kết quả' }} <i class="bi bi-arrow-right"></i>
+            </button>
+          </div>
+          <div v-else class="alert alert-success mb-0">
+            <i class="bi bi-trophy"></i> Hoàn thành luồng — đúng <b>{{ flowScore }}/{{ flowSteps.length }}</b>.
+            <button class="btn btn-sm btn-outline-success ms-2" @click="flowRestart">Làm lại luồng này</button>
+            <button class="btn btn-sm btn-primary ms-2" @click="genFlow">Tạo luồng khác</button>
+          </div>
+        </template>
+      </div>
+    </div>
+
     <!-- story selector -->
     <div class="d-flex flex-wrap gap-2 mb-3">
       <button v-for="s in stories" :key="s.id" type="button" class="btn btn-sm text-start"
@@ -25,7 +77,9 @@
         <p class="mb-0 cs-intro">{{ active.intro }}</p>
         <div class="mt-3">
           <div class="small text-muted mb-1"><i class="bi bi-headphones"></i> Nghe bản tóm tắt &amp; phân tích (audio NotebookLM)</div>
-          <audio controls preload="none" class="w-100" :src="'/story-audio/story_' + active.id + '.m4a'"></audio>
+          <button class="btn btn-sm btn-outline-primary" @click="player.play('/story-audio/story_' + active.id + '.m4a', 'Story ' + active.id + ' — ' + active.name)">
+            <i class="bi bi-play-circle"></i> Nghe (chạy nền, chuyển trang vẫn nghe tiếp)
+          </button>
         </div>
       </div>
     </div>
@@ -97,18 +151,85 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { api, errorMessage } from '../api'
+import { useAudioPlayer } from '../composables/useAudioPlayer'
 import { pmpStories, type PmpStory } from '../data/pmpStories'
-import { setSubject, subjectSlug } from '../composables/useSubject'
+import { setSubject, subjectId, subjectSlug } from '../composables/useSubject'
 
 // Narrative PMP case studies (read-only): pick a story, read chapter by chapter,
 // each chapter shows the narrative plus the PMP concepts it triggers, with any
 // "Bẫy thi" (exam trap) called out separately. Data: src/data/pmpStories.ts.
 const stories = pmpStories
 const active = ref<PmpStory>(stories[0])
+const player = useAudioPlayer()
 const openCh = ref<number>(stories[0].chapters[0]?.num ?? 1)
 const expandAll = ref(false)
+
+// --- AI decision flow (methodology drill) ---
+interface FlowStep { type: string; prompt: string; choices: string[]; answer: number; explanation: string; hint?: string }
+const letters = ['A', 'B', 'C', 'D', 'E', 'F']
+const flowTopics = ref<string[]>([])
+const flowTopic = ref('')
+const flowLang = ref<'vi' | 'en'>('vi')
+const flowBusy = ref(false)
+const flowErr = ref('')
+const flowSteps = ref<FlowStep[]>([])
+const flowIdx = ref(0)
+const flowPicked = ref<number | null>(null)
+const flowRevealed = ref(false)
+const flowAnswers = ref<number[]>([])
+
+const curFlow = computed<FlowStep>(() => flowSteps.value[flowIdx.value] ?? { type: 'choice', prompt: '', choices: [], answer: 0, explanation: '' })
+const flowFinished = computed(() => flowSteps.value.length > 0 && flowIdx.value >= flowSteps.value.length)
+const flowScore = computed(() => flowSteps.value.reduce((n, st, i) => n + (flowAnswers.value[i] === st.answer ? 1 : 0), 0))
+
+function flowBtnClass(i: number): string {
+  if (!flowRevealed.value) return flowPicked.value === i ? 'btn-primary' : 'btn-outline-primary'
+  if (i === curFlow.value.answer) return 'btn-success'
+  if (i === flowPicked.value) return 'btn-danger'
+  return 'btn-outline-secondary'
+}
+function pickFlow(i: number) {
+  if (flowRevealed.value) return
+  flowPicked.value = i
+  flowRevealed.value = true
+  flowAnswers.value[flowIdx.value] = i
+}
+function flowNext() { flowIdx.value++; flowPicked.value = null; flowRevealed.value = false }
+function flowRestart() { flowIdx.value = 0; flowPicked.value = null; flowRevealed.value = false; flowAnswers.value = [] }
+
+async function loadFlowTopics() {
+  if (!subjectId.value) return
+  try {
+    const { data } = await api.get('/course-notes', { params: { subject_id: subjectId.value } })
+    const seen = new Set<string>()
+    const SKIP = ['Thông tin kỳ thi', 'Điều kiện thi', 'Mindset PMI']
+    flowTopics.value = []
+    for (const n of (data.notes ?? [])) {
+      const t = (n.title ?? '').trim()
+      if (!t || seen.has(t) || SKIP.some((k) => t.includes(k))) continue
+      seen.add(t); flowTopics.value.push(t)
+    }
+  } catch { flowTopics.value = [] }
+}
+
+async function genFlow() {
+  flowBusy.value = true; flowErr.value = ''
+  try {
+    const { data } = await api.post('/course-notes/thinking-flow',
+      { subject_id: subjectId.value, topic: flowTopic.value, language: flowLang.value },
+      { timeout: 180000 })
+    flowSteps.value = ((data.steps ?? []) as FlowStep[]).filter((st) => st.type === 'choice' && Array.isArray(st.choices) && st.choices.length >= 2)
+    flowRestart()
+    if (!flowSteps.value.length) flowErr.value = 'AI chưa tạo được luồng — thử lại hoặc chọn mục khác.'
+  } catch (e) {
+    flowErr.value = errorMessage(e)
+  } finally {
+    flowBusy.value = false
+  }
+}
 
 // Case Study is PMP-only content; if opened under another topic prefix
 // (e.g. /pentest/cases via the topic switcher), snap back to PMP.
@@ -118,6 +239,7 @@ onMounted(() => {
     setSubject('pmp')
     router.replace('/pmp/cases')
   }
+  loadFlowTopics()
 })
 
 const storyTemplates: Record<number, { label: string; file: string }[]> = {

@@ -75,6 +75,9 @@
     <!-- floating quick course-notes (every page, logged in) -->
     <CourseNotesWidget v-if="auth.token" />
 
+    <!-- app-wide audio player: keeps playing across page navigation -->
+    <GlobalAudioPlayer v-if="auth.token" />
+
     <footer class="modern-footer">
       <div class="container text-center">
         <div class="d-flex justify-content-center align-items-center gap-2 mb-2">
@@ -96,6 +99,7 @@ import { auth, logout } from './auth'
 import NotesWidget from './components/NotesWidget.vue'
 import AskAiWidget from './components/AskAiWidget.vue'
 import CourseNotesWidget from './components/CourseNotesWidget.vue'
+import GlobalAudioPlayer from './components/GlobalAudioPlayer.vue'
 import { isEnglish, loadSubjects, setSubject, shortName, subjectOfDeck, subjects, subjectSlug } from './composables/useSubject'
 import StudyNudge from './components/StudyNudge.vue'
 import { disablePush, syncPush } from './composables/usePwa'

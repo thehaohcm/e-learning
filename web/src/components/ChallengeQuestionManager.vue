@@ -17,6 +17,34 @@
             Mỗi câu gồm: câu hỏi, (các) đáp án chấp nhận, giải thích và ghi chú riêng của bạn.
           </p>
 
+          <!-- Sync câu hỏi từ một mục cheatsheet vào challenge này -->
+          <div class="border rounded p-2 mb-3 bg-body-secondary">
+            <div class="d-flex flex-wrap align-items-center gap-2">
+              <i class="bi bi-arrow-repeat text-primary"></i>
+              <span class="fw-semibold small">Sync từ cheatsheet</span>
+              <select v-model="syncTopic" class="form-select form-select-sm" style="max-width: 260px">
+                <option value="">— Chọn mục cheatsheet —</option>
+                <option v-for="t in topics" :key="t" :value="t">{{ t }}</option>
+              </select>
+              <div class="btn-group btn-group-sm" role="group" aria-label="Ngôn ngữ">
+                <input id="sync-vi" v-model="syncLang" type="radio" class="btn-check" value="vi" />
+                <label class="btn btn-outline-secondary" for="sync-vi">VI</label>
+                <input id="sync-en" v-model="syncLang" type="radio" class="btn-check" value="en" />
+                <label class="btn btn-outline-secondary" for="sync-en">EN</label>
+              </div>
+              <button type="button" class="btn btn-sm btn-primary" :disabled="syncBusy || !syncTopic" @click="syncFromCheatsheet">
+                <span v-if="syncBusy" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-magic"></i>
+                Lấy câu hỏi
+              </button>
+              <button type="button" class="btn btn-sm btn-outline-primary" :disabled="flowBusy || !syncTopic" @click="genThinkingFlow" title="AI sinh luồng tư duy tình huống (trắc nghiệm + lệnh)">
+                <span v-if="flowBusy" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-diagram-3"></i>
+                Luồng tư duy (AI)
+              </button>
+            </div>
+            <div class="form-text"><b>Lấy câu hỏi</b>: trích mọi lệnh trong mục (bỏ qua trùng). <b>Luồng tư duy (AI)</b>: sinh chuỗi tình huống "chọn bước đúng" + lệnh chủ chốt để luyện methodology. Xem lại rồi bấm Lưu.</div>
+            <div v-if="syncMsg" class="small mt-1" :class="syncErr ? 'text-danger' : 'text-success'">{{ syncMsg }}</div>
+          </div>
+
           <div v-if="!steps.length" class="text-center text-muted small py-3">Chưa có câu hỏi nào. Bấm "Thêm câu hỏi" bên dưới.</div>
 
           <div v-for="(s, i) in steps" :key="s._key" class="card border-0 shadow-sm mb-2">
@@ -29,14 +57,33 @@
                   <button type="button" class="btn btn-outline-danger" @click="removeStep(i)" title="Xoá câu này"><i class="bi bi-trash"></i></button>
                 </div>
               </div>
-              <div class="mb-2">
-                <label class="form-label small mb-1">Câu hỏi</label>
-                <textarea v-model="s.prompt" class="form-control form-control-sm" rows="2" placeholder="Vd: Port 445 mở dịch vụ gì và nên enum bằng công cụ nào?"></textarea>
+              <div class="mb-2 d-flex align-items-center gap-2">
+                <label class="form-label small mb-0">Loại:</label>
+                <select v-model="s.type" class="form-select form-select-sm" style="max-width: 170px">
+                  <option value="command">Gõ lệnh</option>
+                  <option value="choice">Trắc nghiệm (tư duy)</option>
+                </select>
               </div>
               <div class="mb-2">
+                <label class="form-label small mb-1">Câu hỏi / tình huống</label>
+                <textarea v-model="s.prompt" class="form-control form-control-sm" rows="2" placeholder="Vd: Vừa có shell Windows, nên kiểm tra gì đầu tiên?"></textarea>
+              </div>
+              <div v-if="s.type !== 'choice'" class="mb-2">
                 <label class="form-label small mb-1">Đáp án chấp nhận <span class="text-muted">(mỗi dòng 1 cách viết, regex không phân biệt hoa/thường)</span></label>
                 <textarea v-model="s.patternsText" class="form-control form-control-sm font-monospace" rows="2" placeholder="smb&#10;enum4linux"></textarea>
               </div>
+              <template v-else>
+                <div class="mb-2">
+                  <label class="form-label small mb-1">Các lựa chọn <span class="text-muted">(mỗi dòng 1 lựa chọn)</span></label>
+                  <textarea v-model="s.choicesText" class="form-control form-control-sm" rows="4" placeholder="whoami /priv&#10;Tải winPEAS lên và chạy&#10;Reboot máy&#10;..."></textarea>
+                </div>
+                <div class="mb-2">
+                  <label class="form-label small mb-1">Đáp án đúng</label>
+                  <select v-model.number="s.answer" class="form-select form-select-sm">
+                    <option v-for="(ln, li) in linesOf(s.choicesText)" :key="li" :value="li">{{ li + 1 }}. {{ ln }}</option>
+                  </select>
+                </div>
+              </template>
               <div class="mb-2">
                 <label class="form-label small mb-1">Giải thích <span class="text-muted">(hiện sau khi trả lời đúng)</span></label>
                 <textarea v-model="s.explanation" class="form-control form-control-sm" rows="2"></textarea>
@@ -73,27 +120,120 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { api, errorMessage } from '../api'
 import type { Card } from '../types'
 import { challengeKey, type Challenge } from '../data/pentestChallenges'
+import { subjectId } from '../composables/useSubject'
 
 const props = defineProps<{ challenge: Challenge; deckId: number | null; card: Card | null }>()
 const emit = defineEmits<{ close: []; saved: [card: Card]; deleted: [cardId: number] }>()
 
-interface EditStep { _key: number; prompt: string; patternsText: string; explanation: string; hint: string }
+interface EditStep { _key: number; type: 'command' | 'choice'; prompt: string; patternsText: string; choicesText: string; answer: number; explanation: string; hint: string }
 
 let keySeq = 0
-function toEditStep(s: { prompt: string; patterns?: string[]; explanation?: string; hint?: string }): EditStep {
-  return { _key: keySeq++, prompt: s.prompt, patternsText: (s.patterns ?? []).join('\n'), explanation: s.explanation ?? '', hint: s.hint ?? '' }
+function toEditStep(s: any): EditStep {
+  const type = s.type === 'choice' ? 'choice' : 'command'
+  return {
+    _key: keySeq++, type,
+    prompt: s.prompt ?? '',
+    patternsText: (s.patterns ?? []).join('\n'),
+    choicesText: (s.choices ?? []).join('\n'),
+    answer: typeof s.answer === 'number' ? s.answer : 0,
+    explanation: s.explanation ?? '', hint: s.hint ?? '',
+  }
 }
+function linesOf(text: string): string[] { return text.split('\n').map((x) => x.trim()).filter(Boolean) }
 
 const steps = ref<EditStep[]>((props.card?.payload.steps ?? []).map(toEditStep))
 const saving = ref(false)
 const error = ref('')
 
+// --- sync questions from a cheatsheet section into this challenge ---
+const topics = ref<string[]>([])
+const syncTopic = ref('')
+const syncLang = ref<'vi' | 'en'>('vi')
+const syncBusy = ref(false)
+const syncMsg = ref('')
+const syncErr = ref(false)
+
+async function loadTopics() {
+  if (!subjectId.value) return
+  try {
+    const { data } = await api.get('/course-notes', { params: { subject_id: subjectId.value } })
+    const seen = new Set<string>()
+    topics.value = []
+    for (const n of (data.notes ?? [])) {
+      const t = (n.title ?? '').trim()
+      if (t && !seen.has(t)) { seen.add(t); topics.value.push(t) }
+    }
+  } catch { topics.value = [] }
+}
+
+interface SyncStep { prompt: string; patterns: string[]; explanation?: string; note?: string; lesson?: string; hint?: string }
+
+async function syncFromCheatsheet() {
+  if (!syncTopic.value || !subjectId.value) return
+  syncBusy.value = true; syncMsg.value = ''; syncErr.value = false
+  try {
+    const { data } = await api.post('/course-notes/extract-steps',
+      { subject_id: subjectId.value, topic: syncTopic.value, language: syncLang.value },
+      { timeout: 180000 })
+    const incoming = (data.steps ?? []) as SyncStep[]
+    const seen = new Set(steps.value.map((s) => (s.prompt.trim() + '|' + s.patternsText.trim()).toLowerCase()))
+    let added = 0
+    for (const s of incoming) {
+      const patternsText = (s.patterns ?? []).join('\n')
+      const key = (s.prompt.trim() + '|' + patternsText.trim()).toLowerCase()
+      if (!s.prompt || !patternsText || seen.has(key)) continue
+      seen.add(key)
+      const hint = s.hint || [s.note, s.lesson].filter(Boolean).join(' ')
+      steps.value.push({ _key: keySeq++, type: 'command', prompt: s.prompt, patternsText, choicesText: '', answer: 0, explanation: s.explanation ?? '', hint })
+      added++
+    }
+    syncMsg.value = `Đã thêm ${added} câu từ mục "${syncTopic.value}" (${data.extracted ?? incoming.length} lệnh trích được). Xem lại rồi bấm Lưu.`
+  } catch (e) {
+    syncErr.value = true; syncMsg.value = errorMessage(e)
+  } finally {
+    syncBusy.value = false
+  }
+}
+
+const flowBusy = ref(false)
+async function genThinkingFlow() {
+  if (!syncTopic.value || !subjectId.value) return
+  flowBusy.value = true; syncMsg.value = ''; syncErr.value = false
+  try {
+    const { data } = await api.post('/course-notes/thinking-flow',
+      { subject_id: subjectId.value, topic: syncTopic.value, language: syncLang.value },
+      { timeout: 180000 })
+    const incoming = (data.steps ?? []) as any[]
+    let added = 0
+    for (const s of incoming) {
+      if (!s.prompt) continue
+      const type = s.type === 'choice' ? 'choice' : 'command'
+      steps.value.push({
+        _key: keySeq++, type,
+        prompt: s.prompt,
+        patternsText: (s.patterns ?? []).join('\n'),
+        choicesText: (s.choices ?? []).join('\n'),
+        answer: typeof s.answer === 'number' ? s.answer : 0,
+        explanation: s.explanation ?? '', hint: s.hint ?? '',
+      })
+      added++
+    }
+    syncMsg.value = `Đã thêm ${added} bước luồng tư duy từ mục "${syncTopic.value}". Xem lại/sửa rồi bấm Lưu.`
+  } catch (e) {
+    syncErr.value = true; syncMsg.value = errorMessage(e)
+  } finally {
+    flowBusy.value = false
+  }
+}
+
+onMounted(loadTopics)
+
 function addStep() {
-  steps.value.push({ _key: keySeq++, prompt: '', patternsText: '', explanation: '', hint: '' })
+  steps.value.push({ _key: keySeq++, type: 'command', prompt: '', patternsText: '', choicesText: '', answer: 0, explanation: '', hint: '' })
 }
 function removeStep(i: number) {
   steps.value.splice(i, 1)
@@ -108,15 +248,19 @@ function move(i: number, dir: 1 | -1) {
 async function save() {
   error.value = ''
   const payloadSteps = steps.value
-    .map((s) => ({
-      prompt: s.prompt.trim(),
-      patterns: s.patternsText.split('\n').map((p) => p.trim()).filter(Boolean),
-      explanation: s.explanation.trim(),
-      hint: s.hint.trim(),
-    }))
-    .filter((s) => s.prompt && s.patterns.length)
+    .map((s) => {
+      const base: any = { type: s.type, prompt: s.prompt.trim(), explanation: s.explanation.trim(), hint: s.hint.trim() }
+      if (s.type === 'choice') {
+        base.choices = linesOf(s.choicesText)
+        base.answer = Math.max(0, Math.min(s.answer, base.choices.length - 1))
+      } else {
+        base.patterns = s.patternsText.split('\n').map((p) => p.trim()).filter(Boolean)
+      }
+      return base
+    })
+    .filter((s) => s.prompt && (s.type === 'choice' ? s.choices.length >= 2 : s.patterns.length))
   if (!payloadSteps.length) {
-    error.value = 'Cần ít nhất 1 câu hỏi có đủ câu hỏi và đáp án.'
+    error.value = 'Cần ít nhất 1 câu hợp lệ (câu hỏi + đáp án regex, hoặc ≥2 lựa chọn cho câu trắc nghiệm).'
     return
   }
   saving.value = true
