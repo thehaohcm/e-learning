@@ -70,6 +70,7 @@ type dailyResult struct {
 	Reported  []int             `json:"reported"`            // questions the learner reported as possibly wrong
 	AiReview  string            `json:"ai_review,omitempty"` // persisted AI review of the mistakes
 	Notes     []string          `json:"notes,omitempty"`     // learner note per question (index-aligned)
+	Answers   []string          `json:"answers,omitempty"`   // lab: user answer per step (for review)
 }
 
 // parseDay validates a YYYY-MM-DD date from the client: it must be a real date
@@ -269,6 +270,39 @@ func (h *Handler) PMPDailyGenerate(c *gin.Context) {
 	seq := h.nextDailySeq(uid, subj.ID, day)
 	seed := uid*1000003 + day.Unix() + int64(seq)*7919
 
+	// Pentest: a "Daily Lab" — an AI methodology flow (choice + typed-command)
+	// stored as ai.FlowStep[], not the MCQ DailyQuestion shape.
+	if subj.Slug == "pentest" {
+		steps, lerr := h.generatePentestLab(ctx, model, uid, subj, seed)
+		if lerr != nil {
+			switch {
+			case errors.Is(lerr, errDailyNoNotes):
+				abort(c, http.StatusBadRequest, "add pentest cheatsheet notes first")
+			case errors.Is(lerr, ai.ErrNotConfigured):
+				abort(c, http.StatusServiceUnavailable, lerr.Error())
+			default:
+				abort(c, http.StatusBadGateway, "AI chưa tạo được bài lab, thử lại: "+lerr.Error())
+			}
+			return
+		}
+		if len(steps) < 5 {
+			abort(c, http.StatusBadGateway, "AI chưa tạo đủ bước cho bài lab, thử lại")
+			return
+		}
+		lraw, e := json.Marshal(steps)
+		if e != nil {
+			internal(c, e)
+			return
+		}
+		lset := pmpDailySet{UserID: uid, SubjectID: subj.ID, Seq: seq, Day: day, Questions: models.JSON(lraw), Result: models.JSON("{}"), CreatedAt: time.Now().UTC()}
+		if e := h.DB.Create(&lset).Error; e != nil {
+			internal(c, e)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"set": dailyView(&lset)})
+		return
+	}
+
 	var all []ai.DailyQuestion
 	var genErr error
 	if subj.Slug == "english" {
@@ -383,6 +417,27 @@ func (h *Handler) generateEnglishDaily(ctx context.Context, model string, uid in
 	return h.AI.GenerateEnglishDaily(ctx, model, 20, words, rng)
 }
 
+// generatePentestLab builds a Daily Lab: an AI methodology flow (choice +
+// typed-command steps) for a random cheatsheet section of the pentest subject.
+func (h *Handler) generatePentestLab(ctx context.Context, model string, uid int64, subject models.Subject, seed int64) ([]ai.FlowStep, error) {
+	var notes []models.CourseNote
+	if err := h.DB.Where("user_id = ? AND subject_id = ?", uid, subject.ID).
+		Order("sort_order ASC, id ASC").Limit(maxCourseNotes).Find(&notes).Error; err != nil {
+		return nil, err
+	}
+	if len(notes) == 0 {
+		return nil, errDailyNoNotes
+	}
+	rng := rand.New(rand.NewSource(seed))
+	topic := notes[rng.Intn(len(notes))].Title
+	scoped := scopeNotesByTopic(notes, topic)
+	items := make([]ai.CheatNote, len(scoped))
+	for i, n := range scoped {
+		items[i] = ai.CheatNote{Title: n.Title, Body: n.Body}
+	}
+	return h.AI.GenerateThinkingFlow(ctx, model, subject.Name, topic, items, "vi")
+}
+
 // notesForDomain orders the notes for one domain's prompt: sections tagged for
 // the domain first, then general ([Chung]) ones, each group shuffled so the
 // questions vary from day to day. For Process the formulas section goes first.
@@ -445,6 +500,8 @@ func (h *Handler) PMPDailySubmit(c *gin.Context) {
 		Flagged []int    `json:"flagged"`
 		Seconds int      `json:"seconds"`
 		Notes   []string `json:"notes"`
+		Correct []bool   `json:"correct"` // lab: per-step correctness (client-checked)
+		Answers []string `json:"answers"` // lab: user answer per step (for review)
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		bad(c, err)
@@ -462,6 +519,43 @@ func (h *Handler) PMPDailySubmit(c *gin.Context) {
 	}
 	if s.SubmittedAt != nil {
 		abort(c, http.StatusConflict, "already submitted")
+		return
+	}
+	// Pentest Daily Lab: steps scored client-side; store the per-step results.
+	var subj models.Subject
+	h.DB.Where("id = ?", s.SubjectID).Limit(1).Find(&subj)
+	if subj.Slug == "pentest" {
+		var steps []ai.FlowStep
+		if err := json.Unmarshal(s.Questions, &steps); err != nil {
+			internal(c, err)
+			return
+		}
+		res := dailyResult{
+			ByDomain:  map[string][2]int{},
+			Submitted: true,
+			Correct:   make([]bool, len(steps)),
+			Notes:     clampNotes(req.Notes, len(steps)),
+			Answers:   clampNotes(req.Answers, len(steps)),
+			Seconds:   req.Seconds,
+		}
+		score := 0
+		for i := range steps {
+			ok := i < len(req.Correct) && req.Correct[i]
+			res.Correct[i] = ok
+			if ok {
+				score++
+			}
+		}
+		res.ByDomain["Lab"] = [2]int{score, len(steps)}
+		raw, _ := json.Marshal(res)
+		now := time.Now().UTC()
+		if err := h.DB.Model(&pmpDailySet{}).Where("id = ?", s.ID).
+			Updates(map[string]any{"result": models.JSON(raw), "score": score, "submitted_at": now}).Error; err != nil {
+			internal(c, err)
+			return
+		}
+		s.Result, s.Score, s.SubmittedAt = models.JSON(raw), &score, &now
+		c.JSON(http.StatusOK, gin.H{"set": dailyView(s)})
 		return
 	}
 	var qs []ai.DailyQuestion
@@ -697,8 +791,13 @@ func (h *Handler) PMPDailyAiReview(c *gin.Context) {
 	}
 	courseName := "PMP"
 	var sj models.Subject
-	if h.DB.Where("id = ?", s.SubjectID).Limit(1).Find(&sj).Error == nil && sj.Slug == "english" {
-		courseName = "English (TOEIC/IELTS)"
+	if h.DB.Where("id = ?", s.SubjectID).Limit(1).Find(&sj).Error == nil {
+		switch sj.Slug {
+		case "english":
+			courseName = "English (TOEIC/IELTS)"
+		case "pentest":
+			courseName = "Pentest"
+		}
 	}
 	review, err := h.AI.ReviewDailyMistakes(ctx, req.Model, courseName, req.Wrong)
 	if err != nil {

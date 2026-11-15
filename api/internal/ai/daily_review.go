@@ -51,14 +51,28 @@ func (c *Client) ReviewDailyMistakes(ctx context.Context, model, courseName stri
 		}
 		b.WriteString("\n")
 	}
+	lc := strings.ToLower(courseName)
+	isPentest := strings.Contains(lc, "pentest") || strings.Contains(lc, "pen test")
 	system := "Bạn là trợ giảng luyện thi PMP. Trả lời HOÀN TOÀN bằng tiếng Việt, chỉ dựa trên dữ liệu được cung cấp, không bịa kiến thức ngoài."
+	rightPrinciple := `nguyên tắc/"tư duy PMI" đúng`
+	groupHint := "theo CONCEPT / chủ đề PMP (vd: Scope trong Agile, EVM, vai trò Product Owner, Change Control...)"
+	keepTerms := "Giữ thuật ngữ tiếng Anh (Product Owner, sprint backlog, baseline...) nhưng diễn giải bằng tiếng Việt."
+	if isPentest {
+		system = "Bạn là mentor pentest/bảo mật (THM PT1 / HTB CPTS). Trả lời HOÀN TOÀN bằng tiếng Việt, chỉ dựa trên dữ liệu được cung cấp, không bịa. Giữ nguyên lệnh, cờ và thuật ngữ tiếng Anh."
+		rightPrinciple = "tư duy/methodology pentest đúng (enum trước khi khai thác, đọc kết quả, khi nào pivot, lệnh/công cụ phù hợp)"
+		groupHint = "theo CONCEPT / giai đoạn pentest (vd: enum dịch vụ, web exploit, privilege escalation Linux/Windows, pivoting...)"
+		keepTerms = "Giữ nguyên lệnh, cờ và thuật ngữ tiếng Anh (nmap, SeImpersonatePrivilege, LinPEAS...), diễn giải bằng tiếng Việt."
+	}
 	user := fmt.Sprintf(`Môn: %s. Học viên vừa làm bài Daily. Dưới đây là các câu SAI, và một số câu ĐÚNG nhưng học viên có GHI CHÚ muốn được nhận xét:
 
 %s
 Viết một bản đánh giá NGẮN GỌN bằng tiếng Việt giúp học viên nhớ lỗi và tránh lặp lại:
-- Với câu [SAI]: chỉ ra học viên hiểu sai gì và nguyên tắc/tư duy PMI đúng.\n- Với câu [ĐÚNG, có ghi chú]: KHÔNG coi là sai; chỉ phản hồi vào ghi chú của học viên (xác nhận cách hiểu đúng hoặc bổ sung/chỉnh nếu ghi chú chưa chuẩn).\n- Nếu một câu có Ghi chú của học viên, luôn phản hồi trực tiếp vào ghi chú đó.\n- Gom các câu sai theo CONCEPT / chủ đề PMP (vd: Scope trong Agile, EVM, vai trò Product Owner, Change Control...).
-- Mỗi nhóm: nêu học viên đang hiểu sai điều gì và "tư duy PMI" / nguyên tắc đúng cần nhớ (1-3 câu).
+- Với câu [SAI]: chỉ ra học viên hiểu sai gì và %s.
+- Với câu [ĐÚNG, có ghi chú]: KHÔNG coi là sai; chỉ phản hồi vào ghi chú của học viên (xác nhận cách hiểu đúng hoặc bổ sung/chỉnh nếu ghi chú chưa chuẩn).
+- Nếu một câu có Ghi chú của học viên, luôn phản hồi trực tiếp vào ghi chú đó.
+- Gom các câu sai %s.
+- Mỗi nhóm: nêu học viên đang hiểu sai điều gì và %s cần nhớ (1-3 câu).
 - Kết thúc bằng mục "## Cần ôn lại" gồm 3-6 gạch đầu dòng cụ thể, bám theo Chủ đề/Cheatsheet ở trên.
-Dùng markdown (##, **, -). Giữ thuật ngữ tiếng Anh (Product Owner, sprint backlog, baseline...) nhưng diễn giải bằng tiếng Việt. KHÔNG chép lại nguyên văn câu hỏi.`, courseName, b.String())
+Dùng markdown (##, **, -). %s KHÔNG chép lại nguyên văn câu hỏi.`, courseName, b.String(), rightPrinciple, groupHint, rightPrinciple, keepTerms)
 	return c.chatText(ctx, model, system, user, 0.4)
 }

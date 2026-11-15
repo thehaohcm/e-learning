@@ -159,6 +159,7 @@ const links = computed<NavLink[]>(() => {
       if (l.to === withPrefix('/review')) {
         out.push({ to: withPrefix('/labs'), label: 'Labs', icon: 'bi-terminal' })
         out.push({ to: withPrefix('/cheatsheet'), label: 'Cheat sheet', icon: 'bi-journal-text' })
+        out.push({ to: withPrefix('/daily-lab'), label: 'Daily Lab', icon: 'bi-terminal-plus' })
       }
     }
     const more: NavLink = {
@@ -237,7 +238,7 @@ async function signOut() {
 // one is open.
 // Pages that exist only for certain topics; switching to a topic that lacks the
 // current page drops to that topic's home instead of showing the wrong content.
-const SUBJECT_ONLY_PAGES: Record<string, string[]> = { '/cases': ['pmp'], '/labs': ['pentest'], '/daily': ['pmp', 'english'] }
+const SUBJECT_ONLY_PAGES: Record<string, string[]> = { '/cases': ['pmp'], '/labs': ['pentest'], '/daily-lab': ['pentest'], '/daily': ['pmp', 'english'] }
 function pageAllowedForSubject(rest: string, slug: string): boolean {
   for (const p in SUBJECT_ONLY_PAGES) {
     if (rest === p || rest.startsWith(p + '/')) return SUBJECT_ONLY_PAGES[p].includes(slug)
