@@ -31,17 +31,47 @@ func shuffleChoices(ch []string, answer int, rng *rand.Rand) ([]string, int) {
 
 // FlowStep is one step of a thinking flow (choice or command).
 type FlowStep struct {
-	Type        string   `json:"type"`              // "choice" | "command"
+	Type        string   `json:"type"`               // "choice" | "command"
 	Prompt      string   `json:"prompt"`
-	Choices     []string `json:"choices,omitempty"` // choice: options
-	Answer      *int     `json:"answer,omitempty"`  // choice: 0-based correct index
-	Patterns    []string `json:"patterns,omitempty"`// command: accept regexes
+	Choices     []string `json:"choices,omitempty"`  // choice: options
+	Answer      *int     `json:"answer,omitempty"`   // choice: 0-based correct index
+	Patterns    []string `json:"patterns,omitempty"` // command: accept regexes
 	Explanation string   `json:"explanation"`
 	Hint        string   `json:"hint,omitempty"`
 }
 
-// GenerateThinkingFlow writes a methodology flow for topic, grounded in notes.
-func (c *Client) GenerateThinkingFlow(ctx context.Context, model, courseName, topic string, notes []CheatNote, language string) ([]FlowStep, error) {
+// FlowOpts configures one thinking-flow generation.
+type FlowOpts struct {
+	Model      string
+	CourseName string
+	Topic      string // cheatsheet section / topic to build around ("" = whole sheet)
+	Track      string // pentest: "PT1" | "WEB1" | "OPTS"; empty otherwise
+	Focus      string // optional free-text the learner wants the lab to centre on
+	Domain     string // "pentest" (default) | "aws"
+	Language   string // "vi" | "en"
+}
+
+// trackBrief describes the kind of engagement/scenario for the chosen track,
+// so the flow reads like a real THM/HTB challenge room (pentest) or a real
+// client-system incident (aws).
+func trackBrief(domain, track string) string {
+	if domain == "aws" {
+		return "a real operational incident/task on a client's AWS account that a DevOps engineer handles end-to-end (investigate with the console/CLI, decide, then remediate safely)"
+	}
+	switch strings.ToUpper(strings.TrimSpace(track)) {
+	case "WEB1":
+		return "a TryHackMe WEB1 (Web Application Pentester) style target: web recon and mapping, authentication/session flaws, injection (SQLi, command injection, SSTI), broken access control / IDOR, file-upload and from a web foothold to a shell — web-application focus"
+	case "OPTS":
+		return "a mixed, open offensive engagement (CTF/boot-to-root style) that chains network/host, web and Active Directory the way a full challenge room does"
+	default: // PT1
+		return "a TryHackMe PT1 (Junior Penetration Tester) style box: external recon -> service enumeration -> initial foothold -> Linux/Windows privilege escalation (and basic Active Directory) — network/host focus"
+	}
+}
+
+// GenerateThinkingFlow writes a methodology flow for a topic, grounded only in
+// the learner's notes. opts.Domain selects pentest (default) or aws; opts.Track
+// picks the pentest exam style; opts.Focus optionally steers the scenario.
+func (c *Client) GenerateThinkingFlow(ctx context.Context, opts FlowOpts, notes []CheatNote) ([]FlowStep, error) {
 	if !c.Enabled() {
 		return nil, ErrNotConfigured
 	}
@@ -53,52 +83,83 @@ func (c *Client) GenerateThinkingFlow(ctx context.Context, model, courseName, to
 		fmt.Fprintf(&nb, "## %s\n%s\n\n", nt.Title, truncate(nt.Body, 3500))
 	}
 	const count = 10
-	system := "You are a senior penetration-testing instructor preparing a student for the TryHackMe PT1 (Junior Penetration Tester) exam, which is open-book. You teach METHODOLOGY and decision-making, not rote command syntax. Reply with a single JSON object only."
-	user := fmt.Sprintf(`Topic: %s
+	aws := opts.Domain == "aws"
+
+	system := "You are a senior penetration-testing instructor preparing a student for the TryHackMe junior pentest path, which is open-book. You teach METHODOLOGY and decision-making, not rote command syntax. Reply with a single JSON object only."
+	cmdPat := "the actual command to run (so they also build muscle memory for the few commands worth typing)"
+	if aws {
+		system = "You are a senior AWS DevOps/SRE instructor. You train an engineer who manages a client's AWS system to investigate, decide and remediate safely. You teach OPERATIONAL judgement, not rote syntax. Reply with a single JSON object only."
+		cmdPat = "the actual AWS CLI command to run (aws <service> <op> ...), so they build muscle memory for the real operational commands"
+	}
+
+	focusLine := ""
+	if f := strings.TrimSpace(opts.Focus); f != "" {
+		focusLine = fmt.Sprintf("\n\nThe learner asked to FOCUS this lab on: %q. Centre the whole scenario on that; still ground every detail in the notes.", f)
+	}
+
+	user := fmt.Sprintf(`Scenario style: %s.
+Topic to build around: %s
 Course: %s
 
-From the study notes below, build a SITUATIONAL THINKING FLOW (methodology) for this topic: an ordered sequence of about %d steps that walks the learner through how to THINK on a real box, mixing two kinds of steps:
-- "choice": a realistic situation (2-4 sentences) ending in a decision — "what should you check or do NEXT, and why?" — with exactly 4 options, exactly 1 correct. The wrong options should be plausible mistakes. Teach the reasoning: what to enumerate first, how to read a result, when to pivot.
-- "command": at a key moment, the actual command to run (so they also build muscle memory for the few commands worth typing).
+From the study notes below, build ONE coherent SITUATIONAL THINKING FLOW (methodology) — a single engagement against one named target (give it a name and an IP/host or an account/resource), so the steps CHAIN like a real challenge/incident: each step's result motivates the next. About %d ordered steps mixing two kinds:
+- "choice": a realistic situation (2-4 sentences) ending in a decision — "what should you check or do NEXT, and why?" — with exactly 4 options, exactly 1 correct. Wrong options are plausible mistakes. Teach the reasoning: what to enumerate/inspect first, how to read a result, when to pivot or escalate.
+- "command": at a key moment, %s.
 
-Aim for roughly 60%% "choice" (thinking) and 40%% "command". The flow must be logically ordered (enumerate -> interpret -> decide -> exploit). Base EVERYTHING ONLY on the notes; never invent tools, flags or techniques not present in them.
+Aim for roughly 60%% "choice" (thinking) and 40%% "command". The flow must be logically ordered. Base EVERYTHING ONLY on the notes; never invent tools, flags, services or techniques not present in them.%s
 
 For EACH step provide:
 - "type": "choice" or "command".
-- "prompt": the situation/question.
+- "prompt": the situation/question (continue the same scenario).
 - "explanation": 1-3 sentences on why this is the right move and how to interpret the result (the key teaching point).
 - choice steps also: "choices" (exactly 4 short strings) and "answer" (0-based index of the correct choice).
-- command steps also: "patterns" (1-3 case-insensitive regex that accept the correct command; escape literal . / $ ( ) [ ]; use .+ for IPs/hosts/ports; RE2, no lookahead).
+- command steps also: "patterns" (1-3 case-insensitive regex that accept the correct command; escape literal . / $ ( ) [ ]; use .+ for IPs/hosts/ports/ARNs/bucket names; RE2, no lookahead).
 - optional "hint": a short nudge.
 
-Return JSON: {"steps":[{"type":"choice","prompt":"...","choices":["...","...","...","..."],"answer":0,"explanation":"...","hint":"..."},{"type":"command","prompt":"...","patterns":["..."],"explanation":"...","hint":"..."}]}`, topic, courseName, count, nb.String())
+Return JSON: {"steps":[{"type":"choice","prompt":"...","choices":["...","...","...","..."],"answer":0,"explanation":"...","hint":"..."},{"type":"command","prompt":"...","patterns":["..."],"explanation":"...","hint":"..."}]}`,
+		trackBrief(opts.Domain, opts.Track), topicOrAll(opts.Topic, aws), opts.CourseName, count, cmdPat, focusLine)
 
-	if language == "en" {
-		user += "\n\nIMPORTANT — LANGUAGE: Write prompt, choices, explanation and hint in ENGLISH. Keep commands/flags exact."
+	if opts.Language == "en" {
+		user += "\n\nIMPORTANT — LANGUAGE: Write prompt, choices, explanation and hint in ENGLISH. Keep commands/flags/service names exact."
 	} else {
-		user += "\n\nQUAN TRỌNG — NGÔN NGỮ: Viết prompt, choices, explanation và hint bằng TIẾNG VIỆT. Giữ nguyên lệnh, cờ và code (không dịch)."
+		user += "\n\nQUAN TRỌNG — NGÔN NGỮ: Viết prompt, choices, explanation và hint bằng TIẾNG VIỆT. Giữ nguyên lệnh, cờ, tên dịch vụ và code (không dịch)."
 	}
 
 	var out struct {
 		Steps []FlowStep `json:"steps"`
 	}
-	if err := c.chatJSONModel(ctx, model, system, user, 0.6, &out); err != nil {
+	if err := c.chatJSONModel(ctx, opts.Model, system, user, 0.6, &out); err != nil {
 		return nil, err
 	}
+	return cleanFlowSteps(out.Steps, false)
+}
+
+func topicOrAll(topic string, aws bool) string {
+	if strings.TrimSpace(topic) != "" {
+		return topic
+	}
+	if aws {
+		return "the whole AWS cheatsheet"
+	}
+	return "the whole cheatsheet"
+}
+
+// cleanFlowSteps validates/normalises steps. choiceOnly drops command steps
+// (used by the PMP flow, which has no commands).
+func cleanFlowSteps(steps []FlowStep, choiceOnly bool) ([]FlowStep, error) {
 	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	cleaned := make([]FlowStep, 0, len(out.Steps))
-	for _, s := range out.Steps {
+	cleaned := make([]FlowStep, 0, len(steps))
+	for _, s := range steps {
 		s.Prompt = strings.TrimSpace(s.Prompt)
 		s.Explanation = strings.TrimSpace(s.Explanation)
 		s.Hint = strings.TrimSpace(s.Hint)
 		if len(s.Prompt) < 8 || s.Explanation == "" {
 			continue
 		}
-		if strings.ToLower(strings.TrimSpace(s.Type)) == "choice" {
+		isChoice := choiceOnly || strings.ToLower(strings.TrimSpace(s.Type)) == "choice"
+		if isChoice {
 			var ch []string
 			for _, o := range s.Choices {
-				o = strings.TrimSpace(o)
-				if o != "" {
+				if o = strings.TrimSpace(o); o != "" {
 					ch = append(ch, o)
 				}
 			}
@@ -110,8 +171,7 @@ Return JSON: {"steps":[{"type":"choice","prompt":"...","choices":["...","...",".
 		} else {
 			var ps []string
 			for _, p := range s.Patterns {
-				p = strings.TrimSpace(p)
-				if p != "" {
+				if p = strings.TrimSpace(p); p != "" {
 					ps = append(ps, p)
 				}
 			}
@@ -130,8 +190,8 @@ Return JSON: {"steps":[{"type":"choice","prompt":"...","choices":["...","...",".
 
 // GeneratePmpFlow builds a SEQUENTIAL, choice-only decision scenario for PMP: one
 // evolving project situation split into ordered decision points, teaching the
-// PMI mindset. No command steps (PMP has no commands).
-func (c *Client) GeneratePmpFlow(ctx context.Context, model, topic string, notes []CheatNote, language string) ([]FlowStep, error) {
+// PMI mindset. No command steps (PMP has no commands). focus optionally steers it.
+func (c *Client) GeneratePmpFlow(ctx context.Context, model, topic, focus string, notes []CheatNote, language string) ([]FlowStep, error) {
 	if !c.Enabled() {
 		return nil, ErrNotConfigured
 	}
@@ -146,6 +206,10 @@ func (c *Client) GeneratePmpFlow(ctx context.Context, model, topic string, notes
 	if strings.TrimSpace(topic) != "" {
 		topicLine = topic
 	}
+	focusLine := ""
+	if f := strings.TrimSpace(focus); f != "" {
+		focusLine = fmt.Sprintf("\n\nThe learner asked to FOCUS this scenario on: %q. Centre the story on that; still ground it in the notes.", f)
+	}
 	system := "You are a PMP exam coach. You build SEQUENTIAL decision scenarios that teach the PMI mindset: analyse before acting, follow the plan and integrated change control, be proactive, collaborate, servant leadership in agile, escalate only when needed. Reply with a single JSON object only."
 	user := fmt.Sprintf(`Topic: %s
 
@@ -156,9 +220,9 @@ From the PMP study notes below, build ONE evolving project scenario split into a
 - "explanation": 1-3 sentences naming the PMI principle/process behind the right answer and why the others are wrong.
 - optional "hint".
 
-The steps MUST build on each other (one continuous story), be realistic, and stay grounded ONLY in the notes. Do not use "all/none of the above" or refer to options by letter.
+The steps MUST build on each other (one continuous story), be realistic, and stay grounded ONLY in the notes. Do not use "all/none of the above" or refer to options by letter.%s
 
-Return JSON: {"steps":[{"type":"choice","prompt":"...","choices":["...","...","...","..."],"answer":0,"explanation":"...","hint":"..."}]}`, topicLine, nb.String())
+Return JSON: {"steps":[{"type":"choice","prompt":"...","choices":["...","...","...","..."],"answer":0,"explanation":"...","hint":"..."}]}`, topicLine, focusLine)
 
 	if language == "en" {
 		user += "\n\nIMPORTANT — LANGUAGE: Write prompt, choices, explanation and hint in ENGLISH (PMP exam language)."
@@ -172,30 +236,5 @@ Return JSON: {"steps":[{"type":"choice","prompt":"...","choices":["...","...",".
 	if err := c.chatJSONModel(ctx, model, system, user, 0.6, &out); err != nil {
 		return nil, err
 	}
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-	cleaned := make([]FlowStep, 0, len(out.Steps))
-	for _, s := range out.Steps {
-		s.Prompt = strings.TrimSpace(s.Prompt)
-		s.Explanation = strings.TrimSpace(s.Explanation)
-		s.Hint = strings.TrimSpace(s.Hint)
-		if len(s.Prompt) < 8 || s.Explanation == "" {
-			continue
-		}
-		var ch []string
-		for _, o := range s.Choices {
-			if o = strings.TrimSpace(o); o != "" {
-				ch = append(ch, o)
-			}
-		}
-		if len(ch) < 3 || len(ch) > 6 || s.Answer == nil || *s.Answer < 0 || *s.Answer >= len(ch) {
-			continue
-		}
-		nc, na := shuffleChoices(ch, *s.Answer, rng)
-		s.Type, s.Choices, s.Patterns, s.Answer = "choice", nc, nil, &na
-		cleaned = append(cleaned, s)
-	}
-	if len(cleaned) == 0 {
-		return nil, fmt.Errorf("AI không tạo được bước nào hợp lệ")
-	}
-	return cleaned, nil
+	return cleanFlowSteps(out.Steps, true)
 }

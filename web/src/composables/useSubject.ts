@@ -41,9 +41,9 @@ export const subjectId = computed(() => subject.value?.id ?? 0)
 export const isEnglish = computed(() => subjectSlug.value === 'english')
 
 /** Topics whose cheatsheet can generate AI questions ("Call AI") and be drilled by section. */
-export const supportsCheatsheetAi = computed(() => subjectSlug.value === 'pentest' || subjectSlug.value === 'pmp')
+export const supportsCheatsheetAi = computed(() => subjectSlug.value === 'pentest' || subjectSlug.value === 'pmp' || subjectSlug.value === 'aws')
 /** Topics whose cheatsheet holds shell commands, so typed-command drills ("lab") make sense. */
-export const isCommandSubject = computed(() => subjectSlug.value === 'pentest')
+export const isCommandSubject = computed(() => subjectSlug.value === 'pentest' || subjectSlug.value === 'aws')
 
 /** Short name for the menu: "English", "PMP". */
 export function shortName(slug: string, name = ''): string {

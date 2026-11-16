@@ -164,6 +164,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.GET("/note-audio", h.NoteAudioList)
 		u.GET("/note-audio/:id", h.NoteAudioGet)
 		u.DELETE("/note-audio/:id", h.NoteAudioDelete)
+		u.GET("/audio-library", h.AudioLibrary) // all uploaded audio grouped by source, for the listening panel
 		u.GET("/chat-models", h.ChatModels)
 
 		// PMP roleplay: play the PM with an AI-played difficult client (English speaking practice)

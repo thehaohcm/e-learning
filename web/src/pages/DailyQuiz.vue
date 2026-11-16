@@ -27,7 +27,7 @@
               <li>Điền từ, chọn nghĩa gần nhất, hoặc chọn câu dùng từ đúng</li>
               <li>Sau khi nộp có giải thích từng đáp án và nghĩa tiếng Việt</li>
             </ul>
-            <button class="btn btn-primary" :disabled="generating" @click="generate">
+            <button class="btn btn-primary" :disabled="generating" @click="openGen">
               <span v-if="generating" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-magic"></i>
               {{ generating ? 'AI đang viết 20 câu… (có thể mất 1–2 phút)' : 'Tạo bộ 20 câu' }}
             </button>
@@ -111,7 +111,7 @@
                 <span v-if="retaking" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-arrow-repeat"></i>
                 Làm lại bộ này
               </button>
-              <button class="btn btn-sm btn-primary" :disabled="generating" @click="generate">
+              <button class="btn btn-sm btn-primary" :disabled="generating" @click="openGen">
                 <span v-if="generating" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-plus-circle"></i>
                 {{ generating ? 'Đang tạo…' : 'Tạo bộ 20 câu mới' }}
               </button>
@@ -238,6 +238,29 @@
       </div>
     </div>
   </div>
+
+      <!-- generate options -->
+      <div v-if="showGen" class="gen-overlay" @click.self="showGen = false">
+        <div class="card border-0 shadow gen-card">
+          <div class="card-body">
+            <div class="d-flex align-items-center mb-3">
+              <h6 class="fw-bold mb-0"><i class="bi bi-magic"></i> Tạo bộ 20 câu</h6>
+              <button type="button" class="btn-close ms-auto" aria-label="Close" @click="showGen = false"></button>
+            </div>
+            <label class="form-label small fw-semibold mb-1">Nội dung muốn tập trung <span class="text-muted fw-normal">(không bắt buộc)</span></label>
+            <textarea v-model="genFocus" class="form-control form-control-sm" rows="2" :placeholder="focusPlaceholder"></textarea>
+            <div class="form-text mb-3">Để trống thì AI tự chọn chủ đề như thường.</div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-primary" :disabled="generating" @click="confirmGen">
+                <span v-if="generating" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-magic"></i>
+                {{ generating ? 'AI đang viết… (1–2 phút)' : 'Tạo bộ' }}
+              </button>
+              <button class="btn btn-outline-secondary" :disabled="generating" @click="showGen = false">Huỷ</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
 </template>
 
 <script setup lang="ts">
@@ -285,6 +308,11 @@ const set = ref<DSet | null>(null)
 const history = ref<Day[]>([])
 const loading = ref(true)
 const generating = ref(false)
+const showGen = ref(false)
+const genFocus = ref('')
+const focusPlaceholder = computed(() => (subjectSlug.value === 'english'
+  ? 'VD: business emails, synonyms, phrasal verbs…'
+  : 'VD: Risk, EVM, Agile/Scrum, Change Control…'))
 const retaking = ref(false)
 const submitting = ref(false)
 const confirmSubmit = ref(false)
@@ -462,11 +490,13 @@ async function load() {
   }
 }
 
+function openGen() { genFocus.value = ''; showGen.value = true }
+async function confirmGen() { await generate(); if (!err.value) showGen.value = false }
 async function generate() {
   generating.value = true
   err.value = ''
   try {
-    const { data } = await api.post('/pmp-daily/generate', { date: today, subject: subjectSlug.value }, { timeout: 180000 })
+    const { data } = await api.post('/pmp-daily/generate', { date: today, subject: subjectSlug.value, focus: genFocus.value.trim() }, { timeout: 180000 })
     adopt(data.set)
     await loadHistory()
     window.scrollTo({ top: 0 })
@@ -706,4 +736,6 @@ onUnmounted(() => {
 .rv-bad { background: #fef2f2; border-color: #ef4444; }
 .btn-badge { cursor: pointer; border: 1px solid #cbd5e1; }
 .btn-badge:hover { filter: brightness(0.97); }
+.gen-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 1060; padding: 1rem; }
+.gen-card { width: 100%; max-width: 460px; }
 </style>

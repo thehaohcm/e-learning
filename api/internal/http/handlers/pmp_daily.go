@@ -238,6 +238,8 @@ func (h *Handler) PMPDailyGenerate(c *gin.Context) {
 		Date    string `json:"date"`
 		Subject string `json:"subject"`
 		Model   string `json:"model"`
+		Focus   string `json:"focus"`
+		Track   string `json:"track"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		bad(c, err)
@@ -270,14 +272,14 @@ func (h *Handler) PMPDailyGenerate(c *gin.Context) {
 	seq := h.nextDailySeq(uid, subj.ID, day)
 	seed := uid*1000003 + day.Unix() + int64(seq)*7919
 
-	// Pentest: a "Daily Lab" — an AI methodology flow (choice + typed-command)
-	// stored as ai.FlowStep[], not the MCQ DailyQuestion shape.
-	if subj.Slug == "pentest" {
-		steps, lerr := h.generatePentestLab(ctx, model, uid, subj, seed)
+	// Pentest / AWS: a "Daily Lab" — an AI methodology flow (choice + typed-
+	// command) stored as ai.FlowStep[], not the MCQ DailyQuestion shape.
+	if subj.Slug == "pentest" || subj.Slug == "aws" {
+		steps, lerr := h.generateLabFlow(ctx, model, uid, subj, seed, req.Focus, req.Track)
 		if lerr != nil {
 			switch {
 			case errors.Is(lerr, errDailyNoNotes):
-				abort(c, http.StatusBadRequest, "add pentest cheatsheet notes first")
+				abort(c, http.StatusBadRequest, "add cheatsheet notes first")
 			case errors.Is(lerr, ai.ErrNotConfigured):
 				abort(c, http.StatusServiceUnavailable, lerr.Error())
 			default:
@@ -306,9 +308,9 @@ func (h *Handler) PMPDailyGenerate(c *gin.Context) {
 	var all []ai.DailyQuestion
 	var genErr error
 	if subj.Slug == "english" {
-		all, genErr = h.generateEnglishDaily(ctx, model, uid, subj, seed)
+		all, genErr = h.generateEnglishDaily(ctx, model, uid, subj, seed, req.Focus)
 	} else {
-		all, genErr = h.generatePMPDaily(ctx, model, uid, subj, day, seed)
+		all, genErr = h.generatePMPDaily(ctx, model, uid, subj, day, seed, req.Focus)
 	}
 	if genErr != nil {
 		switch {
@@ -346,7 +348,7 @@ func (h *Handler) PMPDailyGenerate(c *gin.Context) {
 
 // generatePMPDaily writes the 20 PMP questions, weighted by exam domain, from
 // the learner's PMP cheatsheet notes.
-func (h *Handler) generatePMPDaily(ctx context.Context, model string, uid int64, subject models.Subject, day time.Time, seed int64) ([]ai.DailyQuestion, error) {
+func (h *Handler) generatePMPDaily(ctx context.Context, model string, uid int64, subject models.Subject, day time.Time, seed int64, focus string) ([]ai.DailyQuestion, error) {
 	var notes []models.CourseNote
 	if err := h.DB.Where("user_id = ? AND subject_id = ?", uid, subject.ID).
 		Order("sort_order ASC, id ASC").Limit(maxCourseNotes).Find(&notes).Error; err != nil {
@@ -366,7 +368,7 @@ func (h *Handler) generatePMPDaily(ctx context.Context, model string, uid int64,
 			defer wg.Done()
 			rng := rand.New(rand.NewSource(seed + int64(i)*7919))
 			picked := notesForDomain(notes, tag, name == "Process", rng)
-			results[i], errs[i] = h.AI.GenerateDailyQuestions(ctx, model, name, count, picked, avoid[name], rng)
+			results[i], errs[i] = h.AI.GenerateDailyQuestions(ctx, model, name, count, picked, avoid[name], focus, rng)
 		}(i, d.Name, d.Tag, d.Count)
 	}
 	wg.Wait()
@@ -387,7 +389,7 @@ func (h *Handler) generatePMPDaily(ctx context.Context, model string, uid int64,
 
 // generateEnglishDaily writes 20 TOEIC/IELTS-style questions from a random
 // sample of the learner's English vocabulary cards.
-func (h *Handler) generateEnglishDaily(ctx context.Context, model string, uid int64, subject models.Subject, seed int64) ([]ai.DailyQuestion, error) {
+func (h *Handler) generateEnglishDaily(ctx context.Context, model string, uid int64, subject models.Subject, seed int64, focus string) ([]ai.DailyQuestion, error) {
 	var cards []models.Card
 	if err := h.DB.Joins("JOIN decks ON decks.id = cards.deck_id").
 		Where("decks.subject_id = ? AND cards.kind = ?", subject.ID, models.KindVocab).
@@ -414,12 +416,14 @@ func (h *Handler) generateEnglishDaily(ctx context.Context, model string, uid in
 		words = append(words, ai.EnglishWord{Word: cd.Front, MeaningEN: me, MeaningVI: mv, Topic: p.Topic})
 	}
 	rng := rand.New(rand.NewSource(seed))
-	return h.AI.GenerateEnglishDaily(ctx, model, 20, words, rng)
+	return h.AI.GenerateEnglishDaily(ctx, model, 20, words, focus, rng)
 }
 
-// generatePentestLab builds a Daily Lab: an AI methodology flow (choice +
-// typed-command steps) for a random cheatsheet section of the pentest subject.
-func (h *Handler) generatePentestLab(ctx context.Context, model string, uid int64, subject models.Subject, seed int64) ([]ai.FlowStep, error) {
+// generateLabFlow builds a Daily Lab: an AI methodology flow (choice + typed-
+// command steps) for the pentest or aws subject. With a focus, the AI sees the
+// whole sheet and centres the scenario on it; otherwise a random section seeds
+// it. track picks the pentest exam style (PT1/WEB1/OPTS); ignored for aws.
+func (h *Handler) generateLabFlow(ctx context.Context, model string, uid int64, subject models.Subject, seed int64, focus, track string) ([]ai.FlowStep, error) {
 	var notes []models.CourseNote
 	if err := h.DB.Where("user_id = ? AND subject_id = ?", uid, subject.ID).
 		Order("sort_order ASC, id ASC").Limit(maxCourseNotes).Find(&notes).Error; err != nil {
@@ -429,13 +433,28 @@ func (h *Handler) generatePentestLab(ctx context.Context, model string, uid int6
 		return nil, errDailyNoNotes
 	}
 	rng := rand.New(rand.NewSource(seed))
-	topic := notes[rng.Intn(len(notes))].Title
-	scoped := scopeNotesByTopic(notes, topic)
-	items := make([]ai.CheatNote, len(scoped))
-	for i, n := range scoped {
-		items[i] = ai.CheatNote{Title: n.Title, Body: n.Body}
+	var topic string
+	var items []ai.CheatNote
+	if strings.TrimSpace(focus) != "" {
+		for _, n := range notes {
+			items = append(items, ai.CheatNote{Title: n.Title, Body: n.Body})
+		}
+	} else {
+		topic = notes[rng.Intn(len(notes))].Title
+		scoped := scopeNotesByTopic(notes, topic)
+		items = make([]ai.CheatNote, len(scoped))
+		for i, n := range scoped {
+			items[i] = ai.CheatNote{Title: n.Title, Body: n.Body}
+		}
 	}
-	return h.AI.GenerateThinkingFlow(ctx, model, subject.Name, topic, items, "vi")
+	domain := "pentest"
+	if subject.Slug == "aws" {
+		domain = "aws"
+	}
+	return h.AI.GenerateThinkingFlow(ctx, ai.FlowOpts{
+		Model: model, CourseName: subject.Name, Topic: topic,
+		Track: track, Focus: focus, Domain: domain, Language: "vi",
+	}, items)
 }
 
 // notesForDomain orders the notes for one domain's prompt: sections tagged for
@@ -524,7 +543,7 @@ func (h *Handler) PMPDailySubmit(c *gin.Context) {
 	// Pentest Daily Lab: steps scored client-side; store the per-step results.
 	var subj models.Subject
 	h.DB.Where("id = ?", s.SubjectID).Limit(1).Find(&subj)
-	if subj.Slug == "pentest" {
+	if subj.Slug == "pentest" || subj.Slug == "aws" {
 		var steps []ai.FlowStep
 		if err := json.Unmarshal(s.Questions, &steps); err != nil {
 			internal(c, err)
@@ -797,6 +816,8 @@ func (h *Handler) PMPDailyAiReview(c *gin.Context) {
 			courseName = "English (TOEIC/IELTS)"
 		case "pentest":
 			courseName = "Pentest"
+		case "aws":
+			courseName = "AWS (DevOps)"
 		}
 	}
 	review, err := h.AI.ReviewDailyMistakes(ctx, req.Model, courseName, req.Wrong)

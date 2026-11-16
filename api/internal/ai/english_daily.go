@@ -23,7 +23,7 @@ type EnglishWord struct {
 }
 
 // GenerateEnglishDaily writes up to count valid questions from the words.
-func (c *Client) GenerateEnglishDaily(ctx context.Context, model string, count int, words []EnglishWord, rng *rand.Rand) ([]DailyQuestion, error) {
+func (c *Client) GenerateEnglishDaily(ctx context.Context, model string, count int, words []EnglishWord, focus string, rng *rand.Rand) ([]DailyQuestion, error) {
 	if !c.Enabled() {
 		return nil, ErrNotConfigured
 	}
@@ -35,7 +35,7 @@ func (c *Client) GenerateEnglishDaily(ctx context.Context, model string, count i
 		for _, q := range got {
 			used[strings.ToLower(q.Section)] = true
 		}
-		raw, err := c.englishDailyBatch(ctx, model, need, words, used)
+		raw, err := c.englishDailyBatch(ctx, model, need, words, used, focus)
 		if err != nil {
 			lastErr = err
 			continue
@@ -55,7 +55,7 @@ func (c *Client) GenerateEnglishDaily(ctx context.Context, model string, count i
 	return got, nil
 }
 
-func (c *Client) englishDailyBatch(ctx context.Context, model string, n int, words []EnglishWord, used map[string]bool) ([]DailyQuestion, error) {
+func (c *Client) englishDailyBatch(ctx context.Context, model string, n int, words []EnglishWord, used map[string]bool, focus string) ([]DailyQuestion, error) {
 	var wb strings.Builder
 	listed := 0
 	for _, w := range words {
@@ -102,6 +102,10 @@ Target words (word: meaning):
 %s
 Return JSON: {"questions":[{"domain":"English","approach":"vocabulary|grammar|reading","type":"single","stem":"...","options":[{"text":"...","why":"..."}],"correct":[index],"explanation":"...","section":"word","terms":[{"en":"...","vi":"..."}]}]}`,
 		n, wb.String())
+
+	if f := strings.TrimSpace(focus); f != "" {
+		user += "\n\nIMPORTANT — the learner asked to FOCUS on: " + f + " (e.g. a theme, grammar point or question style). Weight the questions toward that where the target words allow."
+	}
 
 	var out struct {
 		Questions []DailyQuestion `json:"questions"`

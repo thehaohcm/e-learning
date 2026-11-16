@@ -77,6 +77,7 @@
 
     <!-- app-wide audio player: keeps playing across page navigation -->
     <GlobalAudioPlayer v-if="auth.token" />
+    <AudioLibraryPanel v-if="auth.token" />
 
     <footer class="modern-footer">
       <div class="container text-center">
@@ -100,6 +101,7 @@ import NotesWidget from './components/NotesWidget.vue'
 import AskAiWidget from './components/AskAiWidget.vue'
 import CourseNotesWidget from './components/CourseNotesWidget.vue'
 import GlobalAudioPlayer from './components/GlobalAudioPlayer.vue'
+import AudioLibraryPanel from './components/AudioLibraryPanel.vue'
 import { isEnglish, loadSubjects, setSubject, shortName, subjectOfDeck, subjects, subjectSlug } from './composables/useSubject'
 import StudyNudge from './components/StudyNudge.vue'
 import { disablePush, syncPush } from './composables/usePwa'
@@ -176,11 +178,12 @@ const links = computed<NavLink[]>(() => {
   // other subjects (English/PMP/AWS) keep the existing shape: Practice
   // dropdown, Browse top-level, "More" holding Cheat sheet (+ Courses, admin)
   const isPmp = subjectSlug.value === 'pmp'
+  const isAws = subjectSlug.value === 'aws'
   const more: NavLink = {
     to: '#more', label: 'More', icon: 'bi-grid-3x3-gap',
     children: [
-      // PMP surfaces Cheat sheet top-level (below), so keep it out of "More" there
-      ...(isPmp ? [] : [{ to: withPrefix('/cheatsheet'), label: 'Cheat sheet', icon: 'bi-journal-text' }]),
+      // PMP and AWS surface Cheat sheet top-level (below), so keep it out of "More" there
+      ...(isPmp || isAws ? [] : [{ to: withPrefix('/cheatsheet'), label: 'Cheat sheet', icon: 'bi-journal-text' }]),
       ...(auth.isAdmin ? [{ to: withPrefix('/courses'), label: 'Courses', icon: 'bi-mortarboard' }] : []),
     ],
   }
@@ -195,6 +198,11 @@ const links = computed<NavLink[]>(() => {
       ]
     : subjectSlug.value === 'english'
     ? [{ to: withPrefix('/daily'), label: 'Daily 20', icon: 'bi-calendar-check' }]
+    : isAws
+    ? [
+        { to: withPrefix('/cheatsheet'), label: 'Cheat sheet', icon: 'bi-journal-text' },
+        { to: withPrefix('/daily-lab'), label: 'Daily Lab', icon: 'bi-terminal-plus' },
+      ]
     : []
   const i = base.findIndex((l) => l.to === withPrefix('/devices'))
   return i >= 0 ? [...base.slice(0, i), ...extra, more, ...base.slice(i)] : [...base, ...extra, more]
@@ -238,7 +246,7 @@ async function signOut() {
 // one is open.
 // Pages that exist only for certain topics; switching to a topic that lacks the
 // current page drops to that topic's home instead of showing the wrong content.
-const SUBJECT_ONLY_PAGES: Record<string, string[]> = { '/cases': ['pmp'], '/labs': ['pentest'], '/daily-lab': ['pentest'], '/daily': ['pmp', 'english'] }
+const SUBJECT_ONLY_PAGES: Record<string, string[]> = { '/cases': ['pmp'], '/labs': ['pentest'], '/daily-lab': ['pentest', 'aws'], '/daily': ['pmp', 'english'] }
 function pageAllowedForSubject(rest: string, slug: string): boolean {
   for (const p in SUBJECT_ONLY_PAGES) {
     if (rest === p || rest.startsWith(p + '/')) return SUBJECT_ONLY_PAGES[p].includes(slug)

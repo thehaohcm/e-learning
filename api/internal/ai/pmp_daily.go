@@ -50,7 +50,7 @@ const (
 // notes are the study notes to ground them in (already ordered by relevance);
 // avoid lists recent scenarios not to repeat. rng must not be shared between
 // goroutines (it is used to shuffle the answer options).
-func (c *Client) GenerateDailyQuestions(ctx context.Context, model, domain string, count int, notes []CheatNote, avoid []string, rng *rand.Rand) ([]DailyQuestion, error) {
+func (c *Client) GenerateDailyQuestions(ctx context.Context, model, domain string, count int, notes []CheatNote, avoid []string, focus string, rng *rand.Rand) ([]DailyQuestion, error) {
 	if !c.Enabled() {
 		return nil, ErrNotConfigured
 	}
@@ -62,7 +62,7 @@ func (c *Client) GenerateDailyQuestions(ctx context.Context, model, domain strin
 		for _, q := range got {
 			skip = append(skip, truncate(q.Stem, 90))
 		}
-		raw, err := c.dailyBatch(ctx, model, domain, need, notes, skip)
+		raw, err := c.dailyBatch(ctx, model, domain, need, notes, skip, focus)
 		if err != nil {
 			lastErr = err
 			continue
@@ -82,7 +82,7 @@ func (c *Client) GenerateDailyQuestions(ctx context.Context, model, domain strin
 	return got, nil
 }
 
-func (c *Client) dailyBatch(ctx context.Context, model, domain string, n int, notes []CheatNote, avoid []string) ([]DailyQuestion, error) {
+func (c *Client) dailyBatch(ctx context.Context, model, domain string, n int, notes []CheatNote, avoid []string, focus string) ([]DailyQuestion, error) {
 	var nb strings.Builder
 	for _, nt := range notes {
 		if nb.Len() > dailyNotesCap {
@@ -124,6 +124,10 @@ Study notes:
 %s
 Return JSON: {"questions":[{"domain":"%s","approach":"predictive|agile|hybrid","type":"single|multi","stem":"...","options":[{"text":"...","why":"..."}],"correct":[0-based indexes],"explanation":"...","section":"...","terms":[{"en":"...","vi":"..."}]}]}`,
 		n, domain, predictive, multi, calc, avoidText, nb.String(), domain)
+
+	if f := strings.TrimSpace(focus); f != "" {
+		user += "\n\nIMPORTANT — the learner asked to FOCUS on: " + f + ". Weight the questions toward that, but still base everything only on the notes."
+	}
 
 	var out struct {
 		Questions []DailyQuestion `json:"questions"`

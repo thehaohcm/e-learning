@@ -838,6 +838,8 @@ func (h *Handler) ThinkingFlow(c *gin.Context) {
 		Topic     string `json:"topic"`
 		Model     string `json:"model"`
 		Language  string `json:"language"`
+		Focus     string `json:"focus"`
+		Track     string `json:"track"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.SubjectID <= 0 {
 		abort(c, http.StatusBadRequest, "subject_id is required")
@@ -881,9 +883,16 @@ func (h *Handler) ThinkingFlow(c *gin.Context) {
 	var steps []ai.FlowStep
 	var err error
 	if subject.Slug == "pmp" {
-		steps, err = h.AI.GeneratePmpFlow(ctx, req.Model, req.Topic, items, genLang)
+		steps, err = h.AI.GeneratePmpFlow(ctx, req.Model, req.Topic, req.Focus, items, genLang)
 	} else {
-		steps, err = h.AI.GenerateThinkingFlow(ctx, req.Model, subject.Name, req.Topic, items, genLang)
+		domain := "pentest"
+		if subject.Slug == "aws" {
+			domain = "aws"
+		}
+		steps, err = h.AI.GenerateThinkingFlow(ctx, ai.FlowOpts{
+			Model: req.Model, CourseName: subject.Name, Topic: req.Topic,
+			Track: req.Track, Focus: req.Focus, Domain: domain, Language: genLang,
+		}, items)
 	}
 	if err != nil {
 		if errors.Is(err, ai.ErrNotConfigured) {

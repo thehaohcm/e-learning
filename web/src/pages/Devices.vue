@@ -96,7 +96,7 @@
     <div class="col-lg-6">
       <h2 class="fw-bold mb-3"><i class="bi bi-sliders"></i> Study settings</h2>
       <p class="small text-muted">For your whole account (website and devices). Pop-ups and topics of a study device are in its <i class="bi bi-gear"></i> Settings.</p>
-      <AppNotifications v-if="settings" v-model:times="settings.push_times" :timezone="timezone" />
+      <AppNotifications v-if="settings" v-model:times="settings.push_times" v-model:inactive-reminder="settings.inactive_reminder" v-model:inactive-reminder-hour="settings.inactive_reminder_hour" :timezone="timezone" />
       <ExtensionKeys />
       <div v-if="settings" class="card border-0 shadow-sm">
         <div class="card-body">
@@ -156,7 +156,7 @@ import { auth } from '../auth'
 
 interface DeviceSettings { subject_ids: number[]; device_mode: string; reminder_every_min: number | ''; active_from: string; active_to: string; popup_cards: number }
 interface Device { id: number; name: string; firmware: string; last_seen_at: string | null; settings: Partial<DeviceSettings> | null }
-interface Settings { daily_new: number; daily_new_by_subject: Record<string, number>; active_deck_ids: number[]; reminder_every_min: number; active_from: string; active_to: string; tts_speed: number; device_mode: string; push_times: string[]; popup_cards: number; auto_pace: boolean; auto_pace_notes?: string[] }
+interface Settings { daily_new: number; daily_new_by_subject: Record<string, number>; active_deck_ids: number[]; reminder_every_min: number; active_from: string; active_to: string; tts_speed: number; device_mode: string; push_times: string[]; inactive_reminder: boolean; inactive_reminder_hour: number; popup_cards: number; auto_pace: boolean; auto_pace_notes?: string[] }
 
 const POPUP_CARDS = [5, 10, 20]
 

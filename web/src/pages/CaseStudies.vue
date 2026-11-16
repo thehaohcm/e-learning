@@ -24,6 +24,7 @@
             <input id="fl-en" v-model="flowLang" type="radio" class="btn-check" value="en" />
             <label class="btn btn-outline-secondary" for="fl-en">EN</label>
           </div>
+          <input v-model="flowFocus" type="text" class="form-control form-control-sm" style="max-width: 16rem" placeholder="Tập trung vào… (không bắt buộc)" />
           <button class="btn btn-sm btn-primary" :disabled="flowBusy" @click="genFlow">
             <span v-if="flowBusy" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-magic"></i>
             {{ flowBusy ? 'AI đang viết luồng…' : (flowSteps.length ? 'Tạo luồng khác' : 'Tạo luồng') }}
@@ -175,6 +176,7 @@ const flowTopic = ref('')
 const flowLang = ref<'vi' | 'en'>('vi')
 const flowBusy = ref(false)
 const flowErr = ref('')
+const flowFocus = ref('')
 const flowSteps = ref<FlowStep[]>([])
 const flowIdx = ref(0)
 const flowPicked = ref<number | null>(null)
@@ -219,7 +221,7 @@ async function genFlow() {
   flowBusy.value = true; flowErr.value = ''
   try {
     const { data } = await api.post('/course-notes/thinking-flow',
-      { subject_id: subjectId.value, topic: flowTopic.value, language: flowLang.value },
+      { subject_id: subjectId.value, topic: flowTopic.value, language: flowLang.value, focus: flowFocus.value.trim() },
       { timeout: 180000 })
     flowSteps.value = ((data.steps ?? []) as FlowStep[]).filter((st) => st.type === 'choice' && Array.isArray(st.choices) && st.choices.length >= 2)
     flowRestart()

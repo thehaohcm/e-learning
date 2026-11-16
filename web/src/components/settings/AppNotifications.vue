@@ -62,6 +62,22 @@
         </div>
       </div>
 
+      <!-- inactivity reminder -->
+      <div class="mt-3 pt-2 border-top">
+        <div class="form-check form-switch mb-1">
+          <input id="inactive-on" class="form-check-input" type="checkbox" role="switch" :checked="inactiveReminder" :disabled="busy" @change="toggleInactive" />
+          <label class="form-check-label" for="inactive-on">Nhắc nếu hôm nay chưa học</label>
+        </div>
+        <div v-if="inactiveReminder" class="d-flex flex-wrap align-items-center gap-2 small">
+          <span class="text-muted">Nhắc lúc</span>
+          <select class="form-select form-select-sm" style="width: 6rem" :value="inactiveReminderHour" :disabled="busy" @change="setInactiveHour">
+            <option v-for="h in 24" :key="h - 1" :value="h - 1">{{ String(h - 1).padStart(2, '0') }}:00</option>
+          </select>
+          <span class="text-muted">nếu chưa học buổi nào trong ngày (giờ {{ timezone || 'tài khoản' }}).</span>
+        </div>
+        <div class="form-text">Gửi tới mọi thiết bị đã bật thông báo. Mặc định 12:00 trưa.</div>
+      </div>
+
       <div v-if="msg" class="alert mt-2 mb-0 py-2 small" :class="ok ? 'alert-success' : 'alert-danger'">{{ msg }}</div>
     </div>
   </div>
@@ -74,8 +90,12 @@ import {
   canInstall, disablePush, enablePush, installApp, isInstalled, isIOS, notificationPermission, pushEnabledHere, pushSupported, testPush,
 } from '../../composables/usePwa'
 
-const props = defineProps<{ times: string[]; timezone: string }>()
-const emit = defineEmits<{ (e: 'update:times', v: string[]): void }>()
+const props = defineProps<{ times: string[]; timezone: string; inactiveReminder: boolean; inactiveReminderHour: number }>()
+const emit = defineEmits<{
+  (e: 'update:times', v: string[]): void
+  (e: 'update:inactiveReminder', v: boolean): void
+  (e: 'update:inactiveReminderHour', v: number): void
+}>()
 
 const MAX_TIMES = 6
 const DEFAULT_TIME = '20:00'
@@ -101,6 +121,39 @@ async function install() {
 async function saveTimes(list: string[]) {
   const { data } = await api.put('/settings', { settings: { push_times: list } })
   emit('update:times', data.settings.push_times ?? [])
+}
+
+async function saveInactive(on: boolean, hour: number) {
+  const { data } = await api.put('/settings', { settings: { inactive_reminder: on, inactive_reminder_hour: hour } })
+  emit('update:inactiveReminder', data.settings.inactive_reminder ?? false)
+  emit('update:inactiveReminderHour', data.settings.inactive_reminder_hour ?? 12)
+}
+
+async function toggleInactive(e: Event) {
+  const on = (e.target as HTMLInputElement).checked
+  busy.value = true
+  try {
+    await saveInactive(on, props.inactiveReminderHour || 12)
+    say(on ? `Sẽ nhắc nếu chưa học, lúc ${String(props.inactiveReminderHour || 12).padStart(2, '0')}:00.` : 'Đã tắt nhắc khi chưa học.')
+  } catch (err) {
+    ;(e.target as HTMLInputElement).checked = !on
+    say(errorMessage(err), false)
+  } finally {
+    busy.value = false
+  }
+}
+
+async function setInactiveHour(e: Event) {
+  const hour = Number((e.target as HTMLSelectElement).value)
+  busy.value = true
+  try {
+    await saveInactive(props.inactiveReminder, hour)
+    say('Đã lưu giờ nhắc.')
+  } catch (err) {
+    say(errorMessage(err), false)
+  } finally {
+    busy.value = false
+  }
 }
 
 async function toggle(e: Event) {

@@ -36,6 +36,11 @@ type Settings struct {
 	// Study reminders sent as push notifications to the user's phones and
 	// browsers, at these local times ("08:00", "20:30"). Empty = none.
 	PushTimes []string `json:"push_times"`
+	// Inactivity reminder: when on, if the user has not studied at all by
+	// InactiveReminderHour (0-23, their local time) on a given day, send one
+	// push nudge ("you haven't studied today"). Independent of PushTimes.
+	InactiveReminder     bool `json:"inactive_reminder"`
+	InactiveReminderHour int  `json:"inactive_reminder_hour"`
 	// Auto-pace: when on, each topic's daily new-card limit is raised a little
 	// after a sustained "strong" memory streak and lowered on "needs focus"
 	// (ordered introduction, never random). Off by default. State below is
@@ -78,6 +83,7 @@ func DefaultSettings() Settings {
 		DeviceMode:       DeviceModeFlashcard,
 		PopupCards:       10,
 		TTSSpeed:         1.0,
+		InactiveReminderHour: 12,
 	}
 }
 
@@ -172,6 +178,9 @@ func (s Settings) sanitized() Settings {
 		s.ActiveDeckIDs = []int64{}
 	}
 	s.PushTimes = cleanTimes(s.PushTimes)
+	if s.InactiveReminderHour < 0 || s.InactiveReminderHour > 23 {
+		s.InactiveReminderHour = d.InactiveReminderHour
+	}
 	for k, v := range s.AutoPaceStrong {
 		if v < 0 || v > 60 || k == "" {
 			delete(s.AutoPaceStrong, k)

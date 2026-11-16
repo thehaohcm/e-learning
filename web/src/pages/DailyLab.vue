@@ -3,8 +3,8 @@
     <div class="col-12">
       <div class="d-flex flex-wrap justify-content-between align-items-end mb-3 gap-2">
         <div>
-          <h2 class="fw-bold mb-0"><i class="bi bi-terminal-plus"></i> Pentest Daily Lab</h2>
-          <small class="text-muted">Mỗi ngày một kịch bản methodology do AI dựng: xen câu tư duy (trắc nghiệm) và gõ lệnh thật, chấm điểm, ghi chú và AI đánh giá.</small>
+          <h2 class="fw-bold mb-0"><i class="bi bi-terminal-plus"></i> {{ pageTitle }}</h2>
+          <small class="text-muted">{{ pageBlurb }}</small>
         </div>
         <div v-if="streak > 0" class="badge text-bg-warning fs-6"><i class="bi bi-fire"></i> {{ streak }} ngày liên tiếp</div>
       </div>
@@ -18,10 +18,10 @@
           <div class="card-body">
             <p class="mb-2">Chưa có bài lab hôm nay ({{ today }}). Tạo một bài để bắt đầu; có thể tạo thêm bài mới bất cứ lúc nào.</p>
             <ul class="small text-muted mb-3">
-              <li>~10 bước: tình huống "nên làm gì tiếp theo?" (chọn) + lệnh chủ chốt (gõ) — dựa trên cheatsheet pentest của bạn</li>
+              <li>~10 bước: tình huống "nên làm gì tiếp theo?" (chọn) + lệnh chủ chốt (gõ) — dựa trên cheatsheet của bạn</li>
               <li>Chấm điểm theo bước; sau khi nộp có review từng bước + AI đánh giá + ghi chú</li>
             </ul>
-            <button class="btn btn-primary" :disabled="generating" @click="generate">
+            <button class="btn btn-primary" :disabled="generating" @click="openGen">
               <span v-if="generating" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-magic"></i>
               {{ generating ? 'AI đang dựng bài lab… (1–2 phút)' : 'Tạo bài lab hôm nay' }}
             </button>
@@ -94,7 +94,7 @@
               <button class="btn btn-sm btn-outline-primary" :disabled="retaking" @click="retake">
                 <span v-if="retaking" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-arrow-repeat"></i> Làm lại bài này
               </button>
-              <button class="btn btn-sm btn-primary" :disabled="generating" @click="generate">
+              <button class="btn btn-sm btn-primary" :disabled="generating" @click="openGen">
                 <span v-if="generating" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-plus-circle"></i>
                 {{ generating ? 'Đang tạo…' : 'Tạo bài lab mới' }}
               </button>
@@ -157,6 +157,38 @@
           </div>
         </div>
       </div>
+
+      <!-- generate options -->
+      <div v-if="showGen" class="gen-overlay" @click.self="showGen = false">
+        <div class="card border-0 shadow gen-card">
+          <div class="card-body">
+            <div class="d-flex align-items-center mb-3">
+              <h6 class="fw-bold mb-0"><i class="bi bi-magic"></i> Tạo bài lab {{ isPentest ? 'pentest' : 'AWS' }}</h6>
+              <button type="button" class="btn-close ms-auto" aria-label="Close" @click="showGen = false"></button>
+            </div>
+            <template v-if="isPentest">
+              <label class="form-label small fw-semibold mb-1">Kiểu bài (giống challenge THM)</label>
+              <div class="btn-group w-100 mb-2" role="group">
+                <template v-for="t in tracks" :key="t.id">
+                  <input :id="'trk-' + t.id" v-model="genTrack" type="radio" class="btn-check" :value="t.id" />
+                  <label :for="'trk-' + t.id" class="btn btn-outline-primary btn-sm">{{ t.id }}</label>
+                </template>
+              </div>
+              <div class="small text-muted mb-3">{{ trackDesc }}</div>
+            </template>
+            <label class="form-label small fw-semibold mb-1">Nội dung muốn tập trung <span class="text-muted fw-normal">(không bắt buộc)</span></label>
+            <textarea v-model="genFocus" class="form-control form-control-sm" rows="2" :placeholder="focusPlaceholder"></textarea>
+            <div class="form-text mb-3">Để trống thì AI chọn ngẫu nhiên một mục trong cheatsheet của bạn.</div>
+            <div class="d-flex gap-2">
+              <button class="btn btn-primary" :disabled="generating" @click="confirmGen">
+                <span v-if="generating" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-magic"></i>
+                {{ generating ? 'AI đang dựng… (1–2 phút)' : 'Tạo bài' }}
+              </button>
+              <button class="btn btn-outline-secondary" :disabled="generating" @click="showGen = false">Huỷ</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
@@ -166,6 +198,7 @@ import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { api, errorMessage } from '../api'
 import { renderMarkdown } from '../utils/markdown'
 import { matchAny, modelCommand } from '../utils/labMatch'
+import { subjectSlug } from '../composables/useSubject'
 
 interface FlowStep { type: 'choice' | 'command'; prompt: string; choices?: string[]; answer?: number; patterns?: string[]; explanation?: string; hint?: string }
 interface LabResult { correct?: boolean[] | null; notes?: string[] | null; answers?: string[] | null; by_domain?: Record<string, [number, number]> | null; ai_review?: string }
@@ -174,7 +207,24 @@ interface Day { id: number; date: string; seq: number; score: number; total: num
 
 const letters = ['A', 'B', 'C', 'D', 'E', 'F']
 const today = new Date().toLocaleDateString('en-CA')
-const SUBJECT = 'pentest'
+
+const isPentest = computed(() => subjectSlug.value === 'pentest')
+const tracks = [
+  { id: 'PT1', desc: 'PT1 — box mạng/host: recon → enum dịch vụ → foothold → leo quyền Linux/Windows (giống TryHackMe PT1).' },
+  { id: 'WEB1', desc: 'WEB1 — mục tiêu web app: recon, auth/session, injection (SQLi/command/SSTI), IDOR, upload (giống TryHackMe WEB1).' },
+  { id: 'OPTS', desc: 'OPTS — kịch bản tổng hợp: kết hợp host + web + Active Directory như một phòng CTF/boot-to-root.' },
+]
+const showGen = ref(false)
+const genFocus = ref('')
+const genTrack = ref('PT1')
+const trackDesc = computed(() => tracks.find((t) => t.id === genTrack.value)?.desc ?? '')
+const pageTitle = computed(() => (isPentest.value ? 'Pentest Daily Lab' : 'AWS Daily Lab'))
+const pageBlurb = computed(() => isPentest.value
+  ? 'Mỗi ngày một kịch bản methodology do AI dựng: xen câu tư duy (trắc nghiệm) và gõ lệnh thật, chấm điểm, ghi chú và AI đánh giá.'
+  : 'Mỗi ngày một kịch bản vận hành AWS do AI dựng: xen câu tư duy và lệnh AWS CLI thật, chấm điểm, ghi chú và AI đánh giá.')
+const focusPlaceholder = computed(() => isPentest.value
+  ? 'VD: Windows privilege escalation, SMB enumeration, SQL injection…'
+  : 'VD: sự cố S3 bị public, CloudFront 5xx, xoay vòng key KMS, scale ECS…')
 
 const set = ref<DSet | null>(null)
 const history = ref<Day[]>([])
@@ -253,20 +303,24 @@ function adopt(s: DSet | null) {
 }
 
 async function loadHistory() {
-  try { const { data } = await api.get('/pmp-daily/history', { params: { subject: SUBJECT } }); history.value = data.days ?? [] } catch { /* optional */ }
+  try { const { data } = await api.get('/pmp-daily/history', { params: { subject: subjectSlug.value } }); history.value = data.days ?? [] } catch { /* optional */ }
 }
 async function load() {
   loading.value = true; err.value = ''
   try {
-    const { data } = await api.get('/pmp-daily', { params: { subject: SUBJECT, date: today } })
+    const { data } = await api.get('/pmp-daily', { params: { subject: subjectSlug.value, date: today } })
     adopt(data.set ?? null)
     await loadHistory()
   } catch (e) { err.value = errorMessage(e) } finally { loading.value = false }
 }
+function openGen() { genFocus.value = ''; showGen.value = true }
+async function confirmGen() { await generate(); if (!err.value) showGen.value = false }
 async function generate() {
   generating.value = true; err.value = ''
   try {
-    const { data } = await api.post('/pmp-daily/generate', { date: today, subject: SUBJECT }, { timeout: 180000 })
+    const payload: Record<string, unknown> = { date: today, subject: subjectSlug.value, focus: genFocus.value.trim() }
+    if (isPentest.value) payload.track = genTrack.value
+    const { data } = await api.post('/pmp-daily/generate', payload, { timeout: 180000 })
     adopt(data.set); await loadHistory(); window.scrollTo({ top: 0 })
   } catch (e) { err.value = errorMessage(e) } finally { generating.value = false }
 }
@@ -396,4 +450,6 @@ onMounted(load)
 <style scoped>
 .btn-badge { cursor: pointer; border: 1px solid #cbd5e1; }
 .btn-badge:hover { filter: brightness(0.97); }
+.gen-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.45); display: flex; align-items: center; justify-content: center; z-index: 1060; padding: 1rem; }
+.gen-card { width: 100%; max-width: 460px; }
 </style>
