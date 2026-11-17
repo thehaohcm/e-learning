@@ -6,11 +6,16 @@ import { api } from '../api'
 // between pages, generates questions, etc. A small global player bar (mounted
 // once in App.vue) binds to this reactive state for play/pause/seek/close.
 //
-// It also supports a PLAYLIST: a queue of tracks fetched from authed endpoints
-// (note / daily audio). When one ends it auto-advances; next/prev and jumping
-// to any track are exposed. Playback speed (1–2x) applies to every track.
+// Playlist + iOS background playback:
+//  - tracks are PRELOADED as blobs up front, so advancing to the next track
+//    needs no network. iOS suspends JS/network when the screen locks, so a
+//    fetch-on-advance would stall until you wake the device; a cached blob lets
+//    playback continue in the background.
+//  - the Media Session API publishes title + next/prev to the lock screen and
+//    keeps the audio session alive.
 
 const el: HTMLAudioElement | null = typeof Audio !== 'undefined' ? new Audio() : null
+if (el) { el.preload = 'auto' }
 
 export interface QueueItem {
   key: string // unique, e.g. "note-5" / "daily-9" (for highlighting)
@@ -30,15 +35,57 @@ export const rate = ref(1)
 export const queue = ref<QueueItem[]>([])
 export const queueIndex = ref(-1)
 
-// the object URL this player currently owns (created from an authed blob); it
-// is revoked when a new track starts or the player is closed.
+// object URL for a single (non-queue) play; revoked when replaced/closed.
 let ownedUrl = ''
+// preloaded queue blobs: track key -> object URL. Revoked when the queue is
+// replaced or the player is closed.
+const blobCache = new Map<string, string>()
+let prefetchRun = 0
 
 function revokeOwned() {
   if (ownedUrl) { try { URL.revokeObjectURL(ownedUrl) } catch { /* ignore */ } ownedUrl = '' }
 }
-
+function clearCache() {
+  prefetchRun++ // cancel any running prefetch loop
+  for (const url of blobCache.values()) { try { URL.revokeObjectURL(url) } catch { /* ignore */ } }
+  blobCache.clear()
+}
 function applyRate() { if (el) el.playbackRate = rate.value }
+
+async function fetchBlobUrl(item: QueueItem): Promise<string> {
+  const cached = blobCache.get(item.key)
+  if (cached) return cached
+  const { data } = await api.get(item.endpoint, { responseType: 'blob' })
+  const url = URL.createObjectURL(data as Blob)
+  blobCache.set(item.key, url)
+  return url
+}
+
+// preload every queued track (sequentially) so later advances — including while
+// the screen is locked — don't need the network.
+async function prefetchAll() {
+  const run = ++prefetchRun
+  for (const item of queue.value) {
+    if (run !== prefetchRun) return // a newer queue/prefetch superseded this one
+    if (!blobCache.has(item.key)) {
+      try { await fetchBlobUrl(item) } catch { /* ignore: fetched on demand later */ }
+    }
+  }
+}
+
+function setMediaSession(title: string) {
+  const ms = (navigator as unknown as { mediaSession?: MediaSession }).mediaSession
+  if (!ms) return
+  try {
+    const MM = (window as unknown as { MediaMetadata?: typeof MediaMetadata }).MediaMetadata
+    if (MM) ms.metadata = new MM({ title, artist: 'E-Learning' })
+    ms.setActionHandler('play', () => { el?.play().catch(() => {}) })
+    ms.setActionHandler('pause', () => { el?.pause() })
+    const multi = queue.value.length > 1
+    ms.setActionHandler('previoustrack', multi ? () => { if (queueIndex.value > 0) void playQueueAt(queueIndex.value - 1) } : null)
+    ms.setActionHandler('nexttrack', multi ? () => advance() : null)
+  } catch { /* some actions unsupported on this browser */ }
+}
 
 // advance to the next queued track, or stop at the end.
 function advance() {
@@ -61,24 +108,25 @@ if (el) {
   el.addEventListener('playing', () => { loading.value = false })
 }
 
-// fetch (authed blob) and play the queue track at index i.
+// play the queue track at index i, using the preloaded blob when available so
+// no network is needed (critical for iOS background advance).
 async function playQueueAt(i: number) {
   if (!el || i < 0 || i >= queue.value.length) return
   const item = queue.value[i]
   queueIndex.value = i
   curKey.value = item.key
   curTitle.value = item.name
-  loading.value = true
+  const cached = blobCache.get(item.key)
+  if (!cached) loading.value = true
   try {
-    const { data } = await api.get(item.endpoint, { responseType: 'blob' })
-    const url = URL.createObjectURL(data as Blob)
-    if (ownedUrl && ownedUrl !== url) revokeOwned()
-    ownedUrl = url
+    const url = cached ?? await fetchBlobUrl(item) // no await when already preloaded
+    revokeOwned() // leaving single-play mode; queue blobs are owned by the cache
     curSrc.value = url
     currentTime.value = 0
     duration.value = 0
     el.src = url
     applyRate()
+    setMediaSession(item.name)
     await el.play().catch(() => { /* autoplay blocked / interrupted */ })
   } catch {
     loading.value = false
@@ -91,6 +139,7 @@ export function useAudioPlayer() {
   // URL's lifecycle to the player. This is a single track: it clears any queue.
   function play(url: string, title: string, owned = false) {
     if (!el || !url) return
+    clearCache()
     queue.value = []
     queueIndex.value = -1
     curKey.value = ''
@@ -103,14 +152,19 @@ export function useAudioPlayer() {
       duration.value = 0
       el.src = url
       applyRate()
+      setMediaSession(title)
     }
     el.play().catch(() => { /* autoplay blocked / interrupted */ })
   }
-  // play a playlist of authed tracks, starting at startIndex.
+  // play a playlist of authed tracks, starting at startIndex. Preloads the rest
+  // so it keeps advancing with the screen locked.
   function playQueue(items: QueueItem[], startIndex = 0) {
     if (!items.length) return
+    revokeOwned()
+    clearCache()
     queue.value = items.slice()
     void playQueueAt(Math.max(0, Math.min(startIndex, items.length - 1)))
+    void prefetchAll()
   }
   function nextTrack() { advance() }
   function prevTrack() { if (queueIndex.value > 0) void playQueueAt(queueIndex.value - 1) }
@@ -126,6 +180,7 @@ export function useAudioPlayer() {
     el.removeAttribute('src')
     el.load()
     revokeOwned()
+    clearCache()
     curSrc.value = ''
     curTitle.value = ''
     curKey.value = ''
