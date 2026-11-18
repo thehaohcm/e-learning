@@ -371,7 +371,16 @@ func (h *Handler) generatePMPDaily(ctx context.Context, model string, uid int64,
 			defer wg.Done()
 			rng := rand.New(rand.NewSource(seed + int64(i)*7919))
 			picked := notesForDomain(notes, tag, name == "Process", rng)
-			results[i], errs[i] = h.AI.GenerateDailyQuestions(ctx, model, name, count, picked, avoid[name], focus, rng)
+			// A focus that is itself a domain name (from the Report quick-pick)
+			// only applies to that domain's writer; free-text focus applies to all.
+			domFocus := focus
+			switch strings.ToLower(strings.TrimSpace(focus)) {
+			case "people", "process", "business":
+				if !strings.EqualFold(strings.TrimSpace(focus), name) {
+					domFocus = ""
+				}
+			}
+			results[i], errs[i] = h.AI.GenerateDailyQuestions(ctx, model, name, count, picked, avoid[name], domFocus, rng)
 		}(i, d.Name, d.Tag, d.Count)
 	}
 	wg.Wait()

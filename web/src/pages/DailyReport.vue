@@ -139,7 +139,7 @@ const rep = ref<Report | null>(null)
 const loading = ref(true)
 const err = ref('')
 
-const isLab = computed(() => subjectSlug.value === 'pentest' || subjectSlug.value === 'aws')
+const isLab = computed(() => subjectSlug.value === 'pentest') // only pentest is a lab now; AWS is MCQ (Daily 20)
 const title = computed(() => shortName(subjectSlug.value))
 const backLink = computed(() => `/${currentPrefix()}/${isLab.value ? 'daily-lab' : 'daily'}`)
 

@@ -253,8 +253,12 @@
               <button type="button" class="btn-close ms-auto" aria-label="Close" @click="showGen = false"></button>
             </div>
             <label class="form-label small fw-semibold mb-1">Nội dung muốn tập trung <span class="text-muted fw-normal">(không bắt buộc)</span></label>
+            <div v-if="focusChips.length" class="d-flex flex-wrap gap-1 mb-2">
+              <button v-for="d in focusChips" :key="d" type="button" class="btn btn-sm"
+                :class="genFocus === d ? 'btn-primary' : 'btn-outline-secondary'" @click="pickFocus(d)">{{ d }}</button>
+            </div>
             <textarea v-model="genFocus" class="form-control form-control-sm" rows="2" :placeholder="focusPlaceholder"></textarea>
-            <div class="form-text mb-3">Để trống thì AI tự chọn chủ đề như thường.</div>
+            <div class="form-text mb-3">Chọn một lĩnh vực để luyện sâu phần yếu, hoặc gõ chủ đề cụ thể. Để trống thì AI tự chọn như thường.</div>
             <div class="d-flex gap-2">
               <button class="btn btn-primary" :disabled="generating" @click="confirmGen">
                 <span v-if="generating" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-magic"></i>
@@ -321,6 +325,16 @@ const genFocus = ref('')
 const focusPlaceholder = computed(() => (subjectSlug.value === 'english'
   ? 'VD: business emails, synonyms, phrasal verbs…'
   : 'VD: Risk, EVM, Agile/Scrum, Change Control…'))
+// Quick-pick components matching the Report breakdown, so the learner can drill
+// a weak area without typing. Clicking a chip fills the focus field.
+const focusChips = computed<string[]>(() =>
+  isAws.value
+    ? ['Secure', 'Resilient', 'Performance', 'Cost']
+    : subjectSlug.value === 'english'
+    ? ['Vocabulary', 'Grammar', 'Reading']
+    : ['People', 'Process', 'Business'],
+)
+function pickFocus(d: string) { genFocus.value = genFocus.value === d ? '' : d }
 const retaking = ref(false)
 const submitting = ref(false)
 const confirmSubmit = ref(false)
