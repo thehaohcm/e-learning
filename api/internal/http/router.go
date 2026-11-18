@@ -158,7 +158,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		u.POST("/course-notes/ask", practiceLimit, h.AskCourse)
 		u.POST("/course-notes/gen-questions", practiceLimit, h.GenerateCourseQuestions)
 		u.POST("/course-notes/extract-steps", practiceLimit, h.ExtractCourseSteps) // sync cheatsheet commands into a specific challenge/lab
-		u.POST("/course-notes/thinking-flow", practiceLimit, h.ThinkingFlow) // AI methodology flow (choice + command) for a challenge
+		u.POST("/course-notes/thinking-flow", practiceLimit, h.ThinkingFlow)       // AI methodology flow (choice + command) for a challenge
 		// audio attached to a cheatsheet section (course_note); works for all subjects
 		u.POST("/note-audio", h.NoteAudioUpload)
 		u.GET("/note-audio", h.NoteAudioList)
@@ -175,6 +175,7 @@ func NewRouter(db *gorm.DB, cfg config.Config) *gin.Engine {
 		// "Daily 20": AI-written scenario questions per subject/day (PMP + English)
 		u.GET("/pmp-daily", h.PMPDailyGet)
 		u.GET("/pmp-daily/history", h.PMPDailyHistory)
+		u.GET("/pmp-daily/competency", h.PMPDailyCompetency) // day-over-day strong/weak report + readiness
 		u.POST("/pmp-daily/generate", practiceLimit, h.PMPDailyGenerate)
 		u.POST("/pmp-daily/submit", h.PMPDailySubmit)
 		u.POST("/pmp-daily/retake", practiceLimit, h.PMPDailyRetake)

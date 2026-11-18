@@ -272,10 +272,11 @@ func (h *Handler) PMPDailyGenerate(c *gin.Context) {
 	seq := h.nextDailySeq(uid, subj.ID, day)
 	seed := uid*1000003 + day.Unix() + int64(seq)*7919
 
-	// Pentest / AWS: a "Daily Lab" — an AI methodology flow (choice + typed-
-	// command) stored as ai.FlowStep[], not the MCQ DailyQuestion shape.
-	if subj.Slug == "pentest" || subj.Slug == "aws" {
-		steps, lerr := h.generateLabFlow(ctx, model, uid, subj, seed, req.Focus, req.Track)
+	// Pentest: a "Daily Lab" — an AI methodology flow (choice + typed-command)
+	// stored as ai.FlowStep[], not the MCQ DailyQuestion shape. (AWS now uses the
+	// SAA-C03 MCQ path below, like PMP/English.)
+	if subj.Slug == "pentest" {
+		steps, lerr := h.generateLabFlow(ctx, model, uid, subj, day, seq, req.Focus, req.Track)
 		if lerr != nil {
 			switch {
 			case errors.Is(lerr, errDailyNoNotes):
@@ -309,6 +310,8 @@ func (h *Handler) PMPDailyGenerate(c *gin.Context) {
 	var genErr error
 	if subj.Slug == "english" {
 		all, genErr = h.generateEnglishDaily(ctx, model, uid, subj, seed, req.Focus)
+	} else if subj.Slug == "aws" {
+		all, genErr = h.generateAwsDaily(ctx, model, uid, subj, seed, req.Focus)
 	} else {
 		all, genErr = h.generatePMPDaily(ctx, model, uid, subj, day, seed, req.Focus)
 	}
@@ -387,6 +390,30 @@ func (h *Handler) generatePMPDaily(ctx context.Context, model string, uid int64,
 	return all, nil
 }
 
+// generateAwsDaily writes 20 SAA-C03 style MCQ from the learner's AWS cheatsheet
+// notes, spread across the four exam domains. Grounded in the notes, like PMP.
+func (h *Handler) generateAwsDaily(ctx context.Context, model string, uid int64, subject models.Subject, seed int64, focus string) ([]ai.DailyQuestion, error) {
+	var notes []models.CourseNote
+	if err := h.DB.Where("user_id = ? AND subject_id = ?", uid, subject.ID).
+		Order("sort_order ASC, id ASC").Limit(maxCourseNotes).Find(&notes).Error; err != nil {
+		return nil, err
+	}
+	if len(notes) == 0 {
+		return nil, errDailyNoNotes
+	}
+	items := make([]ai.CheatNote, len(notes))
+	for i, n := range notes {
+		items[i] = ai.CheatNote{Title: n.Title, Body: n.Body}
+	}
+	// recent archetypes across all domains, so a new set avoids repeating concepts.
+	var avoid []string
+	for _, v := range h.recentDailyStems(uid, subject.ID) {
+		avoid = append(avoid, v...)
+	}
+	rng := rand.New(rand.NewSource(seed))
+	return h.AI.GenerateAwsDaily(ctx, model, 20, items, avoid, focus, rng)
+}
+
 // generateEnglishDaily writes 20 TOEIC/IELTS-style questions from a random
 // sample of the learner's English vocabulary cards.
 func (h *Handler) generateEnglishDaily(ctx context.Context, model string, uid int64, subject models.Subject, seed int64, focus string) ([]ai.DailyQuestion, error) {
@@ -423,7 +450,7 @@ func (h *Handler) generateEnglishDaily(ctx context.Context, model string, uid in
 // command steps) for the pentest or aws subject. With a focus, the AI sees the
 // whole sheet and centres the scenario on it; otherwise a random section seeds
 // it. track picks the pentest exam style (PT1/WEB1/OPTS); ignored for aws.
-func (h *Handler) generateLabFlow(ctx context.Context, model string, uid int64, subject models.Subject, seed int64, focus, track string) ([]ai.FlowStep, error) {
+func (h *Handler) generateLabFlow(ctx context.Context, model string, uid int64, subject models.Subject, day time.Time, seq int, focus, track string) ([]ai.FlowStep, error) {
 	var notes []models.CourseNote
 	if err := h.DB.Where("user_id = ? AND subject_id = ?", uid, subject.ID).
 		Order("sort_order ASC, id ASC").Limit(maxCourseNotes).Find(&notes).Error; err != nil {
@@ -432,7 +459,6 @@ func (h *Handler) generateLabFlow(ctx context.Context, model string, uid int64, 
 	if len(notes) == 0 {
 		return nil, errDailyNoNotes
 	}
-	rng := rand.New(rand.NewSource(seed))
 	var topic string
 	var items []ai.CheatNote
 	if strings.TrimSpace(focus) != "" {
@@ -440,7 +466,11 @@ func (h *Handler) generateLabFlow(ctx context.Context, model string, uid int64, 
 			items = append(items, ai.CheatNote{Title: n.Title, Body: n.Body})
 		}
 	} else {
-		topic = notes[rng.Intn(len(notes))].Title
+		// Rotate through the sections by day (and batch seq) instead of an
+		// independent random draw, so consecutive labs don't re-pick the same
+		// topic. Walks the whole sheet before any section repeats.
+		idx := int((day.Unix()/86400 + int64(seq)) % int64(len(notes)))
+		topic = notes[idx].Title
 		scoped := scopeNotesByTopic(notes, topic)
 		items = make([]ai.CheatNote, len(scoped))
 		for i, n := range scoped {
@@ -485,13 +515,16 @@ func notesForDomain(notes []models.CourseNote, tag string, pinFormulas bool, rng
 	return out
 }
 
-// recentDailyStems: short stems of the last three sets (for this subject), so
-// new questions do not repeat the same scenarios.
+// recentDailyStems: the concept archetypes used in the last few sets (for this
+// subject), per domain, so new questions do not retest the same concepts. Older
+// sets written before archetypes existed fall back to a short stem prefix.
+// Deduped per domain to keep the avoid-list small.
 func (h *Handler) recentDailyStems(uid, subjectID int64) map[string][]string {
 	out := map[string][]string{}
+	seen := map[string]map[string]bool{}
 	var rows []pmpDailySet
 	if err := h.DB.Where("user_id = ? AND subject_id = ?", uid, subjectID).
-		Order("day DESC, seq DESC").Limit(3).Find(&rows).Error; err != nil {
+		Order("day DESC, seq DESC").Limit(5).Find(&rows).Error; err != nil {
 		return out
 	}
 	for _, r := range rows {
@@ -500,11 +533,24 @@ func (h *Handler) recentDailyStems(uid, subjectID int64) map[string][]string {
 			continue
 		}
 		for _, q := range qs {
-			s := q.Stem
-			if len(s) > 90 {
-				s = s[:90]
+			key := strings.TrimSpace(q.Archetype)
+			if key == "" { // legacy set: fall back to the stem prefix
+				key = q.Stem
+				if len(key) > 90 {
+					key = key[:90]
+				}
 			}
-			out[q.Domain] = append(out[q.Domain], s)
+			if key == "" {
+				continue
+			}
+			if seen[q.Domain] == nil {
+				seen[q.Domain] = map[string]bool{}
+			}
+			if seen[q.Domain][key] {
+				continue
+			}
+			seen[q.Domain][key] = true
+			out[q.Domain] = append(out[q.Domain], key)
 		}
 	}
 	return out
@@ -541,9 +587,10 @@ func (h *Handler) PMPDailySubmit(c *gin.Context) {
 		return
 	}
 	// Pentest Daily Lab: steps scored client-side; store the per-step results.
+	// (AWS is MCQ now, scored below with PMP/English.)
 	var subj models.Subject
 	h.DB.Where("id = ?", s.SubjectID).Limit(1).Find(&subj)
-	if subj.Slug == "pentest" || subj.Slug == "aws" {
+	if subj.Slug == "pentest" {
 		var steps []ai.FlowStep
 		if err := json.Unmarshal(s.Questions, &steps); err != nil {
 			internal(c, err)

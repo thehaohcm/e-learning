@@ -162,6 +162,7 @@ const links = computed<NavLink[]>(() => {
         out.push({ to: withPrefix('/labs'), label: 'Labs', icon: 'bi-terminal' })
         out.push({ to: withPrefix('/cheatsheet'), label: 'Cheat sheet', icon: 'bi-journal-text' })
         out.push({ to: withPrefix('/daily-lab'), label: 'Daily Lab', icon: 'bi-terminal-plus' })
+        out.push({ to: withPrefix('/report'), label: 'Report', icon: 'bi-graph-up-arrow' })
       }
     }
     const more: NavLink = {
@@ -194,14 +195,19 @@ const links = computed<NavLink[]>(() => {
         { to: withPrefix('/cheatsheet'), label: 'Cheat sheet', icon: 'bi-journal-text' },
         { to: withPrefix('/cases'), label: 'Case Study', icon: 'bi-journal-richtext' },
         { to: withPrefix('/daily'), label: 'Daily 20', icon: 'bi-calendar-check' },
+        { to: withPrefix('/report'), label: 'Report', icon: 'bi-graph-up-arrow' },
         { to: withPrefix('/roleplay'), label: 'Roleplay', icon: 'bi-chat-quote' },
       ]
     : subjectSlug.value === 'english'
-    ? [{ to: withPrefix('/daily'), label: 'Daily 20', icon: 'bi-calendar-check' }]
+    ? [
+        { to: withPrefix('/daily'), label: 'Daily 20', icon: 'bi-calendar-check' },
+        { to: withPrefix('/report'), label: 'Report', icon: 'bi-graph-up-arrow' },
+      ]
     : isAws
     ? [
         { to: withPrefix('/cheatsheet'), label: 'Cheat sheet', icon: 'bi-journal-text' },
-        { to: withPrefix('/daily-lab'), label: 'Daily Lab', icon: 'bi-terminal-plus' },
+        { to: withPrefix('/daily'), label: 'Daily 20', icon: 'bi-calendar-check' },
+        { to: withPrefix('/report'), label: 'Report', icon: 'bi-graph-up-arrow' },
       ]
     : []
   const i = base.findIndex((l) => l.to === withPrefix('/devices'))
@@ -246,7 +252,7 @@ async function signOut() {
 // one is open.
 // Pages that exist only for certain topics; switching to a topic that lacks the
 // current page drops to that topic's home instead of showing the wrong content.
-const SUBJECT_ONLY_PAGES: Record<string, string[]> = { '/cases': ['pmp'], '/labs': ['pentest'], '/daily-lab': ['pentest', 'aws'], '/daily': ['pmp', 'english'] }
+const SUBJECT_ONLY_PAGES: Record<string, string[]> = { '/cases': ['pmp'], '/labs': ['pentest'], '/daily-lab': ['pentest'], '/daily': ['pmp', 'english', 'aws'] }
 function pageAllowedForSubject(rest: string, slug: string): boolean {
   for (const p in SUBJECT_ONLY_PAGES) {
     if (rest === p || rest.startsWith(p + '/')) return SUBJECT_ONLY_PAGES[p].includes(slug)

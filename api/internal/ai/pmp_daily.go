@@ -28,9 +28,10 @@ type DailyOption struct {
 // DailyQuestion is one practice question ("single" = 1 answer of 4,
 // "multi" = choose TWO of 5).
 type DailyQuestion struct {
-	Domain      string        `json:"domain"`   // People | Process | Business
-	Approach    string        `json:"approach"` // predictive | agile | hybrid
-	Type        string        `json:"type"`     // single | multi
+	Domain      string        `json:"domain"`    // People | Process | Business
+	Approach    string        `json:"approach"`  // predictive | agile | hybrid
+	Archetype   string        `json:"archetype"` // short concept slug, used to block repeats across days
+	Type        string        `json:"type"`      // single | multi
 	Stem        string        `json:"stem"`
 	Options     []DailyOption `json:"options"`
 	Correct     []int         `json:"correct"` // indexes into Options
@@ -60,7 +61,9 @@ func (c *Client) GenerateDailyQuestions(ctx context.Context, model, domain strin
 		need := count - len(got)
 		skip := append([]string{}, avoid...)
 		for _, q := range got {
-			skip = append(skip, truncate(q.Stem, 90))
+			if a := strings.TrimSpace(q.Archetype); a != "" {
+				skip = append(skip, a)
+			}
 		}
 		raw, err := c.dailyBatch(ctx, model, domain, need, notes, skip, focus)
 		if err != nil {
@@ -97,11 +100,11 @@ func (c *Client) dailyBatch(ctx context.Context, model, domain string, n int, no
 	}
 	calc := "No calculation questions."
 	if domain == "Process" && n >= 6 {
-		calc = "Include 2 calculation questions (EVM, PERT, float, communication channels, EMV, etc.), type single."
+		calc = "Include 2 Process calculation/analysis questions, type single: one PURE calculation (EVM, PERT, float, communication channels, EMV, etc.), and one that GIVES the indices (e.g. CPI=0.85, SPI=1.15, or a negative float) and asks which management action fits (crashing, fast-tracking, resource leveling/smoothing, etc.) rather than asking for a number."
 	}
 	avoidText := ""
 	if len(avoid) > 0 {
-		avoidText = "\nDo not reuse these recent scenarios:\n"
+		avoidText = "\nThese concept archetypes were already tested in recent days. Do NOT reuse any of them: pick different facts/sections from the notes and build a genuinely new situation (changing names, industry or wording of an old archetype counts as reuse and is NOT allowed):\n"
 		for _, a := range avoid {
 			avoidText += "- " + a + "\n"
 		}
@@ -113,16 +116,17 @@ Base every question ONLY on facts in the study notes below (they are Vietnamese 
 Requirements:
 - Scenario-based: each stem is a short realistic situation (2-5 sentences) usually ending with "What should the project manager do FIRST/NEXT?", "What is the BEST ...?" or "Which TWO ...?". Vary names, industries and wording.
 - Approach mix: about %d predictive, the rest agile or hybrid. Set "approach" accordingly.
-- Single-answer questions: exactly 4 options, exactly 1 correct. Wrong options must be plausible (common mistakes or confusable terms from the notes).
+- Single-answer questions: exactly 4 options, exactly 1 correct. For FIRST/NEXT/BEST questions, at least 2 options must be legitimate PMI actions where the wrong ones are correct LATER in the sequence (e.g. update the plan, submit a change request to the CCB) but premature NOW, before analysing the impact or talking to the people involved. NEVER make a wrong option an ethics violation, punishment, firing, overtime or ignoring a stakeholder. Prefer distractors built on role confusion (PM vs Product Owner vs Sponsor vs team) or on confusable terms from the notes.
 - Exactly %d question(s) of type "multi" (choose TWO): 5 options, exactly 2 correct.
 - Follow PMI thinking: analyse before acting, follow the plan and change control, collaborate, servant leadership in agile, escalate only when needed.
 - Never use "all of the above", "none of the above", or refer to options by letter.
+- "archetype": a short lowercase slug naming the underlying concept the question tests (e.g. "sunk-cost-escalation", "conflict-of-interest-procurement", "control-chart-rule-of-7", "gold-plating", "herzberg-hygiene"). Two questions that test the same concept must share the same slug.
 - For every option write "why": one sentence on why it is correct or wrong. "explanation": 2-4 sentences naming the principle or formula from the notes. "section": the exact title of the note the question is based on. "terms": 2-3 key English terms with Vietnamese meaning.
 - %s Use ONLY formulas stated in the notes, with simple numbers, and double-check the arithmetic.
 %s
 Study notes:
 %s
-Return JSON: {"questions":[{"domain":"%s","approach":"predictive|agile|hybrid","type":"single|multi","stem":"...","options":[{"text":"...","why":"..."}],"correct":[0-based indexes],"explanation":"...","section":"...","terms":[{"en":"...","vi":"..."}]}]}`,
+Return JSON: {"questions":[{"domain":"%s","approach":"predictive|agile|hybrid","archetype":"short-concept-slug","type":"single|multi","stem":"...","options":[{"text":"...","why":"..."}],"correct":[0-based indexes],"explanation":"...","section":"...","terms":[{"en":"...","vi":"..."}]}]}`,
 		n, domain, predictive, multi, calc, avoidText, nb.String(), domain)
 
 	if f := strings.TrimSpace(focus); f != "" {
@@ -144,6 +148,7 @@ func normalizeDaily(q DailyQuestion, domain string, rng *rand.Rand) (DailyQuesti
 	q.Stem = strings.TrimSpace(q.Stem)
 	q.Explanation = strings.TrimSpace(q.Explanation)
 	q.Section = strings.TrimSpace(q.Section)
+	q.Archetype = strings.ToLower(strings.TrimSpace(q.Archetype))
 	q.Domain = domain
 	switch strings.ToLower(strings.TrimSpace(q.Approach)) {
 	case "agile":

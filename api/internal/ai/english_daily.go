@@ -83,14 +83,14 @@ func (c *Client) englishDailyBatch(ctx context.Context, model string, n int, wor
 	}
 
 	system := "You are an experienced TOEIC and IELTS item writer. You write original, exam-style English vocabulary questions. Reply with a single JSON object only."
-	user := fmt.Sprintf(`Write %d ORIGINAL multiple-choice English practice questions at TOEIC (~900) / academic IELTS (~6-7) level.
+	user := fmt.Sprintf(`Write %d ORIGINAL multiple-choice English practice questions at TOEIC (900+) / academic IELTS band 7 level (challenging but fair at that level; avoid trivially easy items). Favour vocabulary and collocations that actually appear in TOEIC (workplace, business, everyday professional) and academic IELTS (academic, descriptive, argumentative) contexts.
 Each question tests ONE target word from the list below, in ONE of these styles (vary them):
 - fill-in-the-blank: a natural sentence with the target word removed, choose the word that best completes it;
 - closest meaning / synonym of the target word as used in a short sentence;
 - correct usage: which sentence uses the word correctly.
 
 Rules:
-- Exactly 4 options, exactly 1 correct. Wrong options must be plausible (real English words, often confusable with the target).
+- Exactly 4 options, exactly 1 correct. Wrong options must be real English words of the SAME part of speech as the answer and plausible in the sentence, so they cannot be eliminated by grammar or collocation alone (prefer near-synonyms, common confusables, or words a learner is likely to mix up).
 - Never use "all of the above", "none of the above", or refer to options by letter.
 - Write everything in English except the Vietnamese gloss. For each option write "why": one short sentence why it is right or wrong.
 - "explanation": 2-3 sentences explaining the target word's meaning and why the answer fits; include its Vietnamese meaning.

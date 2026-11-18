@@ -212,6 +212,7 @@ const isPentest = computed(() => subjectSlug.value === 'pentest')
 const tracks = [
   { id: 'PT1', desc: 'PT1 — box mạng/host: recon → enum dịch vụ → foothold → leo quyền Linux/Windows (giống TryHackMe PT1).' },
   { id: 'WEB1', desc: 'WEB1 — mục tiêu web app: recon, auth/session, injection (SQLi/command/SSTI), IDOR, upload (giống TryHackMe WEB1).' },
+  { id: 'CPTS', desc: 'CPTS — engagement đầy đủ theo blueprint HTB: recon → enum → web → Active Directory → leo quyền → lateral/pivoting → post-exploitation.' },
   { id: 'OPTS', desc: 'OPTS — kịch bản tổng hợp: kết hợp host + web + Active Directory như một phòng CTF/boot-to-root.' },
 ]
 const showGen = ref(false)

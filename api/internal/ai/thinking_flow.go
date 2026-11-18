@@ -31,13 +31,14 @@ func shuffleChoices(ch []string, answer int, rng *rand.Rand) ([]string, int) {
 
 // FlowStep is one step of a thinking flow (choice or command).
 type FlowStep struct {
-	Type        string   `json:"type"`               // "choice" | "command"
+	Type        string   `json:"type"` // "choice" | "command"
 	Prompt      string   `json:"prompt"`
 	Choices     []string `json:"choices,omitempty"`  // choice: options
 	Answer      *int     `json:"answer,omitempty"`   // choice: 0-based correct index
 	Patterns    []string `json:"patterns,omitempty"` // command: accept regexes
 	Explanation string   `json:"explanation"`
 	Hint        string   `json:"hint,omitempty"`
+	Skill       string   `json:"skill,omitempty"` // methodology phase (recon/enum/privesc/... | aws: iam/network/...), for the day-over-day report
 }
 
 // FlowOpts configures one thinking-flow generation.
@@ -56,15 +57,33 @@ type FlowOpts struct {
 // client-system incident (aws).
 func trackBrief(domain, track string) string {
 	if domain == "aws" {
-		return "a real operational incident/task on a client's AWS account that a DevOps engineer handles end-to-end (investigate with the console/CLI, decide, then remediate safely)"
+		return "an SAA-C03 style architecture scenario on a client's AWS account: a requirement (security, availability/resilience, performance, or cost) that the architect must satisfy by choosing the right services and design trade-offs, then justify — the way the Solutions Architect Associate exam frames its questions"
 	}
 	switch strings.ToUpper(strings.TrimSpace(track)) {
 	case "WEB1":
 		return "a TryHackMe WEB1 (Web Application Pentester) style target: web recon and mapping, authentication/session flaws, injection (SQLi, command injection, SSTI), broken access control / IDOR, file-upload and from a web foothold to a shell — web-application focus"
+	case "CPTS":
+		return "a HackTheBox CPTS (Certified Penetration Testing Specialist) style engagement that chains the full blueprint: information gathering and recon, service and web enumeration, exploitation to an initial foothold, Active Directory enumeration and attacks, Linux/Windows privilege escalation, lateral movement and pivoting/tunnelling, then post-exploitation — deeper and wider than PT1"
 	case "OPTS":
 		return "a mixed, open offensive engagement (CTF/boot-to-root style) that chains network/host, web and Active Directory the way a full challenge room does"
 	default: // PT1
 		return "a TryHackMe PT1 (Junior Penetration Tester) style box: external recon -> service enumeration -> initial foothold -> Linux/Windows privilege escalation (and basic Active Directory) — network/host focus"
+	}
+}
+
+// pentestSkillTags lists the methodology phases to tag steps with, matched to
+// the chosen exam's blueprint so the day-over-day report breaks competency down
+// the way that exam does.
+func pentestSkillTags(track string) string {
+	switch strings.ToUpper(strings.TrimSpace(track)) {
+	case "WEB1":
+		return "recon, auth, injection, access-control, file-upload, foothold, post"
+	case "CPTS":
+		return "recon, enum, web, ad, privesc, lateral, pivoting, post"
+	case "OPTS":
+		return "recon, enum, web, ad, privesc, lateral, pivoting, post"
+	default: // PT1
+		return "recon, enum, foothold, privesc, ad"
 	}
 }
 
@@ -87,9 +106,11 @@ func (c *Client) GenerateThinkingFlow(ctx context.Context, opts FlowOpts, notes 
 
 	system := "You are a senior penetration-testing instructor preparing a student for the TryHackMe junior pentest path, which is open-book. You teach METHODOLOGY and decision-making, not rote command syntax. Reply with a single JSON object only."
 	cmdPat := "the actual command to run (so they also build muscle memory for the few commands worth typing)"
+	skillTags := pentestSkillTags(opts.Track)
 	if aws {
-		system = "You are a senior AWS DevOps/SRE instructor. You train an engineer who manages a client's AWS system to investigate, decide and remediate safely. You teach OPERATIONAL judgement, not rote syntax. Reply with a single JSON object only."
-		cmdPat = "the actual AWS CLI command to run (aws <service> <op> ...), so they build muscle memory for the real operational commands"
+		system = "You are a senior AWS Solutions Architect instructor preparing a student for the SAA-C03 exam. You teach how to CHOOSE the right services and designs for security, resilience, high performance and cost — architecture judgement and trade-offs, not rote syntax. Reply with a single JSON object only."
+		cmdPat = "the AWS CLI command that would inspect or provision the resource central to this design decision (aws <service> <op> ...), so the choice stays concrete"
+		skillTags = "secure, resilient, performance, cost"
 	}
 
 	focusLine := ""
@@ -102,21 +123,24 @@ Topic to build around: %s
 Course: %s
 
 From the study notes below, build ONE coherent SITUATIONAL THINKING FLOW (methodology) — a single engagement against one named target (give it a name and an IP/host or an account/resource), so the steps CHAIN like a real challenge/incident: each step's result motivates the next. About %d ordered steps mixing two kinds:
-- "choice": a realistic situation (2-4 sentences) ending in a decision — "what should you check or do NEXT, and why?" — with exactly 4 options, exactly 1 correct. Wrong options are plausible mistakes. Teach the reasoning: what to enumerate/inspect first, how to read a result, when to pivot or escalate.
+- "choice": a realistic situation (2-4 sentences) ending in a decision — "what should you check or do NEXT, and why?" — with exactly 4 options, exactly 1 correct. At least 2 options must be defensible actions; the wrong ones are valid later but premature or out of methodology order (e.g. exploiting before enumerating, escalating before a foothold, remediating before confirming root cause). Never make a wrong option something no competent operator would ever do. Teach the reasoning: what to enumerate/inspect first, how to read a result, when to pivot or escalate.
 - "command": at a key moment, %s.
 
 Aim for roughly 60%% "choice" (thinking) and 40%% "command". The flow must be logically ordered. Base EVERYTHING ONLY on the notes; never invent tools, flags, services or techniques not present in them.%s
 
+Across the whole flow, cover the exam components of this track (don't dwell on one phase) and tag each step with the phase it trains.
+
 For EACH step provide:
 - "type": "choice" or "command".
 - "prompt": the situation/question (continue the same scenario).
+- "skill": the methodology phase this step trains — exactly one of: %s (pick the single closest tag).
 - "explanation": 1-3 sentences on why this is the right move and how to interpret the result (the key teaching point).
 - choice steps also: "choices" (exactly 4 short strings) and "answer" (0-based index of the correct choice).
 - command steps also: "patterns" (1-3 case-insensitive regex that accept the correct command; escape literal . / $ ( ) [ ]; use .+ for IPs/hosts/ports/ARNs/bucket names; RE2, no lookahead).
 - optional "hint": a short nudge.
 
-Return JSON: {"steps":[{"type":"choice","prompt":"...","choices":["...","...","...","..."],"answer":0,"explanation":"...","hint":"..."},{"type":"command","prompt":"...","patterns":["..."],"explanation":"...","hint":"..."}]}`,
-		trackBrief(opts.Domain, opts.Track), topicOrAll(opts.Topic, aws), opts.CourseName, count, cmdPat, focusLine)
+Return JSON: {"steps":[{"type":"choice","skill":"...","prompt":"...","choices":["...","...","...","..."],"answer":0,"explanation":"...","hint":"..."},{"type":"command","skill":"...","prompt":"...","patterns":["..."],"explanation":"...","hint":"..."}]}`,
+		trackBrief(opts.Domain, opts.Track), topicOrAll(opts.Topic, aws), opts.CourseName, count, cmdPat, focusLine, skillTags)
 
 	if opts.Language == "en" {
 		user += "\n\nIMPORTANT — LANGUAGE: Write prompt, choices, explanation and hint in ENGLISH. Keep commands/flags/service names exact."
@@ -152,6 +176,7 @@ func cleanFlowSteps(steps []FlowStep, choiceOnly bool) ([]FlowStep, error) {
 		s.Prompt = strings.TrimSpace(s.Prompt)
 		s.Explanation = strings.TrimSpace(s.Explanation)
 		s.Hint = strings.TrimSpace(s.Hint)
+		s.Skill = strings.ToLower(strings.TrimSpace(s.Skill))
 		if len(s.Prompt) < 8 || s.Explanation == "" {
 			continue
 		}

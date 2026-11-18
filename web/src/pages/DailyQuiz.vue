@@ -17,7 +17,12 @@
         <div class="card border-0 shadow-sm mb-3">
           <div class="card-body">
             <p class="mb-2">Chưa có bộ nào hôm nay ({{ today }}). Tạo một bộ 20 câu để bắt đầu; bạn có thể tạo thêm bộ mới bất cứ lúc nào.</p>
-            <ul v-if="isPmp" class="small text-muted mb-3">
+            <ul v-if="isAws" class="small text-muted mb-3">
+              <li>20 câu tình huống kiểu SAA-C03, trải 4 lĩnh vực: Secure ~30%, Resilient ~26%, Performance ~24%, Cost ~20%</li>
+              <li>Mỗi câu hỏi "giải pháp nào MOST cost-effective/secure/available…"; có câu chọn 2 đáp án</li>
+              <li>Câu hỏi do AI viết từ cheatsheet AWS của bạn; sau khi nộp có phân tích từng đáp án</li>
+            </ul>
+            <ul v-else-if="isPmp" class="small text-muted mb-3">
               <li>7 câu People, 8 câu Process, 5 câu Business Environment, trộn lẫn như đề thật</li>
               <li>Khoảng 40% predictive, 60% agile/hybrid; có câu chọn 2 đáp án và câu tính toán</li>
               <li>Đồng hồ ~27 phút (80 giây mỗi câu); sau khi nộp có phân tích từng đáp án</li>
@@ -295,12 +300,15 @@ interface AudioFile { id: number; name: string; mime: string; bytes: number }
 const SECONDS_PER_QUESTION = 80
 const letters = ['A', 'B', 'C', 'D', 'E']
 
-const isPmp = computed(() => subjectSlug.value !== 'english')
-const subjectTitle = computed(() => (isPmp.value ? 'PMP' : 'English'))
+const isPmp = computed(() => subjectSlug.value !== 'english') // non-English subjects ground questions in the cheatsheet (section = note title)
+const isAws = computed(() => subjectSlug.value === 'aws')
+const subjectTitle = computed(() => (subjectSlug.value === 'english' ? 'English' : isAws.value ? 'AWS' : 'PMP'))
 const subjectBlurb = computed(() =>
-  isPmp.value
-    ? '20 câu tình huống bằng tiếng Anh mỗi ngày, theo tỷ trọng domain của đề thật. Câu hỏi do AI viết từ cheatsheet của bạn.'
-    : '20 câu trắc nghiệm tiếng Anh (TOEIC/IELTS) mỗi ngày, do AI viết từ chính các từ bạn đang học.',
+  isAws.value
+    ? '20 câu trắc nghiệm kiểu SAA-C03 mỗi ngày, trải 4 lĩnh vực (Secure/Resilient/Performance/Cost). Câu hỏi do AI viết từ cheatsheet AWS của bạn.'
+    : subjectSlug.value === 'english'
+    ? '20 câu trắc nghiệm tiếng Anh (TOEIC/IELTS) mỗi ngày, do AI viết từ chính các từ bạn đang học.'
+    : '20 câu tình huống bằng tiếng Anh mỗi ngày, theo tỷ trọng domain của đề thật. Câu hỏi do AI viết từ cheatsheet của bạn.',
 )
 
 const today = new Date().toLocaleDateString('en-CA') // YYYY-MM-DD local

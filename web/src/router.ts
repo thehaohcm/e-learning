@@ -53,6 +53,7 @@ const router = createRouter({
         { path: 'roleplay', component: () => import('./pages/Roleplay.vue') }, // PMP: play the PM with an AI client (English speaking)
         { path: 'daily', component: () => import('./pages/DailyQuiz.vue') }, // PMP: Daily 20 exam-style questions
         { path: 'daily-lab', component: () => import('./pages/DailyLab.vue') }, // Pentest: Daily Lab (AI methodology flow)
+        { path: 'report', component: () => import('./pages/DailyReport.vue') }, // day-over-day strong/weak report + readiness
         { path: 'courses', component: () => import('./pages/Courses.vue') }, // admin: manage subjects/decks/cards
         { path: 'devices', component: () => import('./pages/Devices.vue') },
       ],
