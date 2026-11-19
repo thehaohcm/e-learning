@@ -101,7 +101,6 @@ func (c *Client) GenerateThinkingFlow(ctx context.Context, opts FlowOpts, notes 
 		}
 		fmt.Fprintf(&nb, "## %s\n%s\n\n", nt.Title, truncate(nt.Body, 3500))
 	}
-	const count = 10
 	aws := opts.Domain == "aws"
 
 	system := "You are a senior penetration-testing instructor preparing a student for the TryHackMe junior pentest path, which is open-book. You teach METHODOLOGY and decision-making, not rote command syntax. Reply with a single JSON object only."
@@ -113,6 +112,17 @@ func (c *Client) GenerateThinkingFlow(ctx context.Context, opts FlowOpts, notes 
 		skillTags = "secure, resilient, performance, cost"
 	}
 
+	// Lab length varies with the engagement rather than a fixed question count:
+	// a full CPTS-style chain runs longer than a single PT1 box.
+	loSteps, hiSteps := 10, 14
+	switch strings.ToUpper(strings.TrimSpace(opts.Track)) {
+	case "CPTS", "OPTS":
+		loSteps, hiSteps = 16, 22
+	}
+	if aws {
+		loSteps, hiSteps = 8, 12
+	}
+
 	focusLine := ""
 	if f := strings.TrimSpace(opts.Focus); f != "" {
 		focusLine = fmt.Sprintf("\n\nThe learner asked to FOCUS this lab on: %q. Centre the whole scenario on that; still ground every detail in the notes.", f)
@@ -122,7 +132,7 @@ func (c *Client) GenerateThinkingFlow(ctx context.Context, opts FlowOpts, notes 
 Topic to build around: %s
 Course: %s
 
-From the study notes below, build ONE coherent SITUATIONAL THINKING FLOW (methodology) — a single engagement against one named target (give it a name and an IP/host or an account/resource), so the steps CHAIN like a real challenge/incident: each step's result motivates the next. About %d ordered steps mixing two kinds:
+From the study notes below, build ONE coherent SITUATIONAL THINKING FLOW (methodology) — a single engagement against one named target (give it a name and an IP/host or an account/resource), so the steps CHAIN like a real challenge/incident: each step's result motivates the next. Between %d and %d ordered steps — use as many as a real engagement of this scope naturally needs (a full CPTS-style chain runs longer than a single PT1 box); never pad with filler. Each step is one question. Mixing two kinds:
 - "choice": a realistic situation (2-4 sentences) ending in a decision — "what should you check or do NEXT, and why?" — with exactly 4 options, exactly 1 correct. At least 2 options must be defensible actions; the wrong ones are valid later but premature or out of methodology order (e.g. exploiting before enumerating, escalating before a foothold, remediating before confirming root cause). Never make a wrong option something no competent operator would ever do. Teach the reasoning: what to enumerate/inspect first, how to read a result, when to pivot or escalate.
 - "command": at a key moment, %s.
 
@@ -140,7 +150,7 @@ For EACH step provide:
 - optional "hint": a short nudge.
 
 Return JSON: {"steps":[{"type":"choice","skill":"...","prompt":"...","choices":["...","...","...","..."],"answer":0,"explanation":"...","hint":"..."},{"type":"command","skill":"...","prompt":"...","patterns":["..."],"explanation":"...","hint":"..."}]}`,
-		trackBrief(opts.Domain, opts.Track), topicOrAll(opts.Topic, aws), opts.CourseName, count, cmdPat, focusLine, skillTags)
+		trackBrief(opts.Domain, opts.Track), topicOrAll(opts.Topic, aws), opts.CourseName, loSteps, hiSteps, cmdPat, focusLine, skillTags)
 
 	if opts.Language == "en" {
 		user += "\n\nIMPORTANT — LANGUAGE: Write prompt, choices, explanation and hint in ENGLISH. Keep commands/flags/service names exact."

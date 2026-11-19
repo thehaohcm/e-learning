@@ -176,9 +176,14 @@
               </div>
               <div class="small text-muted mb-3">{{ trackDesc }}</div>
             </template>
-            <label class="form-label small fw-semibold mb-1">Nội dung muốn tập trung <span class="text-muted fw-normal">(không bắt buộc)</span></label>
-            <textarea v-model="genFocus" class="form-control form-control-sm" rows="2" :placeholder="focusPlaceholder"></textarea>
-            <div class="form-text mb-3">Để trống thì AI chọn ngẫu nhiên một mục trong cheatsheet của bạn.</div>
+            <label class="form-label small fw-semibold mb-1">Bước / kỹ năng muốn tập trung <span class="text-muted fw-normal">(không bắt buộc)</span></label>
+            <select v-model="genChoice" class="form-select form-select-sm mb-2">
+              <option value="">Tự động — đi đủ các bước của một bài lab</option>
+              <option v-for="p in phaseOptions" :key="p" :value="p">{{ p }}</option>
+              <option value="__custom__">Khác — nhập chủ đề cụ thể…</option>
+            </select>
+            <textarea v-if="genChoice === '__custom__'" v-model="genCustom" class="form-control form-control-sm" rows="2" :placeholder="focusPlaceholder"></textarea>
+            <div class="form-text mb-3">Mỗi bài lab gồm nhiều bước, mỗi bước là một câu hỏi. Chọn một bước để luyện sâu, hoặc "Khác" để gõ chủ đề.</div>
             <div class="d-flex gap-2">
               <button class="btn btn-primary" :disabled="generating" @click="confirmGen">
                 <span v-if="generating" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-magic"></i>
@@ -217,8 +222,23 @@ const tracks = [
 ]
 const showGen = ref(false)
 const genFocus = ref('')
+const genChoice = ref('') // '' = auto, a phase name, or '__custom__'
+const genCustom = ref('')
 const genTrack = ref('PT1')
 const trackDesc = computed(() => tracks.find((t) => t.id === genTrack.value)?.desc ?? '')
+// Methodology phases to drill, matched to the chosen track (each lab step = one question).
+const phaseOptions = computed<string[]>(() => {
+  if (!isPentest.value) return []
+  switch (genTrack.value) {
+    case 'WEB1':
+      return ['Recon', 'Auth / session', 'Injection (SQLi/SSTI/cmd)', 'Access control / IDOR', 'File upload', 'Foothold']
+    case 'CPTS':
+    case 'OPTS':
+      return ['Recon', 'Enumeration', 'Web', 'Active Directory', 'Privilege escalation', 'Lateral movement', 'Pivoting / tunnelling', 'Post-exploitation']
+    default: // PT1
+      return ['Recon', 'Enumeration', 'Foothold', 'Privilege escalation', 'Active Directory']
+  }
+})
 const pageTitle = computed(() => (isPentest.value ? 'Pentest Daily Lab' : 'AWS Daily Lab'))
 const pageBlurb = computed(() => isPentest.value
   ? 'Mỗi ngày một kịch bản methodology do AI dựng: xen câu tư duy (trắc nghiệm) và gõ lệnh thật, chấm điểm, ghi chú và AI đánh giá.'
@@ -314,8 +334,12 @@ async function load() {
     await loadHistory()
   } catch (e) { err.value = errorMessage(e) } finally { loading.value = false }
 }
-function openGen() { genFocus.value = ''; showGen.value = true }
-async function confirmGen() { await generate(); if (!err.value) showGen.value = false }
+function openGen() { genChoice.value = ''; genCustom.value = ''; genFocus.value = ''; showGen.value = true }
+async function confirmGen() {
+  genFocus.value = genChoice.value === '__custom__' ? genCustom.value.trim() : genChoice.value
+  await generate()
+  if (!err.value) showGen.value = false
+}
 async function generate() {
   generating.value = true; err.value = ''
   try {
