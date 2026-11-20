@@ -26,6 +26,11 @@
         </button>
       </div>
 
+      <div v-if="subjects.length > 1" class="alp-controls px-3 py-2 border-bottom d-flex flex-wrap align-items-center gap-1">
+        <button class="btn btn-sm" :class="subjectFilter === '' ? 'btn-primary' : 'btn-outline-secondary'" @click="setFilter('')">Tất cả</button>
+        <button v-for="s in subjects" :key="s.slug" class="btn btn-sm" :class="subjectFilter === s.slug ? 'btn-primary' : 'btn-outline-secondary'" @click="setFilter(s.slug)">{{ s.name }}</button>
+      </div>
+
       <div class="alp-body">
         <div v-if="loading" class="text-center py-4"><div class="spinner-border text-primary"></div></div>
         <div v-else-if="err" class="alert alert-danger m-3 py-2 small">{{ err }}</div>
@@ -89,6 +94,15 @@ const open = ref(false)
 const loading = ref(false)
 const err = ref('')
 const groups = ref<ApiGroup[]>([])
+const subjectFilter = ref('') // '' = all courses, else a subject slug
+// distinct courses present, for the filter chips
+const subjects = computed(() => {
+  const seen = new Map<string, string>()
+  for (const g of groups.value) if (!seen.has(g.subject)) seen.set(g.subject, g.subject_name)
+  return Array.from(seen, ([slug, name]) => ({ slug, name }))
+})
+const visibleGroups = computed(() => (subjectFilter.value ? groups.value.filter((g) => g.subject === subjectFilter.value) : groups.value))
+function setFilter(slug: string) { subjectFilter.value = slug; selectAll(true) }
 const selected = reactive(new Set<string>())
 const expanded = reactive(new Set<string>())
 let loadedOnce = false
@@ -99,11 +113,11 @@ const endpointOf = (a: ApiAudio) => (a.kind === 'note' ? `/note-audio/${a.id}` :
 const CAT_TITLES: Record<string, string> = { cheatsheet: 'Cheatsheet', daily: 'Daily 20', lab: 'Daily Lab' }
 const categories = computed(() =>
   (['cheatsheet', 'daily', 'lab'] as const).map((kind) => ({
-    kind, title: CAT_TITLES[kind], groups: groups.value.filter((g) => g.kind === kind),
+    kind, title: CAT_TITLES[kind], groups: visibleGroups.value.filter((g) => g.kind === kind),
   })),
 )
 
-const allAudios = computed(() => groups.value.flatMap((g) => g.audios))
+const allAudios = computed(() => visibleGroups.value.flatMap((g) => g.audios))
 const selectedCount = computed(() => allAudios.value.filter((a) => selected.has(keyOf(a))).length)
 const allSelected = computed(() => allAudios.value.length > 0 && selectedCount.value === allAudios.value.length)
 
@@ -124,7 +138,7 @@ function selectAll(on: boolean) {
 // ordered QueueItems for the current selection, across all groups (display order)
 function selectedQueue(): QueueItem[] {
   const out: QueueItem[] = []
-  for (const g of groups.value) for (const a of g.audios) {
+  for (const g of visibleGroups.value) for (const a of g.audios) {
     if (selected.has(keyOf(a))) out.push({ key: keyOf(a), id: a.id, name: a.name, endpoint: endpointOf(a) })
   }
   return out
@@ -147,7 +161,7 @@ function playFrom(a: ApiAudio) {
 }
 
 function moveGroup(kind: string, gi: number, dir: number) {
-  const list = groups.value.filter((x) => x.kind === kind)
+  const list = visibleGroups.value.filter((x) => x.kind === kind)
   const target = gi + dir
   if (target < 0 || target >= list.length) return
   const flat = groups.value.slice()

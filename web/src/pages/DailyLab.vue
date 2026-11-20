@@ -76,6 +76,7 @@
               </div>
               <button class="btn btn-success" @click="next">
                 {{ cur + 1 < total ? 'Bước tiếp theo' : 'Nộp bài' }} <i class="bi bi-arrow-right"></i>
+                <span v-if="cur + 1 < total" class="badge text-bg-light text-dark ms-1" title="Bấm phím n">n</span>
               </button>
             </div>
           </div>
@@ -101,6 +102,21 @@
               <button class="btn btn-sm btn-outline-secondary" @click="copyAll"><i class="bi" :class="copied ? 'bi-check2' : 'bi-clipboard'"></i> {{ copied ? 'Đã copy' : 'Copy' }}</button>
               <button class="btn btn-sm btn-outline-secondary" @click="downloadTxt"><i class="bi bi-download"></i> Tải .txt</button>
             </div>
+          </div>
+        </div>
+
+        <!-- commands used across the lab, per step -->
+        <div v-if="commandSteps.length" class="card border-0 shadow-sm mb-3">
+          <div class="card-body">
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+              <h6 class="fw-bold mb-0"><i class="bi bi-terminal"></i> Lệnh theo từng bước</h6>
+              <small class="text-muted">{{ commandSteps.length }} lệnh</small>
+              <div class="ms-auto d-flex gap-2">
+                <button class="btn btn-sm btn-outline-secondary" @click="copyCmds"><i class="bi" :class="cmdsCopied ? 'bi-check2' : 'bi-clipboard'"></i> {{ cmdsCopied ? 'Đã copy' : 'Copy' }}</button>
+                <button class="btn btn-sm btn-outline-secondary" @click="downloadCmds"><i class="bi bi-download"></i> Tải .txt</button>
+              </div>
+            </div>
+            <pre class="bg-dark text-light rounded p-3 mb-0 small" style="white-space: pre-wrap; word-break: break-word">{{ commandsBlock }}</pre>
           </div>
         </div>
 
@@ -144,6 +160,33 @@
       </template>
 
       <!-- recent sets -->
+      <!-- audio notes for this lab (optional review material) -->
+      <div v-if="set" class="card border-0 shadow-sm mt-4">
+        <div class="card-body">
+          <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+            <h6 class="fw-bold mb-0"><i class="bi bi-music-note-beamed"></i> Audio ôn tập (của bạn)</h6>
+            <small class="text-muted">mp3 / m4a · tối đa 25MB/file</small>
+            <label class="btn btn-sm btn-outline-primary ms-auto mb-0">
+              <span v-if="audioBusy" class="spinner-border spinner-border-sm me-1"></span><i v-else class="bi bi-upload"></i>
+              Tải audio lên
+              <input type="file" accept="audio/*,.mp3,.m4a,.aac,.wav,.ogg" multiple class="d-none" :disabled="audioBusy" @change="uploadAudio" />
+            </label>
+          </div>
+          <div v-if="audioErr" class="alert alert-danger py-2 small mb-2">{{ audioErr }}</div>
+          <p v-if="!audioFiles.length" class="small text-muted mb-0">Chưa có file nào. Tải lên bản tóm tắt NotebookLM hay ghi âm của bạn để nghe lại.</p>
+          <div v-for="a in audioFiles" :key="a.id" class="d-flex flex-wrap align-items-center gap-2 py-2 border-top">
+            <div class="flex-grow-1">
+              <div class="small fw-semibold text-truncate" style="max-width: 420px">{{ a.name }}</div>
+              <div class="text-muted" style="font-size: 0.75rem">{{ sizeMB(a.bytes) }}</div>
+            </div>
+            <button class="btn btn-sm btn-outline-secondary" :disabled="audioLoading[a.id]" @click="playAudio(a)">
+              <span v-if="audioLoading[a.id]" class="spinner-border spinner-border-sm"></span><template v-else><i class="bi bi-play-circle"></i> Nghe</template>
+            </button>
+            <button class="btn btn-sm btn-outline-danger" @click="deleteAudio(a.id)" title="Xoá"><i class="bi bi-trash"></i></button>
+          </div>
+        </div>
+      </div>
+
       <div v-if="!loading && history.length" class="card border-0 shadow-sm mt-4">
         <div class="card-body py-2">
           <div class="small fw-bold mb-1">Các bài gần đây <span class="text-muted fw-normal">· bấm để xem lại</span></div>
@@ -199,11 +242,12 @@
 </template>
 
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { api, errorMessage } from '../api'
 import { renderMarkdown } from '../utils/markdown'
 import { matchAny, modelCommand } from '../utils/labMatch'
 import { subjectSlug } from '../composables/useSubject'
+import { useAudioPlayer } from '../composables/useAudioPlayer'
 
 interface FlowStep { type: 'choice' | 'command'; prompt: string; choices?: string[]; answer?: number; patterns?: string[]; explanation?: string; hint?: string }
 interface LabResult { correct?: boolean[] | null; notes?: string[] | null; answers?: string[] | null; by_domain?: Record<string, [number, number]> | null; ai_review?: string }
@@ -321,6 +365,8 @@ function adopt(s: DSet | null) {
   feedback.value = 'idle'; revealed.value = false; chosen.value = null; input.value = ''; showHint.value = false
   if (s && !s.submitted) restoreProgress()
   else if (s) notes.value = Array.from({ length: s.questions.length }, (_, i) => s.result.notes?.[i] ?? '')
+  if (s && s.id) loadAudio(s.id)
+  else clearAudio()
 }
 
 async function loadHistory() {
@@ -468,6 +514,77 @@ function downloadTxt() {
   document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 async function copyAiReview() { try { await navigator.clipboard.writeText(aiReviewText.value); aiCopied.value = true; setTimeout(() => { aiCopied.value = false }, 1800) } catch { /* ignore */ } }
+
+// ---- commands used, per step (command-type steps only) ----
+const commandSteps = computed(() => {
+  const sv = set.value
+  const out: { n: number; cmd: string }[] = []
+  if (sv) sv.questions.forEach((st, i) => {
+    if (st.type === 'command') { const cmd = modelCommand(st.patterns); if (cmd) out.push({ n: i + 1, cmd }) }
+  })
+  return out
+})
+const commandsBlock = computed(() => commandSteps.value.map((c) => `# Bước ${c.n}\n${c.cmd}`).join('\n\n'))
+const cmdsCopied = ref(false)
+async function copyCmds() { try { await navigator.clipboard.writeText(commandsBlock.value); cmdsCopied.value = true; setTimeout(() => { cmdsCopied.value = false }, 1800) } catch { /* ignore */ } }
+function downloadCmds() {
+  const blob = new Blob([commandsBlock.value + '\n'], { type: 'text/plain;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a'); a.href = url; a.download = `daily-lab-commands-${set.value?.date ?? today}.txt`
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+// ---- audio notes (shared /pmp-daily/audio endpoints, keyed by set id) ----
+const player = useAudioPlayer()
+interface AudioFile { id: number; name: string; mime: string; bytes: number }
+const audioFiles = ref<AudioFile[]>([])
+const audioLoading = ref<Record<number, boolean>>({})
+const audioBusy = ref(false)
+const audioErr = ref('')
+function sizeMB(b: number): string {
+  return b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + ' MB' : Math.round(b / 1024) + ' KB'
+}
+async function loadAudio(setId: number) {
+  try { const { data } = await api.get('/pmp-daily/audio', { params: { set_id: setId } }); audioFiles.value = data.files ?? [] } catch { audioFiles.value = [] }
+}
+function clearAudio() { audioFiles.value = []; audioLoading.value = {}; audioErr.value = '' }
+async function uploadAudio(e: Event) {
+  const input = e.target as HTMLInputElement
+  const files = input.files
+  if (!files || !files.length || !set.value) return
+  audioBusy.value = true; audioErr.value = ''
+  try {
+    const fd = new FormData()
+    fd.append('set_id', String(set.value.id))
+    for (const f of Array.from(files)) fd.append('files', f)
+    await api.post('/pmp-daily/audio', fd, { timeout: 300000 })
+    await loadAudio(set.value.id)
+  } catch (err2) { audioErr.value = errorMessage(err2) } finally { audioBusy.value = false; input.value = '' }
+}
+async function playAudio(a: AudioFile) {
+  audioLoading.value = { ...audioLoading.value, [a.id]: true }
+  try { const { data } = await api.get(`/pmp-daily/audio/${a.id}`, { responseType: 'blob' }); player.play(URL.createObjectURL(data), a.name, true) }
+  catch (e) { audioErr.value = errorMessage(e) } finally { audioLoading.value = { ...audioLoading.value, [a.id]: false } }
+}
+async function deleteAudio(id: number) {
+  try { await api.delete(`/pmp-daily/audio/${id}`); audioFiles.value = audioFiles.value.filter((a) => a.id !== id) }
+  catch (e) { audioErr.value = errorMessage(e) }
+}
+
+// After the answer is revealed, pressing "n" advances to the next step — but not
+// while the user is typing in the notes textarea or an editable field.
+function onKeyNext(e: KeyboardEvent) {
+  if (e.key !== 'n' && e.key !== 'N') return
+  if (!set.value || set.value.submitted || !revealed.value) return
+  if (cur.value + 1 >= total.value) return // last step submits via the button, not "n"
+  const el = document.activeElement as HTMLElement | null
+  const editable = !!el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && !(el as HTMLInputElement).readOnly && !(el as HTMLInputElement).disabled) || el.isContentEditable)
+  if (editable) return
+  e.preventDefault()
+  next()
+}
+onMounted(() => window.addEventListener('keydown', onKeyNext))
+onUnmounted(() => window.removeEventListener('keydown', onKeyNext))
 
 onMounted(load)
 </script>
