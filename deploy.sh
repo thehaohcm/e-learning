@@ -49,6 +49,36 @@ done
 [ $fail -eq 1 ] && exit 1
 
 SERVER="${DEPLOY_USER}@${DEPLOY_HOST}"
+
+# ── Đồng bộ .env hai chiều: server là nguồn chuẩn cho giá trị, local bổ sung key mới ──
+# Kéo .env từ server về, merge key chỉ-có-ở-local (server thắng khi trùng key), ghi lại
+# local .env. Bản merge này sẽ được đẩy lên server ở bước ghi .env bên dưới.
+echo "=== Syncing .env with server ==="
+SYNC_TMP_REMOTE="$(mktemp)"
+SYNC_TMP_MERGED="$(mktemp)"
+if ssh "$SERVER" "test -f '$REMOTE_DIR/.env' && cat '$REMOTE_DIR/.env'" > "$SYNC_TMP_REMOTE" 2>/dev/null && [ -s "$SYNC_TMP_REMOTE" ]; then
+    tr -d '\r' < "$SYNC_TMP_REMOTE" > "$SYNC_TMP_MERGED"
+    awk -F= '/^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=/{k=$1; gsub(/[[:space:]]/,"",k); print k}' "$SYNC_TMP_MERGED" | sort -u > "$SYNC_TMP_MERGED.keys"
+    added=0
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="$(printf '%s' "$line" | tr -d '\r')"
+        case "$line" in ''|\#*) continue ;; esac
+        case "$line" in *=*) : ;; *) continue ;; esac
+        key="${line%%=*}"; key="$(printf '%s' "$key" | tr -d '[:space:]')"
+        if ! grep -qx "$key" "$SYNC_TMP_MERGED.keys"; then
+            printf '%s\n' "$line" >> "$SYNC_TMP_MERGED"
+            echo "  + bổ sung key từ local: $key"
+            added=$((added + 1))
+        fi
+    done < .env
+    rm -f "$SYNC_TMP_MERGED.keys"
+    if [ "$added" -eq 0 ]; then echo "  (local không có key mới)"; fi
+    cp "$SYNC_TMP_MERGED" .env
+    echo "✓ .env đã đồng bộ (server → local, giữ key local mới)"
+else
+    echo "  (server chưa có .env hoặc không đọc được — dùng .env local hiện có, sẽ tạo trên server)"
+fi
+rm -f "$SYNC_TMP_REMOTE" "$SYNC_TMP_MERGED"
 ENV_CONTENT="$(tr -d '\r' < .env)"
 
 echo "=== Deploying E-Learning ==="
